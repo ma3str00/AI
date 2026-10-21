@@ -24,7 +24,9 @@ def sql_messages(
                 f"SQL: {(item.get('sql') or '(none)')[:700]}"
             )
         blocks.append(
-            "This is a follow-up. Keep every filter from the previous SQL unless the user changes it.\n"
+            "This is a follow-up. Edit the previous SQL. Keep its GROUP BY column, app filter, and time scope.\n"
+            "Change only what the user just asked to change. Do not copy an unrelated example over it.\n"
+            "Users means subscriber_id. A subscriber_id containing '_' is client IPv4 and port, not a username.\n"
             + "\n\n".join(turns)
         )
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."
@@ -33,7 +35,9 @@ def sql_messages(
         blocks.append(
             "The user explicitly asked for the whole table and told you not to apply a time filter. "
             "Return SQL with no start_time, end_time, or recv_time predicate. "
-            "Traffic volume means SUM(c2s_byte_num + s2c_byte_num). Applications means app_label. "
+            "Traffic volume means SUM(c2s_byte_num + s2c_byte_num). "
+            "If they asked for users or subscribers, GROUP BY subscriber_id and exclude ids containing '_'. "
+            "If they asked for applications, GROUP BY app_label. An app name in the question is a WHERE filter. "
             "Do not mention data_center. Do not return a clarify answer."
         )
     if not examples:

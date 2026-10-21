@@ -100,6 +100,51 @@ def main() -> None:
         raise SystemExit("full scan was allowed without an explicit request")
     if "GROUP BY" not in prepare(top5, max_rows=200, allow_full_scan=True).upper():
         raise SystemExit("full scan aggregate was rejected")
+    from app.answer_check import check_sql
+
+    history = [{"question": "give me the top 5 whatsapp users by traffic volume", "sql": ""}]
+    grouped_by_app = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+    )
+    rejected = check_sql(
+        "If the time filter is not specified then the query should be applied on all the data",
+        grouped_by_app,
+        history,
+        True,
+    )
+    if not rejected or "subscriber_id" not in rejected:
+        raise SystemExit(f"app ranking was accepted for a users question: {rejected}")
+    whatsapp_users = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
+    )
+    if check_sql("applied on all the data", whatsapp_users, history, True):
+        raise SystemExit("valid WhatsApp subscriber ranking was rejected")
+    without_filter = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
+        "FROM ntc_ssl_logs GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
+    )
+    rejected = check_sql("By users I meant the top 5 subscriber_id", without_filter, history, True)
+    if not rejected or "whatsapp" not in rejected.lower() or "LOCATE" not in rejected:
+        raise SystemExit(f"unfiltered subscriber ranking was accepted: {rejected}")
+    lost = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes FROM ntc_ssl_logs "
+        "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY) AND app_label = 'ipv6_over_ipv4' "
+        "GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+    )
+    rejected = check_sql(
+        "203.0.113.10_56175 is not a valid subscriber ID. Such subscriber IDs should be excluded",
+        lost,
+        history + [{"question": "By users I meant the top 5 subscriber_id", "sql": whatsapp_users}],
+        True,
+    )
+    if not rejected:
+        raise SystemExit("rewritten query was accepted")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.answer_check import check_sql
 from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
@@ -110,12 +111,11 @@ def ask(body: Question):
 
     history = _history_payload(body.history)
     full_scan = wants_full_table(question) or _followup_keeps_full_scan(question, history)
-    examples = [item for item in index.top(question, 8) if item.get("sql") or _asks_dead_column(question)]
-    examples = examples[: min(config.example_count, 2)]
+    examples = _select_examples(index, question, history)
     hints = mapping.hints(question)
     error = None
     previous_sql = None
-    for _attempt in range(2):
+    for _attempt in range(3):
         try:
             raw = llama.chat(
                 sql_messages(
@@ -144,8 +144,9 @@ def ask(body: Question):
         if clarify and not sql:
             if full_scan:
                 error = (
-                    "Return SQL for the whole table. Traffic volume is the sum of bytes grouped by app_label. "
-                    "Do not mention data_center and do not ask for a time range."
+                    "Return SQL for the whole table and do not ask for a time range. "
+                    "Users means GROUP BY subscriber_id with LOCATE('_', subscriber_id) = 0. "
+                    "Applications means GROUP BY app_label. Keep any app name as a WHERE filter."
                 )
                 previous_sql = clarify
                 continue
@@ -153,6 +154,11 @@ def ask(body: Question):
         if not sql:
             error = "The model returned neither sql nor clarify."
             previous_sql = raw[:800]
+            continue
+        mismatch = check_sql(question, sql, history, full_scan)
+        if mismatch:
+            error = mismatch
+            previous_sql = sql
             continue
         try:
             safe_sql = prepare(sql, config.max_rows, allow_full_scan=full_scan)
@@ -241,7 +247,7 @@ def _write_learned(path: Path, record: dict) -> None:
 
 def _history_payload(history: list[Turn]) -> list[dict]:
     payload = []
-    for turn in history[-1:]:
+    for turn in history[-3:]:
         payload.append(
             {
                 "question": turn.question.strip(),
@@ -260,6 +266,25 @@ def _followup_keeps_full_scan(question: str, history: list[dict]) -> bool:
         return False
     text = question.lower()
     return not any(word in text for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week"))
+
+
+def _select_examples(index: ExampleIndex, question: str, history: list[dict]) -> list[dict]:
+    if any(item.get("sql") for item in history):
+        return []
+    seed = question
+    if history:
+        seed = " ".join(item.get("question") or "" for item in history) + " " + question
+    picked = [item for item in index.top(seed, 8) if item.get("sql") or item.get("clarify")]
+    if re.search(r"\b(users|user|subscribers|subscriber_id|subscriber id)\b", seed.lower()):
+        about_users = [
+            item
+            for item in picked
+            if (item.get("sql") and "subscriber_id" in item["sql"].lower())
+            or (item.get("clarify") and "subscriber_id" in item.get("clarify", "").lower())
+        ]
+        if about_users:
+            picked = about_users
+    return picked[:2]
 
 
 def _asks_dead_column(question: str) -> bool:

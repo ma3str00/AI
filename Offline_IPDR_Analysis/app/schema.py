@@ -91,10 +91,12 @@ def system_prompt(session_time_zone: str) -> str:
 Session time_zone is {session_time_zone}. Timestamps are unix seconds. UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') and FROM_UNIXTIME use GMT+5.
 Use start_time for when a flow happened. recv_time only if the user says received. end_time only if the user says ended.
 duration is milliseconds. Bytes: c2s_byte_num is upload, s2c_byte_num is download, total is their sum. MB is / 1048576.
-Traffic volume means that byte total. Applications means app_label. Categories means LOWER(app_category).
+Traffic volume means that byte total. Applications means GROUP BY app_label. Categories means LOWER(app_category).
+Users or subscribers means GROUP BY subscriber_id. Do not group a users question by app_label. Exclude unidentified ids with AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0. A value such as 203.0.113.10_56175 is client IPv4 and client port, not a subscriber.
+If the question names an app and asks for users, filter that app with LOWER(app_label) LIKE '%name%' and still group by subscriber_id.
 Compare categories in lowercase: web_browsing, im, voip, tunneling, game, streaming, email. VPN means tunneling.
 Mobile means mcc, mnc, lac, cid, or usr_loc_info is filled. A numeric subscriber_id can still be fixed-line. Fixed-line means those cell fields are empty and geo or loc is filled.
-subscriber_id containing '_' is an unidentified IP and port. Match 03... and 923... as the same Pakistani mobile number.
+Match 03... and 923... as the same Pakistani mobile number.
 client_location and server_location are IP-database places. geo and loc are the cell or the fixed-line address. data_center is empty. Never use it.
 Prefer WHERE start_time. If the user gives no time range, clarify and ask for one. If they explicitly say no time filter or all the data, omit the time predicate.
 A follow-up keeps the previous SQL's filters unless the user changes them.

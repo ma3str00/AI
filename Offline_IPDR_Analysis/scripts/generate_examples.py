@@ -82,6 +82,7 @@ def main() -> None:
     _time_shapes(add)
     _paraphrases(add)
     _full_table(add)
+    _user_rankings(add)
     _unavailable(add)
     missing = [question for question in STARTER_QUESTIONS if question.lower() not in seen]
     if missing:
@@ -799,6 +800,64 @@ def _full_table(add) -> None:
         top_categories,
         ["full_scan", "category", "volume"],
         full_scan=True,
+    )
+
+
+def _user_rankings(add) -> None:
+    identified = IDENTIFIED_SQL
+    yesterday = WINDOWS[1][1]
+
+    def ranking(where: str, limit: str = "5") -> str:
+        return (
+            "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+            "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+            f"FROM ntc_ssl_logs WHERE {where} AND {identified} "
+            f"GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT {limit}"
+        )
+
+    whatsapp = "LOWER(app_label) LIKE '%whatsapp%'"
+    add(
+        "give me the top 5 whatsapp users by traffic volume",
+        None,
+        ["whatsapp", "users", "subscriber_id", "traffic", "volume", "top"],
+        clarify=(
+            "WhatsApp users means subscriber_id, excluding ids that contain an underscore, "
+            "with LOWER(app_label) LIKE '%whatsapp%'. Give a time range, or say to use all the data."
+        ),
+    )
+    add(
+        "give me the top 5 whatsapp users by traffic volume across all the data",
+        ranking(whatsapp),
+        ["whatsapp", "users", "subscriber_id", "traffic", "volume", "top", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "top 5 whatsapp subscribers by total bytes with no time filter",
+        ranking(whatsapp),
+        ["whatsapp", "subscribers", "subscriber_id", "bytes", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "By users I meant the top 5 subscriber_id by traffic volume for whatsapp across all the data",
+        ranking(whatsapp),
+        ["users", "subscriber_id", "whatsapp", "traffic", "volume", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "Exclude subscriber ids that are a client IPv4 and port, such as 203.0.113.10_56175, and show the top 5 whatsapp users by traffic volume across all the data",
+        ranking(whatsapp),
+        ["exclude", "subscriber_id", "whatsapp", "users", "ipv4", "port", "unidentified", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "Top 5 WhatsApp users by traffic volume yesterday",
+        ranking(f"{yesterday} AND {whatsapp}"),
+        ["whatsapp", "users", "subscriber_id", "traffic", "volume", "yesterday"],
+    )
+    add(
+        "Top 5 subscribers by traffic volume yesterday, excluding unidentified client IP and port ids",
+        ranking(yesterday),
+        ["subscribers", "subscriber_id", "traffic", "volume", "unidentified"],
     )
 
 
