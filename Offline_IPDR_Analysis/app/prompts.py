@@ -17,21 +17,26 @@ def sql_messages(
 ) -> list[dict]:
     blocks = []
     if history:
+        answering = not str(history[-1].get("sql") or "").strip() and str(history[-1].get("explanation") or "").strip()
         turns = []
         for item in history[-3:]:
             turns.append(
                 f"Q: {item.get('question', '')}\n"
                 f"SQL: {(item.get('sql') or '(none)')[:700]}"
             )
-        blocks.append(
-            "This is a follow-up. Edit the previous SQL. Keep its GROUP BY column, app filter, and time scope.\n"
-            "Change only what the user just asked to change. Do not copy an unrelated example over it.\n"
-            "Users means subscriber_id. A subscriber_id containing '_' is client IPv4 and port, not a username.\n"
-            "Mobile users means a valid subscriber_id with mcc, mnc, lac, cid, or usr_loc_info filled. "
-            "Fixed-line means a valid subscriber_id with those cell fields empty. "
-            "Do not use app_label or LIKE '%mobile%' for that.\n"
-            + "\n\n".join(turns)
-        )
+        if answering:
+            lead = "The current message answers the clarification. Apply that choice to the last SQL that ran. Do not ask again.\n"
+        else:
+            lead = (
+                "This is a follow-up. Edit the previous SQL. Keep its GROUP BY column, app filter, and time scope.\n"
+                "Change only what the user just asked to change. Do not copy an unrelated example over it.\n"
+                "Users means subscriber_id. A subscriber_id containing '_' is client IPv4 and port, not a username.\n"
+                "Mobile users means a valid subscriber_id with mcc, mnc, lac, cid, or usr_loc_info filled. "
+                "Fixed-line means a valid subscriber_id with those cell fields empty. "
+                "Do not use app_label or LIKE '%mobile%' for that.\n"
+                "If the user does not say whether to keep the previous application, return a clarify question and no SQL.\n"
+            )
+        blocks.append(lead + "\n\n".join(turns))
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."
     blocks.extend([f"Question:\n{question.strip()}", f"Label hints:\n{hint_text}", "Similar questions:"])
     if full_scan:
@@ -41,7 +46,8 @@ def sql_messages(
             "Traffic volume means SUM(c2s_byte_num + s2c_byte_num). "
             "If they asked for users or subscribers, GROUP BY subscriber_id and exclude ids containing '_'. "
             "If they asked for applications, GROUP BY app_label. An app name in the question is a WHERE filter. "
-            "Do not mention data_center. Do not return a clarify answer."
+            "Do not mention data_center. Do not ask for a time range. "
+            "If you are unsure whether to keep a previous filter, return a clarify question."
         )
     if not examples:
         blocks.append("(none)")

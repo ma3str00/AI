@@ -176,6 +176,24 @@ def main() -> None:
         True,
     ):
         raise SystemExit("valid mobile subscriber ranking was rejected")
+    from app.answer_check import needs_clarification
+
+    asked = needs_clarification(
+        "now give me the top 10 mobile users, exclude the fixedline users",
+        [{"question": "give me the top 5 whatsapp users by traffic volume", "sql": whatsapp_users}],
+    )
+    if not asked or "whatsapp" not in asked.lower() or "every application" not in asked.lower():
+        raise SystemExit(f"ambiguous follow-up was not questioned: {asked}")
+    if needs_clarification("top 10", [{"question": "whatsapp users", "sql": whatsapp_users}]):
+        raise SystemExit("a limit change should not ask about the application")
+    mobile_all_apps = mobile_sql.replace("LOWER(app_label) LIKE '%whatsapp%' AND ", "")
+    if check_sql(
+        "include every application",
+        mobile_all_apps,
+        [{"question": "give me the top 5 whatsapp users by traffic volume", "sql": whatsapp_users}],
+        True,
+    ):
+        raise SystemExit("dropping the app filter was rejected after the user asked for every application")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

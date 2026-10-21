@@ -104,6 +104,8 @@ def _excludes_unidentified(sql: str) -> bool:
 
 
 def _required_apps(current: str, prior: list[str]) -> list[str]:
+    if _drops_previous_apps(current):
+        return _apps(current)
     current_apps = _apps(current)
     if current_apps:
         return current_apps
@@ -129,3 +131,64 @@ def _forbids_new_time_filter(current: str, history: list[dict] | None, full_scan
     if previous and not any(column in previous for column in TIME_COLUMNS):
         return True
     return full_scan and not previous
+
+
+def needs_clarification(question: str, history: list[dict] | None) -> str | None:
+    """Ask before guessing when a follow-up can keep or drop an earlier filter."""
+    history = history or []
+    if _pending_clarify(history) and re.fullmatch(r"(yes|no|ok|okay)\.?", question.strip().lower()):
+        return "Say which one you want: keep the previous application filter, or include every application."
+    if _pending_clarify(history) or _drops_previous_apps(question):
+        return None
+    previous = ""
+    for item in reversed(history):
+        if item.get("sql"):
+            previous = str(item["sql"])
+            break
+    if not previous:
+        return None
+    previous_apps = _apps(previous.lower())
+    if not previous_apps or _apps(question):
+        return None
+    if re.search(r"\b(keep|same|those|these|continue|still)\b", question.lower()):
+        return None
+    if _subscriber_kind(question) is None and not re.search(r"\b(instead|rather|switch)\b", question.lower()):
+        return None
+    names = " and ".join(previous_apps)
+    scope = "with no time filter" if not any(column in previous.lower() for column in TIME_COLUMNS) else "with the same time range"
+    return (
+        f"The previous query was limited to {names}, ranked by traffic volume, {scope}. "
+        "Mobile means a valid subscriber id with mcc, mnc, lac, cid, or usr_loc_info filled. "
+        "Fixed-line means a valid subscriber id with those cell fields empty. "
+        f"Should this stay limited to {names}, or include every application?"
+    )
+
+
+def drops_previous_apps(question: str) -> bool:
+    return _drops_previous_apps(question)
+
+
+def _pending_clarify(history: list[dict]) -> bool:
+    if not history:
+        return False
+    last = history[-1]
+    return not str(last.get("sql") or "").strip() and bool(str(last.get("explanation") or "").strip())
+
+
+def _drops_previous_apps(question: str) -> bool:
+    text = question.lower()
+    return any(
+        phrase in text
+        for phrase in (
+            "all applications",
+            "all apps",
+            "every application",
+            "every app",
+            "any application",
+            "any app",
+            "regardless of app",
+            "include every",
+            "not just",
+            "across all applications",
+        )
+    )

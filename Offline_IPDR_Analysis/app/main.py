@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.answer_check import check_sql
+from app.answer_check import check_sql, needs_clarification
 from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
@@ -110,6 +110,9 @@ def ask(body: Question):
     llama: LlamaServer = _state["llama"]
 
     history = _history_payload(body.history)
+    clarification = needs_clarification(question, history)
+    if clarification:
+        return _clarify(clarification)
     full_scan = wants_full_table(question) or _followup_keeps_full_scan(question, history)
     examples = _select_examples(index, question, history)
     hints = mapping.hints(question)
@@ -142,7 +145,7 @@ def ask(body: Question):
         clarify = (parsed.get("clarify") or "").strip()
         sql = (parsed.get("sql") or "").strip()
         if clarify and not sql:
-            if full_scan:
+            if full_scan and _is_time_question(clarify):
                 error = (
                     "Return SQL for the whole table and do not ask for a time range. "
                     "Users means GROUP BY subscriber_id with LOCATE('_', subscriber_id) = 0. "
@@ -150,7 +153,7 @@ def ask(body: Question):
                 )
                 previous_sql = clarify
                 continue
-            return {"ok": True, "clarify": clarify, "sql": None, "columns": [], "rows": [], "explanation": clarify, "warning": None}
+            return _clarify(clarify)
         if not sql:
             error = "The model returned neither sql nor clarify."
             previous_sql = raw[:800]
@@ -243,6 +246,25 @@ def _write_learned(path: Path, record: dict) -> None:
     rows.append(record)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def _clarify(text: str) -> dict:
+    return {
+        "ok": True,
+        "clarify": text,
+        "sql": None,
+        "columns": [],
+        "rows": [],
+        "explanation": text,
+        "warning": None,
+    }
+
+
+def _is_time_question(text: str) -> bool:
+    folded = text.lower()
+    if "application" in folded or "whatsapp" in folded or "app filter" in folded:
+        return False
+    return "time" in folded
 
 
 def _history_payload(history: list[Turn]) -> list[dict]:
