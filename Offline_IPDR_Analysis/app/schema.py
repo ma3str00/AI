@@ -3,17 +3,16 @@
 TABLE = "ntc_ssl_logs"
 DATABASE = "ipdr"
 
-# A fixed-line username can be numeric. Mobile vs fixed is decided only by cell fields.
+# A numeric subscriber_id can still be fixed-line. Mobile vs fixed is decided only by cell fields.
 MOBILE_SQL = (
     "(NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
     "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
     "OR NULLIF(usr_loc_info, '') IS NOT NULL)"
 )
-FIXED_SQL = (
-    f"(NOT {MOBILE_SQL} AND (NULLIF(geo, '') IS NOT NULL OR NULLIF(loc, '') IS NOT NULL))"
-)
 UNIDENTIFIED_SQL = "LOCATE('_', IFNULL(subscriber_id, '')) > 0"
 IDENTIFIED_SQL = "IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0"
+# Valid subscriber whose cell fields are empty. geo/loc are not required.
+FIXED_SQL = f"({IDENTIFIED_SQL} AND NOT {MOBILE_SQL})"
 ALLOWED_SQL = "block_type = 0"
 BLOCKED_SQL = "(block_type IS NOT NULL AND block_type <> 0)"
 
@@ -95,7 +94,7 @@ Traffic volume means that byte total. Applications means GROUP BY app_label. Cat
 Users or subscribers means GROUP BY subscriber_id. Do not group a users question by app_label. Exclude unidentified ids with AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0. A value such as 203.0.113.10_56175 is client IPv4 and client port, not a subscriber.
 If the question names an app and asks for users, filter that app with LOWER(app_label) LIKE '%name%' and still group by subscriber_id.
 Compare categories in lowercase: web_browsing, im, voip, tunneling, game, streaming, email. VPN means tunneling.
-Mobile means mcc, mnc, lac, cid, or usr_loc_info is filled. A numeric subscriber_id can still be fixed-line. Fixed-line means those cell fields are empty and geo or loc is filled.
+Mobile users means a valid subscriber_id and at least one of mcc, mnc, lac, cid, or usr_loc_info is filled. Fixed-line users means a valid subscriber_id and all of those cell fields are empty. A numeric subscriber_id can be fixed-line. Never filter app_label for mobile or fixed-line, and never write LIKE '%mobile%' or LIKE '%fixed%'.
 Match 03... and 923... as the same Pakistani mobile number.
 client_location and server_location are IP-database places. geo and loc are the cell or the fixed-line address. data_center is empty. Never use it.
 Prefer WHERE start_time. If the user gives no time range, clarify and ask for one. If they explicitly say no time filter or all the data, omit the time predicate.

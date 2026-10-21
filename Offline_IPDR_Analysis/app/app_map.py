@@ -29,6 +29,12 @@ CATEGORY_PHRASES = (
     ("browsing", "web_browsing"),
 )
 
+# These words describe the subscriber, not an application label.
+_NOT_APP_WORDS = {
+    "mobile", "fixed", "fixedline", "line", "cell", "cells",
+    "user", "users", "subscriber", "subscribers",
+}
+
 
 class AppMap:
     def __init__(self, rows: list[tuple[str, str]]):
@@ -50,7 +56,7 @@ class AppMap:
             return "No app-label mapping is loaded."
         folded = re.sub(r"[^a-z0-9]+", " ", question.lower())
         compact = folded.replace(" ", "")
-        tokens = {token for token in folded.split() if len(token) >= 4}
+        tokens = {token for token in folded.split() if len(token) >= 4 and token not in _NOT_APP_WORDS}
 
         matched: list[tuple[str, str]] = []
         seen: set[str] = set()
@@ -58,13 +64,21 @@ class AppMap:
             key = label.lower()
             if key in seen:
                 continue
-            parts = [part for part in re.split(r"[^a-z0-9]+", key) if len(part) >= 4]
+            parts = [part for part in re.split(r"[^a-z0-9]+", key) if len(part) >= 4 and part not in _NOT_APP_WORDS]
             normalized = re.sub(r"[^a-z0-9]+", "", key)
+            if normalized in _NOT_APP_WORDS:
+                continue
             if (len(normalized) >= 4 and normalized in compact) or any(part in tokens for part in parts):
                 seen.add(key)
                 matched.append((label, category))
 
         lines = []
+        if re.search(r"\bmobile\b|\bfixedline\b|\bfixed line\b", question.lower()):
+            lines.append(
+                "Mobile and fixed-line are subscriber types, not app labels. "
+                "Mobile means mcc, mnc, lac, cid, or usr_loc_info is filled. "
+                "Fixed-line means a valid subscriber_id with those cell fields empty."
+            )
         categories = []
         for phrase, category in CATEGORY_PHRASES:
             if phrase in folded and category not in categories:

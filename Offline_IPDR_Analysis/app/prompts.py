@@ -27,6 +27,9 @@ def sql_messages(
             "This is a follow-up. Edit the previous SQL. Keep its GROUP BY column, app filter, and time scope.\n"
             "Change only what the user just asked to change. Do not copy an unrelated example over it.\n"
             "Users means subscriber_id. A subscriber_id containing '_' is client IPv4 and port, not a username.\n"
+            "Mobile users means a valid subscriber_id with mcc, mnc, lac, cid, or usr_loc_info filled. "
+            "Fixed-line means a valid subscriber_id with those cell fields empty. "
+            "Do not use app_label or LIKE '%mobile%' for that.\n"
             + "\n\n".join(turns)
         )
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."

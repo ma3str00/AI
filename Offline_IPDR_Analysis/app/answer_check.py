@@ -42,9 +42,45 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
             "Do not add start_time, end_time, or recv_time. Keep the previous query's time scope."
         )
 
+    kind = _subscriber_kind(current)
+    if kind == "mobile":
+        if not any(column in folded for column in ("mcc", "mnc", "lac", "cid", "usr_loc_info")):
+            problems.append(
+                "Mobile users are valid subscriber ids with cell data. "
+                "Add AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
+                "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
+                "OR NULLIF(usr_loc_info, '') IS NOT NULL). "
+                "Do not filter app_label."
+            )
+        if re.search(r"app_label[^;]{0,80}like\s+'%(mobile|fixed)", folded):
+            problems.append("Do not use app_label LIKE '%mobile%' or LIKE '%fixed%'. Mobile is not an application.")
+    elif kind == "fixed":
+        if "not" not in folded or not any(column in folded for column in ("mcc", "mnc", "lac", "cid", "usr_loc_info")):
+            problems.append(
+                "Fixed-line users are valid subscriber ids whose mcc, mnc, lac, cid, and usr_loc_info are all empty. "
+                "Do not filter app_label."
+            )
+
+    if re.search(r"like\s+'%_+'", folded) and "\\" not in folded:
+        problems.append(
+            "Do not use LIKE '%_%'. Underscore is a LIKE wildcard. Use LOCATE('_', subscriber_id) = 0."
+        )
+
     if not problems:
         return None
     return " ".join(problems)
+
+
+def _subscriber_kind(question: str) -> str | None:
+    text = re.sub(r"\s+", " ", question.lower().replace("_", "").replace("-", " "))
+    exclude_fixed = "exclude" in text and "fixed" in text
+    wants_mobile = bool(re.search(r"\bmobile (users|user|subscribers|subscriber)\b", text)) or exclude_fixed
+    wants_fixed = bool(re.search(r"\bfixed ?line (users|user|subscribers|subscriber)\b", text))
+    if wants_mobile:
+        return "mobile"
+    if wants_fixed:
+        return "fixed"
+    return None
 
 
 def _asks_for_users(text: str) -> bool:

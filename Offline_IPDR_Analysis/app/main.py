@@ -193,7 +193,7 @@ def ask(body: Question):
     return {
         "ok": False,
         "clarify": None,
-        "sql": previous_sql,
+        "sql": None,
         "columns": [],
         "rows": [],
         "explanation": None,
@@ -270,6 +270,12 @@ def _followup_keeps_full_scan(question: str, history: list[dict]) -> bool:
 
 def _select_examples(index: ExampleIndex, question: str, history: list[dict]) -> list[dict]:
     if any(item.get("sql") for item in history):
+        if re.search(r"mobile|fixed", question.lower()):
+            picked = [
+                item for item in index.top(question, 6)
+                if item.get("sql") and "mcc" in item["sql"].lower()
+            ]
+            return picked[:1]
         return []
     seed = question
     if history:

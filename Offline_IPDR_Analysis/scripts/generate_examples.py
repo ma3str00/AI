@@ -550,6 +550,35 @@ def _mobile_fixed(add) -> None:
         f"AND subscriber_id REGEXP '^[0-9]+$'",
         ["fixed", "numeric"],
     )
+    mobile_users = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        f"FROM ntc_ssl_logs WHERE {{where}} AND {IDENTIFIED_SQL} AND {MOBILE_SQL} "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT {limit}"
+    )
+    add(
+        "now give me the top 10 mobile users, exclude the fixedline users",
+        mobile_users.format(where="LOWER(app_label) LIKE '%whatsapp%'", limit=10),
+        ["mobile", "fixed", "users", "subscriber_id", "whatsapp", "top", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "top 10 mobile users by traffic volume across all the data, exclude fixed-line users",
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        f"FROM ntc_ssl_logs WHERE {IDENTIFIED_SQL} AND {MOBILE_SQL} "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10",
+        ["mobile", "fixed", "users", "subscriber_id", "traffic", "volume", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "Top 10 fixed-line users by traffic volume yesterday",
+        f"SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        f"ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        f"FROM ntc_ssl_logs WHERE {y} AND {FIXED_SQL} "
+        f"GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10",
+        ["fixed", "users", "subscriber_id", "traffic"],
+    )
     add(
         "Top unidentified client IPs in the last 24 hours",
         f"SELECT client_ip, COUNT(*) AS flows FROM ntc_ssl_logs WHERE {h24} AND {UNIDENTIFIED_SQL} "

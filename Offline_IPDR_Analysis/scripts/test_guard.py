@@ -145,6 +145,37 @@ def main() -> None:
     )
     if not rejected:
         raise SystemExit("rewritten query was accepted")
+    bad_mobile = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%mobile%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND subscriber_id NOT LIKE '%_%' "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+    )
+    rejected = check_sql(
+        "now give me the top 10 mobile users, exclude the fixedline users",
+        bad_mobile,
+        [{"question": "give me the top 5 whatsapp users by traffic volume", "sql": whatsapp_users}],
+        True,
+    )
+    if not rejected or "cell" not in rejected.lower() or "whatsapp" not in rejected.lower():
+        raise SystemExit(f"mobile app_label query was accepted: {rejected}")
+    mobile_sql = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
+        "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
+        "OR NULLIF(usr_loc_info, '') IS NOT NULL) "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+    )
+    if check_sql(
+        "now give me the top 10 mobile users, exclude the fixedline users",
+        mobile_sql,
+        [{"question": "give me the top 5 whatsapp users by traffic volume", "sql": whatsapp_users}],
+        True,
+    ):
+        raise SystemExit("valid mobile subscriber ranking was rejected")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
