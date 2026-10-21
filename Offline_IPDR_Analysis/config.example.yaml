@@ -31,6 +31,7 @@ time:
 query:
   max_rows: 200
   max_execution_ms: 45000
+  full_scan_execution_ms: 300000
 
 paths:
   mapping_csv: "data/app_category_to_app_label_mapping.csv"

@@ -12,8 +12,16 @@ def sql_messages(
     session_time_zone: str,
     error: str | None = None,
     previous_sql: str | None = None,
+    full_scan: bool = False,
 ) -> list[dict]:
     blocks = [f"Question:\n{question.strip()}", f"Label hints:\n{hints}", "Similar questions:"]
+    if full_scan:
+        blocks.append(
+            "The user explicitly asked for the whole table and told you not to apply a time filter. "
+            "Return SQL with no start_time, end_time, or recv_time predicate. "
+            "Traffic volume means SUM(c2s_byte_num + s2c_byte_num). Applications means app_label. "
+            "Do not mention data_center. Do not return a clarify answer."
+        )
     if not examples:
         blocks.append("(none)")
     for item in examples:

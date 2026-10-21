@@ -56,7 +56,7 @@ def main() -> None:
     items: list[dict] = []
     seen: set[str] = set()
 
-    def add(question: str, sql: str | None, tags: list[str], clarify: str | None = None) -> None:
+    def add(question: str, sql: str | None, tags: list[str], clarify: str | None = None, full_scan: bool = False) -> None:
         key = question.strip().lower()
         if key in seen:
             return
@@ -67,6 +67,7 @@ def main() -> None:
                 "sql": " ".join(sql.split()) if sql else None,
                 "clarify": clarify,
                 "tags": tags,
+                "full_scan": full_scan,
             }
         )
 
@@ -80,6 +81,7 @@ def main() -> None:
     _location(add)
     _time_shapes(add)
     _paraphrases(add)
+    _full_table(add)
     _unavailable(add)
     missing = [question for question in STARTER_QUESTIONS if question.lower() not in seen]
     if missing:
@@ -761,6 +763,42 @@ def _paraphrases(add) -> None:
         f"SUM(CASE WHEN {FIXED_SQL} THEN 1 ELSE 0 END) AS fixed_line_flows FROM ntc_ssl_logs "
         f"WHERE {d7} AND subscriber_id IN ('03001234567', '923001234567') GROUP BY subscriber_id",
         ["cell", "fixed", "phone"],
+    )
+
+
+def _full_table(add) -> None:
+    top5 = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+    )
+    top_categories = (
+        "SELECT app_category, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs GROUP BY app_category ORDER BY total_bytes DESC LIMIT 5"
+    )
+    add(
+        "give me the top 5 applications used by traffic volume. do not apply any time filter. check all the data",
+        top5,
+        ["full_scan", "top", "volume", "app_label"],
+        full_scan=True,
+    )
+    add(
+        "Top 5 applications by total bytes across the whole table, with no time filter",
+        top5,
+        ["full_scan", "bytes", "app_label"],
+        full_scan=True,
+    )
+    add(
+        "Which five app labels account for the most traffic in all the data?",
+        top5,
+        ["full_scan", "traffic", "app_label"],
+        full_scan=True,
+    )
+    add(
+        "Top 5 app categories by traffic volume with no time filter",
+        top_categories,
+        ["full_scan", "category", "volume"],
+        full_scan=True,
     )
 
 

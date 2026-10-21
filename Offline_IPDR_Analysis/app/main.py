@@ -17,8 +17,8 @@ from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import explain_messages, sql_messages
 from app.retrieve import ExampleIndex, load_examples
-from app.schema import STARTER_QUESTIONS
-from app.sql_guard import GuardError, prepare
+from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
+from app.sql_guard import GuardError, prepare, wants_full_table
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "static" / "index.html"
@@ -93,14 +93,24 @@ def ask(body: Question):
     database: Database = _state["db"]
     llama: LlamaServer = _state["llama"]
 
-    examples = index.top(question, config.example_count)
+    full_scan = wants_full_table(question)
+    examples = [item for item in index.top(question, config.example_count + 6) if item.get("sql") or _asks_dead_column(question)]
+    examples = examples[: config.example_count]
     hints = mapping.hints(question)
     error = None
     previous_sql = None
     for _attempt in range(2):
         try:
             raw = llama.chat(
-                sql_messages(question, examples, hints, config.session_time_zone, error, previous_sql),
+                sql_messages(
+                    question,
+                    examples,
+                    hints,
+                    config.session_time_zone,
+                    error,
+                    previous_sql,
+                    full_scan=full_scan,
+                ),
                 json_mode=True,
                 temperature=0,
             )
@@ -115,24 +125,37 @@ def ask(body: Question):
         clarify = (parsed.get("clarify") or "").strip()
         sql = (parsed.get("sql") or "").strip()
         if clarify and not sql:
+            if full_scan:
+                error = (
+                    "Return SQL for the whole table. Traffic volume is the sum of bytes grouped by app_label. "
+                    "Do not mention data_center and do not ask for a time range."
+                )
+                previous_sql = clarify
+                continue
             return {"ok": True, "clarify": clarify, "sql": None, "columns": [], "rows": [], "explanation": clarify, "warning": None}
         if not sql:
             error = "The model returned neither sql nor clarify."
             previous_sql = raw[:800]
             continue
         try:
-            safe_sql = prepare(sql, config.max_rows)
+            safe_sql = prepare(sql, config.max_rows, allow_full_scan=full_scan)
         except GuardError as exc:
             error = str(exc)
             previous_sql = sql
             continue
         try:
-            columns, rows, warning = database.query(safe_sql)
+            columns, rows, warning = database.query(
+                safe_sql,
+                max_execution_ms=config.full_scan_execution_ms if full_scan else None,
+            )
         except DatabaseError as exc:
             error = str(exc)
             previous_sql = safe_sql
             continue
         shown = present_rows(columns, rows, config)
+        if full_scan:
+            scan_note = "This query reads the whole table because you asked for no time filter. On a large table it can take several minutes."
+            warning = f"{scan_note} {warning}" if warning else scan_note
         try:
             explanation = llama.chat(
                 explain_messages(question, safe_sql, columns, shown, len(shown) >= config.max_rows),
@@ -161,6 +184,11 @@ def ask(body: Question):
         "warning": None,
         "error": error or "The question could not be turned into a safe query.",
     }
+
+
+def _asks_dead_column(question: str) -> bool:
+    text = question.lower().replace("_", " ")
+    return any(name.replace("_", " ") in text for name in DEAD_COLUMNS)
 
 
 def _parse_json(raw: str) -> dict:

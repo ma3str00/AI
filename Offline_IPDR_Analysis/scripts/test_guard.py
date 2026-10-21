@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.present import present_rows
-from app.sql_guard import GuardError, prepare
+from app.sql_guard import GuardError, prepare, wants_full_table
 from app.config import Config
 
 
@@ -27,7 +27,7 @@ def main() -> None:
             continue
         sql_count += 1
         try:
-            prepare(item["sql"], max_rows=200)
+            prepare(item["sql"], max_rows=200, allow_full_scan=bool(item.get("full_scan")))
         except GuardError as exc:
             raise SystemExit(f"guard rejected training SQL:\n{item['question']}\n{item['sql']}\n{exc}") from exc
     rejected = [
@@ -77,12 +77,28 @@ def main() -> None:
         display_offset="+05:00",
         max_rows=200,
         max_execution_ms=1000,
+        full_scan_execution_ms=1000,
         mapping_csv=path,
         examples_jsonl=path,
     )
     shown = present_rows(["start_time"], [{"start_time": 1790604000}], config)
     if shown[0]["start_time"] != "2026-09-28 19:00:00":
         raise SystemExit(f"GMT+5 conversion failed: {shown}")
+    question = "give me the top 5 applications used by traffic volume. do not apply any time filter. check all the data"
+    if not wants_full_table(question):
+        raise SystemExit("full-table question was not recognized")
+    top5 = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
+        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+    )
+    try:
+        prepare(top5, max_rows=200, allow_full_scan=False)
+    except GuardError:
+        pass
+    else:
+        raise SystemExit("full scan was allowed without an explicit request")
+    if "GROUP BY" not in prepare(top5, max_rows=200, allow_full_scan=True).upper():
+        raise SystemExit("full scan aggregate was rejected")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

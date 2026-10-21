@@ -29,7 +29,27 @@ class GuardError(Exception):
     pass
 
 
-def prepare(sql: str, max_rows: int) -> str:
+def wants_full_table(question: str) -> bool:
+    text = question.lower()
+    explicit = (
+        "no time filter",
+        "without a time",
+        "without any time",
+        "do not apply any time",
+        "do not apply a time",
+        "don't apply any time",
+        "don't apply a time",
+        "do not use a time",
+        "do not filter by time",
+    )
+    if any(marker in text for marker in explicit):
+        return True
+    whole_table = ("all the data", "all data", "entire table", "whole table", "all history", "every row", "check all")
+    has_range = any(word in text for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week"))
+    return any(marker in text for marker in whole_table) and not has_range
+
+
+def prepare(sql: str, max_rows: int, allow_full_scan: bool = False) -> str:
     text = _strip(sql)
     try:
         statements = [item for item in sqlglot.parse(text, read="mysql") if item is not None]
@@ -65,14 +85,14 @@ def prepare(sql: str, max_rows: int) -> str:
             raise GuardError(f"Function {fn.sql_name()} is not allowed.")
 
     where = expr.args.get("where")
-    if where is None:
-        raise GuardError("A WHERE clause is required so the full table is not scanned.")
-    columns = {col.name.lower() for col in where.find_all(exp.Column)}
-    if not (columns & TIME_COLUMNS or columns & POINT_COLUMNS):
-        raise GuardError(
-            "Filter on start_time, end_time, recv_time, id, or log_id. "
-            "A question with no time range is not run."
-        )
+    columns = {col.name.lower() for col in where.find_all(exp.Column)} if where is not None else set()
+    has_time = bool(columns & TIME_COLUMNS or columns & POINT_COLUMNS)
+    if not has_time:
+        if not (allow_full_scan and _is_aggregate(expr)):
+            raise GuardError(
+                "Filter on start_time, end_time, recv_time, id, or log_id. "
+                "A question with no time range is not run unless you explicitly ask for all of the data."
+            )
 
     limit = expr.args.get("limit")
     if limit is None:
@@ -82,6 +102,12 @@ def prepare(sql: str, max_rows: int) -> str:
         expr.set("limit", exp.Limit(expression=exp.Literal.number(max_rows)))
         return expr.sql(dialect="mysql")
     return text
+
+
+def _is_aggregate(expr: exp.Select) -> bool:
+    if expr.args.get("group") is not None:
+        return True
+    return any(isinstance(node, exp.AggFunc) for node in expr.find_all(exp.AggFunc))
 
 
 def _strip(sql: str) -> str:

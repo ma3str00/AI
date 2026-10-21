@@ -28,6 +28,7 @@ class Config:
     display_offset: str
     max_rows: int
     max_execution_ms: int
+    full_scan_execution_ms: int
     mapping_csv: Path
     examples_jsonl: Path
 
@@ -90,6 +91,7 @@ def load_config() -> Config:
         display_offset=str(timing.get("display_offset", "+05:00")),
         max_rows=int(query.get("max_rows", 200)),
         max_execution_ms=int(query.get("max_execution_ms", 45000)),
+        full_scan_execution_ms=int(query.get("full_scan_execution_ms", 300000)),
         mapping_csv=resolve(str(paths.get("mapping_csv", "data/app_category_to_app_label_mapping.csv"))),
         examples_jsonl=resolve(str(paths.get("examples_jsonl", "data/training_examples.jsonl"))),
     )

@@ -38,10 +38,14 @@ class Database:
             self._conn = None
             return False, str(exc)
 
-    def query(self, sql: str) -> tuple[list[str], list[dict], str | None]:
+    def query(self, sql: str, max_execution_ms: int | None = None) -> tuple[list[str], list[dict], str | None]:
         with self._lock:
+            conn = None
             try:
                 conn = self._connection()
+                if max_execution_ms is not None:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SET SESSION max_execution_time = %s", (max_execution_ms,))
                 warning = self._scan_warning(conn, sql)
                 with conn.cursor() as cursor:
                     cursor.execute(sql)
@@ -51,6 +55,10 @@ class Database:
             except Exception as exc:
                 self._conn = None
                 raise DatabaseError(str(exc)) from exc
+            finally:
+                if conn is not None and max_execution_ms is not None and self._conn is not None:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SET SESSION max_execution_time = %s", (self.config.max_execution_ms,))
 
     def _connection(self):
         if self._conn is not None:
