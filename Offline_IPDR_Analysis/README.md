@@ -20,7 +20,7 @@ llama-server stays on port 11434. This page uses port 8090.
 4. Run `bash install-ubuntu.sh`.
 5. Set the MySQL password in `config.yaml`. Change `mysql.host` when MySQL moves. Restart with `sudo systemctl restart ipdr-assistant`.
 
-Open `http://127.0.0.1:8090`.
+Open `http://<this-machine>:8090` from any host that can reach the VM.
 
 ## llama-server
 

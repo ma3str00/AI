@@ -18,8 +18,8 @@ llama:
   example_count: 4
 
 server:
-  # 8090 avoids the llama-server port. 127.0.0.1 keeps the page on this VM.
-  host: "127.0.0.1"
+  # 8090 avoids the llama-server port. 0.0.0.0 accepts connections on every interface.
+  host: "0.0.0.0"
   port: 8090
 
 time:

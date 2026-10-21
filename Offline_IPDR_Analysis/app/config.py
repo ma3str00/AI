@@ -84,7 +84,7 @@ def load_config() -> Config:
         llama_sql_max_tokens=int(llama.get("sql_max_tokens", 512)),
         llama_explain_max_tokens=int(llama.get("explain_max_tokens", 400)),
         example_count=int(llama.get("example_count", 4)),
-        server_host=str(server.get("host", "127.0.0.1")),
+        server_host=str(server.get("host", "0.0.0.0")),
         server_port=int(server.get("port", 8090)),
         stored_as=stored_as,
         display_offset=str(timing.get("display_offset", "+05:00")),

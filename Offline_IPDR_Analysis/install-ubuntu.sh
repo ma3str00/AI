@@ -36,4 +36,4 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now ipdr-assistant.service
-echo "Open http://127.0.0.1:8090 on this VM. llama-server stays on port 11434."
+echo "The page listens on port 8090 on all interfaces. llama-server stays on 127.0.0.1:11434."
