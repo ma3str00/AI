@@ -21,14 +21,14 @@ def sql_messages(
         for item in history[-3:]:
             turns.append(
                 f"Q: {item.get('question', '')}\n"
-                f"SQL: {item.get('sql') or '(none)'}\n"
-                f"Answer: {(item.get('explanation') or '')[:500]}"
+                f"SQL: {(item.get('sql') or '(none)')[:700]}"
             )
         blocks.append(
             "This is a follow-up. Keep every filter from the previous SQL unless the user changes it.\n"
             + "\n\n".join(turns)
         )
-    blocks.extend([f"Question:\n{question.strip()}", f"Label hints:\n{hints}", "Similar questions:"])
+    hint_text = hints if len(hints) <= 400 else hints[:400] + "..."
+    blocks.extend([f"Question:\n{question.strip()}", f"Label hints:\n{hint_text}", "Similar questions:"])
     if full_scan:
         blocks.append(
             "The user explicitly asked for the whole table and told you not to apply a time filter. "

@@ -1,6 +1,6 @@
-# Drop-in replacement for /etc/systemd/system/llama-server.service.
-# Keeps the current model, context, batch, flash attention, and port 11434.
-# Changes: generation threads 16, prompt threads 28, lock weights in RAM, listen on localhost only.
+# The 3B model was generating at about 3 tokens/s once the slot context reached ~2700 tokens,
+# and -tb 28 pushed the machine load to about 26. This unit keeps generation on 8 threads
+# and prompt processing on 16, with a 4096 context so the slot cannot grow that deep.
 
 [Unit]
 Description=Llama.cpp API Server Engine
@@ -11,15 +11,15 @@ Type=simple
 User=maestro
 Group=maestro
 WorkingDirectory=/home/maestro/ollama/llama.cpp
-CPUAffinity=0-27
+CPUAffinity=0-15
 LimitNOFILE=65536
 LimitMEMLOCK=infinity
 ExecStart=/home/maestro/ollama/llama.cpp/build/bin/llama-server \
   -m /home/maestro/ollama/llama.cpp/qwen2.5-coder-3b-instruct-q4_k_m.gguf \
-  -c 8192 \
+  -c 4096 \
   -np 1 \
-  -t 16 \
-  -tb 28 \
+  -t 8 \
+  -tb 16 \
   -b 2048 \
   -ub 512 \
   -fa auto \

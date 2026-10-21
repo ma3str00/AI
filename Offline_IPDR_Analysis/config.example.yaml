@@ -12,10 +12,10 @@ llama:
   base_url: "http://127.0.0.1:11434"
   model: "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
   timeout_seconds: 300
-  sql_max_tokens: 512
-  explain_max_tokens: 400
-  # Four examples fit the server's 8192-token context. Raise this if you load a larger model.
-  example_count: 4
+  sql_max_tokens: 220
+  explain_max_tokens: 120
+  # Two examples keep the prompt small enough for the 3B model on CPU.
+  example_count: 2
 
 server:
   # 8090 avoids the llama-server port. 0.0.0.0 accepts connections on every interface.

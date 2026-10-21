@@ -87,66 +87,19 @@ block_type int, 0 means the DPI allowed the flow. Any other value means the flow
 
 
 def system_prompt(session_time_zone: str) -> str:
-    dead = ", ".join(f"{name} ({why})" for name, why in DEAD_COLUMNS.items())
-    return f"""You write a single MySQL SELECT for the table {DATABASE}.{TABLE}, or you ask for a missing piece of information.
-
-The connection session time_zone is {session_time_zone}.
-start_time, end_time, and recv_time are unix epoch integers.
-Write wall-clock bounds with UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') and display times with FROM_UNIXTIME(column).
-Those functions use the session time zone, so the literal you write is GMT+5 wall time.
-Use start_time for when a flow happened. Use recv_time only when the user says received, collected, or ingested. Use end_time only when the user says ended or finished.
-duration is milliseconds. A flow longer than 30 seconds is duration >= 30000. Divide by 1000 when the user wants seconds.
-Bytes are octets. Megabytes are / 1048576. Gigabytes are / 1073741824.
-c2s_byte_num and c2s_pkt_num go from client to server (subscriber upload).
-s2c_byte_num and s2c_pkt_num go from server to client (subscriber download).
-Total bytes are (c2s_byte_num + s2c_byte_num).
-
-Mobile row, including when subscriber_id is numeric:
-  {MOBILE_SQL}
-Fixed-line row. Do not decide this from the shape of subscriber_id:
-  {FIXED_SQL}
-Unidentified subscriber (value is client IP, an underscore, and the client port):
-  {UNIDENTIFIED_SQL}
-Identified subscriber:
-  {IDENTIFIED_SQL}
-Allowed flow: {ALLOWED_SQL}
-Blocked flow: {BLOCKED_SQL}
-
-Pakistani mobile numbers may be stored as 03xxxxxxxxx or 923xxxxxxxxx. When the user gives one of those two forms, match both. Do not rewrite an id that contains letters, and do not rewrite a number that is not in those two forms.
-IMEI and IMSI are exact string matches.
-
-client_geo, client_location, server_geo, and server_location come from IP databases. Say so by the columns you choose, and do not treat them as GPS or as the cell.
-geo and loc are the cell position or the fixed-line street address.
-"In Lahore" with no other qualifier searches client_location and loc.
-MCC 410 means the cell is in Pakistan. Do not add mcc = '410' unless the user is asking about the SIM or the cell country.
-IP-country questions use client_location or server_location, not mcc.
-
-app_category is mixed case in the table. Always compare LOWER(app_category) to a lowercase value such as 'web_browsing', 'im', 'voip', 'tunneling', 'game', 'streaming', 'email'.
-VPN, proxy, and tunnel questions use LOWER(app_category) = 'tunneling' unless the user names a specific VPN application.
-When label hints list a handful of app_label values, filter LOWER(app_label) IN (...lowercase values...).
-When label hints say the name is a broad pattern, use LOWER(app_label) LIKE '%name%'.
-
-Useful columns:
-{USEFUL_COLUMNS}
-
-Do not filter, group, or return these columns. They are not collected. If the user asks about them, return a clarify answer instead of SQL:
-{dead}
-cap_ip is an internal system address. If the user asks about it, clarify that it is not the subscriber.
-
-The table is very large. Prefer a WHERE predicate on start_time, end_time, or recv_time, unless the query looks up a single id or log_id.
-If the user gives no time range, ask for one. Do not invent a range.
-Exception: if the user explicitly says not to apply a time filter, or to check all of the data, the whole table, or all history, write the aggregate with no time predicate.
-Traffic volume, bandwidth, and usage mean SUM(c2s_byte_num + s2c_byte_num). Applications mean app_label. Categories mean app_category.
-data_center is an empty DPI field. It is not traffic and it is not "the data". Never mention it unless the user asks for the data center.
-If the conversation includes earlier questions, this question is a follow-up. Start from the previous SQL. Keep the subscriber, application, location, and time range unless the user changes them.
-Prefer one aggregate over a row dump. Use a row listing only when the user asks to list, show, or see the flows.
-Rankings need ORDER BY and LIMIT. Row listings need LIMIT.
-Do not use SELECT *. Do not JOIN. Do not use UNION, WITH, INSERT, UPDATE, DELETE, or other tables.
-Only query {TABLE}.
-
-Return one JSON object and nothing else.
-To run a query: {{"sql": "SELECT ..."}}
-To refuse an empty column or to ask for a time range: {{"clarify": "one or two sentences"}}
+    return f"""Write one MySQL SELECT for {DATABASE}.{TABLE}, or a clarify JSON if a time range is missing.
+Session time_zone is {session_time_zone}. Timestamps are unix seconds. UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') and FROM_UNIXTIME use GMT+5.
+Use start_time for when a flow happened. recv_time only if the user says received. end_time only if the user says ended.
+duration is milliseconds. Bytes: c2s_byte_num is upload, s2c_byte_num is download, total is their sum. MB is / 1048576.
+Traffic volume means that byte total. Applications means app_label. Categories means LOWER(app_category).
+Compare categories in lowercase: web_browsing, im, voip, tunneling, game, streaming, email. VPN means tunneling.
+Mobile means mcc, mnc, lac, cid, or usr_loc_info is filled. A numeric subscriber_id can still be fixed-line. Fixed-line means those cell fields are empty and geo or loc is filled.
+subscriber_id containing '_' is an unidentified IP and port. Match 03... and 923... as the same Pakistani mobile number.
+client_location and server_location are IP-database places. geo and loc are the cell or the fixed-line address. data_center is empty. Never use it.
+Prefer WHERE start_time. If the user gives no time range, clarify and ask for one. If they explicitly say no time filter or all the data, omit the time predicate.
+A follow-up keeps the previous SQL's filters unless the user changes them.
+Aggregate unless they ask to list flows. Rankings need ORDER BY and LIMIT. No SELECT *, JOIN, UNION, or other tables.
+Return only {{"sql":"SELECT ..."}} or {{"clarify":"one sentence"}}.
 """
 
 

@@ -14,9 +14,10 @@ from pydantic import BaseModel, Field
 from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
+from app.explain_result import explain_rows
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
-from app.prompts import explain_messages, sql_messages
+from app.prompts import sql_messages
 from app.retrieve import ExampleIndex, load_examples
 from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
 from app.sql_guard import GuardError, prepare, wants_full_table
@@ -109,8 +110,8 @@ def ask(body: Question):
 
     history = _history_payload(body.history)
     full_scan = wants_full_table(question) or _followup_keeps_full_scan(question, history)
-    examples = [item for item in index.top(question, config.example_count + 6) if item.get("sql") or _asks_dead_column(question)]
-    examples = examples[: config.example_count]
+    examples = [item for item in index.top(question, 8) if item.get("sql") or _asks_dead_column(question)]
+    examples = examples[: min(config.example_count, 2)]
     hints = mapping.hints(question)
     error = None
     previous_sql = None
@@ -172,14 +173,7 @@ def ask(body: Question):
         if full_scan:
             scan_note = "This query reads the whole table because you asked for no time filter. On a large table it can take several minutes."
             warning = f"{scan_note} {warning}" if warning else scan_note
-        try:
-            explanation = llama.chat(
-                explain_messages(question, safe_sql, columns, shown, len(shown) >= config.max_rows, history),
-                json_mode=False,
-                temperature=0.2,
-            )
-        except LlamaError as exc:
-            explanation = f"The query ran, but the explanation step failed: {exc}"
+        explanation = explain_rows(columns, shown)
         return {
             "ok": True,
             "clarify": None,
@@ -247,7 +241,7 @@ def _write_learned(path: Path, record: dict) -> None:
 
 def _history_payload(history: list[Turn]) -> list[dict]:
     payload = []
-    for turn in history[-3:]:
+    for turn in history[-1:]:
         payload.append(
             {
                 "question": turn.question.strip(),
