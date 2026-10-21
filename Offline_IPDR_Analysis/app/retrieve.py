@@ -31,7 +31,12 @@ class ExampleIndex:
         if not self.examples:
             return []
         query = tokenize(question)
-        scored = [(self._score(query, index), index) for index in range(self.n)]
+        scored = []
+        for index in range(self.n):
+            score = self._score(query, index)
+            if score > 0 and self.examples[index].get("learned"):
+                score *= 2
+            scored.append((score, index))
         scored.sort(key=lambda item: item[0], reverse=True)
         chosen = []
         for score, index in scored[:k]:

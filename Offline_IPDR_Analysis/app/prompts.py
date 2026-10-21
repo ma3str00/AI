@@ -13,8 +13,22 @@ def sql_messages(
     error: str | None = None,
     previous_sql: str | None = None,
     full_scan: bool = False,
+    history: list[dict] | None = None,
 ) -> list[dict]:
-    blocks = [f"Question:\n{question.strip()}", f"Label hints:\n{hints}", "Similar questions:"]
+    blocks = []
+    if history:
+        turns = []
+        for item in history[-3:]:
+            turns.append(
+                f"Q: {item.get('question', '')}\n"
+                f"SQL: {item.get('sql') or '(none)'}\n"
+                f"Answer: {(item.get('explanation') or '')[:500]}"
+            )
+        blocks.append(
+            "This is a follow-up. Keep every filter from the previous SQL unless the user changes it.\n"
+            + "\n\n".join(turns)
+        )
+    blocks.extend([f"Question:\n{question.strip()}", f"Label hints:\n{hints}", "Similar questions:"])
     if full_scan:
         blocks.append(
             "The user explicitly asked for the whole table and told you not to apply a time filter. "
@@ -41,10 +55,22 @@ def sql_messages(
     ]
 
 
-def explain_messages(question: str, sql: str, columns: list[str], rows: list[dict], truncated: bool) -> list[dict]:
+def explain_messages(
+    question: str,
+    sql: str,
+    columns: list[str],
+    rows: list[dict],
+    truncated: bool,
+    history: list[dict] | None = None,
+) -> list[dict]:
     preview = rows[:40]
     note = "The result has more rows than are shown here." if truncated or len(rows) > 40 else "This is the full result."
+    prior = ""
+    if history:
+        last = history[-1]
+        prior = f"Previous question: {last.get('question', '')}\nPrevious answer: {(last.get('explanation') or '')[:400]}\n\n"
     body = (
+        f"{prior}"
         f"Question:\n{question.strip()}\n\n"
         f"SQL:\n{sql}\n\n"
         f"Columns: {', '.join(columns) if columns else '(none)'}\n"

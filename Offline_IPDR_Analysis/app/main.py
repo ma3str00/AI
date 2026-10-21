@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -27,14 +28,25 @@ app = FastAPI(title="IPDR assistant")
 _state: dict = {}
 
 
+class Turn(BaseModel):
+    question: str = Field(default="", max_length=4000)
+    sql: str | None = Field(default=None, max_length=8000)
+    explanation: str | None = Field(default=None, max_length=2000)
+
+
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
+    history: list[Turn] = Field(default_factory=list, max_length=6)
+
+
+class LearnRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    sql: str = Field(min_length=1, max_length=8000)
 
 
 @app.on_event("startup")
 def startup() -> None:
     config = load_config()
-    examples = load_examples(config.examples_jsonl)
     mapping = AppMap([])
     mapping_error = None
     if config.mapping_csv.exists():
@@ -42,7 +54,8 @@ def startup() -> None:
     else:
         mapping_error = f"Mapping file not found: {config.mapping_csv}"
     _state["config"] = config
-    _state["index"] = ExampleIndex(examples)
+    _state["learn_lock"] = threading.Lock()
+    _reload_index()
     _state["mapping"] = mapping
     _state["mapping_error"] = mapping_error
     _state["db"] = Database(config)
@@ -57,7 +70,7 @@ def startup() -> None:
 
 @app.get("/")
 def page():
-    return FileResponse(PAGE)
+    return FileResponse(PAGE, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/health")
@@ -71,6 +84,7 @@ def health():
         "mysql": {"ok": mysql_ok, "detail": mysql_detail, "host": config.mysql_host, "database": config.mysql_database},
         "llama": {"ok": model_ok, "detail": model_detail, "model": config.llama_model, "base_url": config.llama_base_url},
         "examples": len(_state["index"].examples),
+        "learned": _state.get("learned_count", 0),
         "labels": len(_state["mapping"].rows),
         "mapping_error": _state["mapping_error"],
         "time": {"stored_as": config.stored_as, "note": config.time_note, "session_time_zone": config.session_time_zone},
@@ -93,7 +107,8 @@ def ask(body: Question):
     database: Database = _state["db"]
     llama: LlamaServer = _state["llama"]
 
-    full_scan = wants_full_table(question)
+    history = _history_payload(body.history)
+    full_scan = wants_full_table(question) or _followup_keeps_full_scan(question, history)
     examples = [item for item in index.top(question, config.example_count + 6) if item.get("sql") or _asks_dead_column(question)]
     examples = examples[: config.example_count]
     hints = mapping.hints(question)
@@ -110,6 +125,7 @@ def ask(body: Question):
                     error,
                     previous_sql,
                     full_scan=full_scan,
+                    history=history,
                 ),
                 json_mode=True,
                 temperature=0,
@@ -158,7 +174,7 @@ def ask(body: Question):
             warning = f"{scan_note} {warning}" if warning else scan_note
         try:
             explanation = llama.chat(
-                explain_messages(question, safe_sql, columns, shown, len(shown) >= config.max_rows),
+                explain_messages(question, safe_sql, columns, shown, len(shown) >= config.max_rows, history),
                 json_mode=False,
                 temperature=0.2,
             )
@@ -184,6 +200,72 @@ def ask(body: Question):
         "warning": None,
         "error": error or "The question could not be turned into a safe query.",
     }
+
+
+@app.post("/api/learn")
+def learn(body: LearnRequest):
+    config: Config = _state["config"]
+    full_scan = wants_full_table(body.question)
+    try:
+        safe_sql = prepare(body.sql, config.max_rows, allow_full_scan=full_scan)
+    except GuardError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    record = {
+        "question": body.question.strip(),
+        "sql": safe_sql,
+        "clarify": None,
+        "tags": ["learned"],
+        "learned": True,
+        "full_scan": full_scan,
+    }
+    with _state["learn_lock"]:
+        _write_learned(config.learned_jsonl, record)
+        _reload_index()
+    return {"ok": True, "learned": _state["learned_count"], "examples": len(_state["index"].examples)}
+
+
+def _reload_index() -> None:
+    config: Config = _state["config"]
+    examples = load_examples(config.examples_jsonl)
+    learned = load_examples(config.learned_jsonl) if config.learned_jsonl.exists() else []
+    _state["learned_count"] = len(learned)
+    _state["index"] = ExampleIndex(examples + learned)
+
+
+def _write_learned(path: Path, record: dict) -> None:
+    rows = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                rows.append(json.loads(line))
+    key = record["question"].strip().lower()
+    rows = [row for row in rows if row.get("question", "").strip().lower() != key]
+    rows.append(record)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def _history_payload(history: list[Turn]) -> list[dict]:
+    payload = []
+    for turn in history[-3:]:
+        payload.append(
+            {
+                "question": turn.question.strip(),
+                "sql": (turn.sql or "").strip(),
+                "explanation": (turn.explanation or "").strip()[:500],
+            }
+        )
+    return payload
+
+
+def _followup_keeps_full_scan(question: str, history: list[dict]) -> bool:
+    if not history:
+        return False
+    sql = (history[-1].get("sql") or "").lower()
+    if not sql or any(column in sql for column in ("start_time", "end_time", "recv_time")):
+        return False
+    text = question.lower()
+    return not any(word in text for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week"))
 
 
 def _asks_dead_column(question: str) -> bool:

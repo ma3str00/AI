@@ -36,3 +36,4 @@ query:
 paths:
   mapping_csv: "data/app_category_to_app_label_mapping.csv"
   examples_jsonl: "data/training_examples.jsonl"
+  learned_jsonl: "data/learned_examples.jsonl"

@@ -31,6 +31,7 @@ class Config:
     full_scan_execution_ms: int
     mapping_csv: Path
     examples_jsonl: Path
+    learned_jsonl: Path
 
     @property
     def session_time_zone(self) -> str:
@@ -94,4 +95,5 @@ def load_config() -> Config:
         full_scan_execution_ms=int(query.get("full_scan_execution_ms", 300000)),
         mapping_csv=resolve(str(paths.get("mapping_csv", "data/app_category_to_app_label_mapping.csv"))),
         examples_jsonl=resolve(str(paths.get("examples_jsonl", "data/training_examples.jsonl"))),
+        learned_jsonl=resolve(str(paths.get("learned_jsonl", "data/learned_examples.jsonl"))),
     )

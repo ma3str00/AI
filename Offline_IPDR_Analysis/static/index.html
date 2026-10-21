@@ -62,45 +62,38 @@
   th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
   th { position: sticky; top: 0; background: #efeae1; }
   .hidden { display: none; }
+  .transcript { display: grid; gap: 14px; margin-top: 8px; }
+  .bubble { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+  .bubble.user { background: #efeae1; }
+  .who { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .bubble pre { margin-top: 10px; }
+  .saved { color: var(--accent); font-size: 14px; }
 </style>
 </head>
 <body>
 <main>
   <h1>IPDR assistant</h1>
-  <p class="lede" id="lede">Questions are turned into a read-only query on ntc_ssl_logs. The model runs on this machine.</p>
+  <p class="lede">Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and that query is reused for similar questions.</p>
   <div class="status" id="status"></div>
+  <div class="transcript" id="transcript"></div>
   <form id="ask-form">
-    <label for="question">Question</label>
+    <label for="question" id="question-label">Question</label>
     <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
     <div class="row">
       <button type="submit" id="ask">Ask</button>
+      <button type="button" class="secondary" id="reset">New conversation</button>
       <span id="busy" class="hidden">Working on CPU. A question often takes half a minute to two minutes.</span>
     </div>
   </form>
   <div class="starters" id="starters"></div>
-  <section id="answer-section" class="hidden">
-    <h2>Answer</h2>
-    <div class="panel" id="answer"></div>
-  </section>
-  <section id="sql-section" class="hidden">
-    <h2>Query</h2>
-    <div class="panel">
-      <pre id="sql"></pre>
-      <div class="row" style="margin-top:10px">
-        <button type="button" class="secondary" id="copy">Copy SQL</button>
-      </div>
-    </div>
-  </section>
-  <section id="table-section" class="hidden">
-    <h2>Rows</h2>
-    <div class="table-wrap"><table id="rows"></table></div>
-  </section>
 </main>
 <script>
 const question = document.getElementById("question");
 const form = document.getElementById("ask-form");
 const askButton = document.getElementById("ask");
 const busy = document.getElementById("busy");
+const transcript = document.getElementById("transcript");
+const history = [];
 
 function pill(text, kind) {
   const span = document.createElement("span");
@@ -119,6 +112,7 @@ async function loadHealth() {
       pill(data.mysql.ok ? "MySQL " + data.mysql.host : "MySQL down", data.mysql.ok ? "ok" : "bad"),
       pill(data.llama.ok ? data.llama.model : "llama-server not ready", data.llama.ok ? "ok" : "bad"),
       pill(data.examples + " examples"),
+      pill((data.learned || 0) + " learned"),
       pill(data.labels + " app labels"),
       pill(data.time.note)
     );
@@ -139,6 +133,7 @@ async function loadStarters() {
     button.type = "button";
     button.textContent = text;
     button.addEventListener("click", () => {
+      resetConversation();
       question.value = text;
       form.requestSubmit();
     });
@@ -146,39 +141,65 @@ async function loadStarters() {
   }
 }
 
-function showAnswer(data) {
-  const answerSection = document.getElementById("answer-section");
-  const sqlSection = document.getElementById("sql-section");
-  const tableSection = document.getElementById("table-section");
-  const answer = document.getElementById("answer");
-  answer.replaceChildren();
+function addUserBubble(text) {
+  const bubble = document.createElement("div");
+  bubble.className = "bubble user";
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = "You";
+  const body = document.createElement("div");
+  body.textContent = text;
+  bubble.append(who, body);
+  transcript.append(bubble);
+}
+
+function addAnswerBubble(asked, data) {
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const who = document.createElement("div");
+  who.className = "who";
+  who.textContent = "Assistant";
+  bubble.append(who);
   if (data.warning) {
     const warning = document.createElement("div");
     warning.className = "warning";
     warning.textContent = data.warning;
-    answer.append(warning);
+    bubble.append(warning);
   }
   if (data.error) {
     const error = document.createElement("div");
     error.className = "error";
     error.textContent = data.error;
-    answer.append(error);
+    bubble.append(error);
   }
   const text = document.createElement("div");
   text.textContent = data.explanation || data.clarify || "";
-  answer.append(text);
-  answerSection.classList.remove("hidden");
-
+  bubble.append(text);
   if (data.sql) {
-    document.getElementById("sql").textContent = data.sql;
-    sqlSection.classList.remove("hidden");
-  } else {
-    sqlSection.classList.add("hidden");
+    const sql = document.createElement("pre");
+    sql.textContent = data.sql;
+    bubble.append(sql);
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.marginTop = "10px";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "secondary";
+    copy.textContent = "Copy SQL";
+    copy.addEventListener("click", () => navigator.clipboard.writeText(data.sql));
+    const learn = document.createElement("button");
+    learn.type = "button";
+    learn.className = "secondary";
+    learn.textContent = "Mark correct";
+    learn.addEventListener("click", () => markCorrect(asked, data.sql, learn));
+    row.append(copy, learn);
+    bubble.append(row);
   }
-
-  const table = document.getElementById("rows");
-  table.replaceChildren();
   if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    wrap.style.marginTop = "10px";
+    const table = document.createElement("table");
     const head = document.createElement("tr");
     for (const column of data.columns) {
       const cell = document.createElement("th");
@@ -186,51 +207,94 @@ function showAnswer(data) {
       head.append(cell);
     }
     table.append(head);
-    for (const row of data.rows) {
+    for (const record of data.rows) {
       const line = document.createElement("tr");
       for (const column of data.columns) {
         const cell = document.createElement("td");
-        const value = row[column];
+        const value = record[column];
         cell.textContent = value === null || value === undefined ? "" : String(value);
         line.append(cell);
       }
       table.append(line);
     }
-    tableSection.classList.remove("hidden");
-  } else {
-    tableSection.classList.add("hidden");
+    wrap.append(table);
+    bubble.append(wrap);
   }
+  transcript.append(bubble);
+  bubble.scrollIntoView({block: "nearest"});
+}
+
+async function markCorrect(asked, sql, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/learn", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: asked, sql})
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      button.disabled = false;
+      button.textContent = data.detail || "Could not save";
+      return;
+    }
+    button.replaceWith(Object.assign(document.createElement("span"), {className: "saved", textContent: "Saved for similar questions"}));
+    loadHealth();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = String(error);
+  }
+}
+
+function resetConversation() {
+  history.length = 0;
+  transcript.replaceChildren();
+  document.getElementById("question-label").textContent = "Question";
+  question.placeholder = "Example: top app labels by download bytes yesterday";
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = question.value.trim();
   if (!text) return;
+  const prior = history.map((turn) => ({
+    question: turn.question,
+    sql: turn.sql,
+    explanation: turn.explanation
+  }));
+  addUserBubble(text);
+  question.value = "";
   askButton.disabled = true;
   busy.classList.remove("hidden");
   try {
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({question: text})
+      body: JSON.stringify({question: text, history: prior})
     });
     const data = await response.json();
     if (!response.ok) {
-      showAnswer({error: data.detail || "Request failed", explanation: ""});
+      addAnswerBubble(text, {error: data.detail || "Request failed", explanation: ""});
     } else {
-      showAnswer(data);
+      addAnswerBubble(text, data);
+      history.push({
+        question: text,
+        sql: data.sql || "",
+        explanation: data.explanation || data.clarify || data.error || ""
+      });
+      document.getElementById("question-label").textContent = "Follow-up";
+      question.placeholder = "Ask about the same result, or change one part of it";
     }
   } catch (error) {
-    showAnswer({error: String(error), explanation: ""});
+    addAnswerBubble(text, {error: String(error), explanation: ""});
   } finally {
     askButton.disabled = false;
     busy.classList.add("hidden");
+    question.focus();
   }
 });
 
-document.getElementById("copy").addEventListener("click", async () => {
-  await navigator.clipboard.writeText(document.getElementById("sql").textContent);
-});
+document.getElementById("reset").addEventListener("click", resetConversation);
 
 loadHealth();
 loadStarters();

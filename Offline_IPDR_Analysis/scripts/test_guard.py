@@ -80,6 +80,7 @@ def main() -> None:
         full_scan_execution_ms=1000,
         mapping_csv=path,
         examples_jsonl=path,
+        learned_jsonl=path,
     )
     shown = present_rows(["start_time"], [{"start_time": 1790604000}], config)
     if shown[0]["start_time"] != "2026-09-28 19:00:00":
