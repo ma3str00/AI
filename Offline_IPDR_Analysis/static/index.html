@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPDR assistant</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f1ea;
+    --ink: #1c1915;
+    --muted: #5e584f;
+    --line: #d9d2c5;
+    --panel: #fffcf7;
+    --accent: #0f6e56;
+    --accent-ink: #ffffff;
+    --warn: #8a4b08;
+    --warn-bg: #fff4e5;
+    --bad: #8d1d1d;
+    --bad-bg: #fdecec;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.45 "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 64px; }
+  h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.03em; }
+  h2 { font-size: 15px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .lede { margin: 0 0 18px; color: var(--muted); max-width: 70ch; }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .pill { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+  .pill.bad { background: var(--bad-bg); border-color: #f0c4c4; color: var(--bad); }
+  .pill.ok { border-color: #b7d8ce; }
+  form { display: grid; gap: 10px; }
+  textarea {
+    width: 100%; min-height: 96px; resize: vertical; padding: 12px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    font: inherit; color: inherit;
+  }
+  .row { display: flex; gap: 10px; align-items: center; }
+  button {
+    background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
+    padding: 10px 16px; font: inherit; cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  .starters { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
+  .starters button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); font-size: 13px; padding: 6px 10px; }
+  section { margin-top: 22px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .warning { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 10px 12px; }
+  pre {
+    white-space: pre-wrap; word-break: break-word; margin: 0;
+    font: 13px/1.4 ui-monospace, Consolas, monospace;
+  }
+  .table-wrap { overflow: auto; max-height: 480px; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--panel); }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { position: sticky; top: 0; background: #efeae1; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>IPDR assistant</h1>
+  <p class="lede" id="lede">Questions are turned into a read-only query on ntc_ssl_logs. The model runs on this machine.</p>
+  <div class="status" id="status"></div>
+  <form id="ask-form">
+    <label for="question">Question</label>
+    <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
+    <div class="row">
+      <button type="submit" id="ask">Ask</button>
+      <span id="busy" class="hidden">Working on CPU. A question often takes half a minute to two minutes.</span>
+    </div>
+  </form>
+  <div class="starters" id="starters"></div>
+  <section id="answer-section" class="hidden">
+    <h2>Answer</h2>
+    <div class="panel" id="answer"></div>
+  </section>
+  <section id="sql-section" class="hidden">
+    <h2>Query</h2>
+    <div class="panel">
+      <pre id="sql"></pre>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="secondary" id="copy">Copy SQL</button>
+      </div>
+    </div>
+  </section>
+  <section id="table-section" class="hidden">
+    <h2>Rows</h2>
+    <div class="table-wrap"><table id="rows"></table></div>
+  </section>
+</main>
+<script>
+const question = document.getElementById("question");
+const form = document.getElementById("ask-form");
+const askButton = document.getElementById("ask");
+const busy = document.getElementById("busy");
+
+function pill(text, kind) {
+  const span = document.createElement("span");
+  span.className = "pill" + (kind ? " " + kind : "");
+  span.textContent = text;
+  return span;
+}
+
+async function loadHealth() {
+  const status = document.getElementById("status");
+  status.replaceChildren();
+  try {
+    const response = await fetch("/api/health");
+    const data = await response.json();
+    status.append(
+      pill(data.mysql.ok ? "MySQL " + data.mysql.host : "MySQL down", data.mysql.ok ? "ok" : "bad"),
+      pill(data.llama.ok ? data.llama.model : "llama-server not ready", data.llama.ok ? "ok" : "bad"),
+      pill(data.examples + " examples"),
+      pill(data.labels + " app labels"),
+      pill(data.time.note)
+    );
+    if (!data.mysql.ok) status.append(pill(data.mysql.detail, "bad"));
+    if (!data.llama.ok) status.append(pill(data.llama.detail, "bad"));
+    if (data.mapping_error) status.append(pill(data.mapping_error, "bad"));
+  } catch (error) {
+    status.append(pill(String(error), "bad"));
+  }
+}
+
+async function loadStarters() {
+  const box = document.getElementById("starters");
+  const response = await fetch("/api/starters");
+  const data = await response.json();
+  for (const text of data.questions) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = text;
+    button.addEventListener("click", () => {
+      question.value = text;
+      form.requestSubmit();
+    });
+    box.append(button);
+  }
+}
+
+function showAnswer(data) {
+  const answerSection = document.getElementById("answer-section");
+  const sqlSection = document.getElementById("sql-section");
+  const tableSection = document.getElementById("table-section");
+  const answer = document.getElementById("answer");
+  answer.replaceChildren();
+  if (data.warning) {
+    const warning = document.createElement("div");
+    warning.className = "warning";
+    warning.textContent = data.warning;
+    answer.append(warning);
+  }
+  if (data.error) {
+    const error = document.createElement("div");
+    error.className = "error";
+    error.textContent = data.error;
+    answer.append(error);
+  }
+  const text = document.createElement("div");
+  text.textContent = data.explanation || data.clarify || "";
+  answer.append(text);
+  answerSection.classList.remove("hidden");
+
+  if (data.sql) {
+    document.getElementById("sql").textContent = data.sql;
+    sqlSection.classList.remove("hidden");
+  } else {
+    sqlSection.classList.add("hidden");
+  }
+
+  const table = document.getElementById("rows");
+  table.replaceChildren();
+  if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    const head = document.createElement("tr");
+    for (const column of data.columns) {
+      const cell = document.createElement("th");
+      cell.textContent = column;
+      head.append(cell);
+    }
+    table.append(head);
+    for (const row of data.rows) {
+      const line = document.createElement("tr");
+      for (const column of data.columns) {
+        const cell = document.createElement("td");
+        const value = row[column];
+        cell.textContent = value === null || value === undefined ? "" : String(value);
+        line.append(cell);
+      }
+      table.append(line);
+    }
+    tableSection.classList.remove("hidden");
+  } else {
+    tableSection.classList.add("hidden");
+  }
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = question.value.trim();
+  if (!text) return;
+  askButton.disabled = true;
+  busy.classList.remove("hidden");
+  try {
+    const response = await fetch("/api/ask", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: text})
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      showAnswer({error: data.detail || "Request failed", explanation: ""});
+    } else {
+      showAnswer(data);
+    }
+  } catch (error) {
+    showAnswer({error: String(error), explanation: ""});
+  } finally {
+    askButton.disabled = false;
+    busy.classList.add("hidden");
+  }
+});
+
+document.getElementById("copy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(document.getElementById("sql").textContent);
+});
+
+loadHealth();
+loadStarters();
+</script>
+</body>
+</html>

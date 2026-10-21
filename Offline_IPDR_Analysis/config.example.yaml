@@ -1,0 +1,37 @@
+# Copy to config.yaml. Change mysql.host when the database moves off this VM.
+
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  user: "ipdr_ro"
+  password: "change-me"
+  database: "ipdr"
+
+# llama-server.service already listens on 11434.
+llama:
+  base_url: "http://127.0.0.1:11434"
+  model: "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
+  timeout_seconds: 300
+  sql_max_tokens: 512
+  explain_max_tokens: 400
+  # Four examples fit the server's 8192-token context. Raise this if you load a larger model.
+  example_count: 4
+
+server:
+  # 8090 avoids the llama-server port. 127.0.0.1 keeps the page on this VM.
+  host: "127.0.0.1"
+  port: 8090
+
+time:
+  # utc_epoch: integers are real Unix time. Questions and display use GMT+5.
+  # local_epoch: switch to this only if every answer is five hours off.
+  stored_as: "utc_epoch"
+  display_offset: "+05:00"
+
+query:
+  max_rows: 200
+  max_execution_ms: 45000
+
+paths:
+  mapping_csv: "data/app_category_to_app_label_mapping.csv"
+  examples_jsonl: "data/training_examples.jsonl"
