@@ -16,6 +16,7 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
+from app.followup import conversation_full_scan, resolve_followup
 from app.learned import saved_sql, sql_needs_full_scan
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
@@ -117,10 +118,15 @@ def ask(body: Question):
         replayed = _replay_saved(saved, config, database)
         if replayed is not None:
             return replayed
+    resolved = resolve_followup(question, history)
+    if resolved:
+        replayed = _replay_saved({"sql": resolved, "full_scan": conversation_full_scan(question, history)}, config, database)
+        if replayed is not None:
+            return replayed
     clarification = needs_clarification(question, history)
     if clarification:
         return _clarify(clarification)
-    full_scan = wants_full_table(question) or _followup_keeps_full_scan(question, history)
+    full_scan = conversation_full_scan(question, history) or wants_full_table(question) or _followup_keeps_full_scan(question, history)
     examples = _select_examples(index, question, history)
     hints = mapping.hints(question)
     error = None
@@ -208,7 +214,7 @@ def ask(body: Question):
         "rows": [],
         "explanation": None,
         "warning": None,
-        "error": error or "The question could not be turned into a safe query.",
+        "error": "I could not turn that into a query. Say whether to keep the previous application, or start a new question.",
     }
 
 
@@ -320,7 +326,7 @@ def _is_time_question(text: str) -> bool:
 
 def _history_payload(history: list[Turn]) -> list[dict]:
     payload = []
-    for turn in history[-3:]:
+    for turn in history[-6:]:
         payload.append(
             {
                 "question": turn.question.strip(),
@@ -334,11 +340,14 @@ def _history_payload(history: list[Turn]) -> list[dict]:
 def _followup_keeps_full_scan(question: str, history: list[dict]) -> bool:
     if not history:
         return False
-    sql = (history[-1].get("sql") or "").lower()
-    if not sql or any(column in sql for column in ("start_time", "end_time", "recv_time")):
-        return False
     text = question.lower()
-    return not any(word in text for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week"))
+    if any(word in text for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week")):
+        return False
+    for item in reversed(history):
+        sql = (item.get("sql") or "").lower()
+        if sql:
+            return not any(column in sql for column in ("start_time", "end_time", "recv_time"))
+    return False
 
 
 def _select_examples(index: ExampleIndex, question: str, history: list[dict]) -> list[dict]:

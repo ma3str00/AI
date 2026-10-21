@@ -19,7 +19,7 @@ def sql_messages(
     if history:
         answering = not str(history[-1].get("sql") or "").strip() and str(history[-1].get("explanation") or "").strip()
         turns = []
-        for item in history[-3:]:
+        for item in history[-6:]:
             turns.append(
                 f"Q: {item.get('question', '')}\n"
                 f"SQL: {(item.get('sql') or '(none)')[:700]}"

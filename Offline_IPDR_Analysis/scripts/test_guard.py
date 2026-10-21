@@ -209,6 +209,35 @@ def main() -> None:
     found = saved_sql(bank, "Give me the top 5 WhatsApp users by traffic volume.")
     if not found or found.get("sql") != learned_sql:
         raise SystemExit("a marked answer was not reused for the same question")
+    from app.followup import resolve_followup
+    from app.sql_guard import prepare as guard_prepare
+
+    previous = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
+    )
+    thread = [
+        {"question": "give me the top 5 whatsapp users by traffic volume", "sql": ""},
+        {"question": "no time filter required when user doesnt specify it", "sql": previous},
+        {"question": "now give me the top 10 mobile users", "sql": ""},
+    ]
+    if resolve_followup("now give me the top 10 mobile users", thread[:2]):
+        raise SystemExit("the app-scope question should be asked before a mobile query is run")
+    resolved = resolve_followup(
+        "should stay limited to whatsapp. Your understanding of mobile user is correct",
+        thread,
+    )
+    if not resolved or "whatsapp" not in resolved.lower() or "mcc" not in resolved.lower() or "LIMIT 10" not in resolved:
+        raise SystemExit(f"confirmed mobile follow-up was not applied: {resolved}")
+    if "start_time" in resolved.lower():
+        raise SystemExit("confirmed follow-up added a time filter")
+    guard_prepare(resolved, max_rows=200, allow_full_scan=True)
+    later = resolve_followup("all data", thread + [{"question": "should stay limited to whatsapp", "sql": ""}])
+    if not later or "mcc" not in later.lower():
+        raise SystemExit("all data did not rerun the confirmed mobile query")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

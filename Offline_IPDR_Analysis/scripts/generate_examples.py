@@ -563,6 +563,18 @@ def _mobile_fixed(add) -> None:
         full_scan=True,
     )
     add(
+        "should stay limited to whatsapp. Your understanding of mobile user is correct",
+        mobile_users.format(where="LOWER(app_label) LIKE '%whatsapp%'", limit=10),
+        ["mobile", "whatsapp", "users", "subscriber_id", "confirm", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "run the top 10 mobile whatsapp users on all the data",
+        mobile_users.format(where="LOWER(app_label) LIKE '%whatsapp%'", limit=10),
+        ["mobile", "whatsapp", "users", "all", "data", "full_scan"],
+        full_scan=True,
+    )
+    add(
         "top 10 mobile users by traffic volume across all the data, exclude fixed-line users",
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
