@@ -16,6 +16,7 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
+from app.learned import saved_sql, sql_needs_full_scan
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
@@ -44,6 +45,7 @@ class Question(BaseModel):
 class LearnRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     sql: str = Field(min_length=1, max_length=8000)
+    questions: list[str] = Field(default_factory=list, max_length=8)
 
 
 @app.on_event("startup")
@@ -110,6 +112,11 @@ def ask(body: Question):
     llama: LlamaServer = _state["llama"]
 
     history = _history_payload(body.history)
+    saved = saved_sql(_state["index"].examples, question)
+    if saved:
+        replayed = _replay_saved(saved, config, database)
+        if replayed is not None:
+            return replayed
     clarification = needs_clarification(question, history)
     if clarification:
         return _clarify(clarification)
@@ -208,23 +215,67 @@ def ask(body: Question):
 @app.post("/api/learn")
 def learn(body: LearnRequest):
     config: Config = _state["config"]
-    full_scan = wants_full_table(body.question)
+    questions = []
+    for text in [body.question, *body.questions]:
+        cleaned = text.strip()
+        if cleaned and cleaned.lower() not in {item.lower() for item in questions}:
+            questions.append(cleaned)
+    full_scan = sql_needs_full_scan(body.sql) or any(wants_full_table(text) for text in questions)
     try:
         safe_sql = prepare(body.sql, config.max_rows, allow_full_scan=full_scan)
     except GuardError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    record = {
-        "question": body.question.strip(),
-        "sql": safe_sql,
-        "clarify": None,
-        "tags": ["learned"],
-        "learned": True,
-        "full_scan": full_scan,
-    }
     with _state["learn_lock"]:
-        _write_learned(config.learned_jsonl, record)
+        for text in questions:
+            record = {
+                "question": text,
+                "sql": safe_sql,
+                "clarify": None,
+                "tags": ["learned"],
+                "learned": True,
+                "full_scan": full_scan or sql_needs_full_scan(safe_sql),
+            }
+            _write_learned(config.learned_jsonl, record)
         _reload_index()
     return {"ok": True, "learned": _state["learned_count"], "examples": len(_state["index"].examples)}
+
+
+def _replay_saved(saved: dict, config: Config, database: Database) -> dict | None:
+    full_scan = bool(saved.get("full_scan")) or sql_needs_full_scan(str(saved.get("sql") or ""))
+    try:
+        safe_sql = prepare(str(saved["sql"]), config.max_rows, allow_full_scan=full_scan)
+    except GuardError:
+        return None
+    try:
+        columns, rows, warning = database.query(
+            safe_sql,
+            max_execution_ms=config.full_scan_execution_ms if full_scan else None,
+        )
+    except DatabaseError as exc:
+        return {
+            "ok": False,
+            "clarify": None,
+            "sql": safe_sql,
+            "columns": [],
+            "rows": [],
+            "explanation": None,
+            "warning": None,
+            "error": str(exc),
+        }
+    shown = present_rows(columns, rows, config)
+    if full_scan:
+        scan_note = "This is the query you marked correct. It reads the whole table and can take several minutes."
+        warning = f"{scan_note} {warning}" if warning else scan_note
+    return {
+        "ok": True,
+        "clarify": None,
+        "sql": safe_sql,
+        "columns": columns,
+        "rows": shown,
+        "explanation": explain_rows(columns, shown),
+        "warning": warning,
+        "row_count": len(shown),
+    }
 
 
 def _reload_index() -> None:

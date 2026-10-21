@@ -194,6 +194,21 @@ def main() -> None:
         True,
     ):
         raise SystemExit("dropping the app filter was rejected after the user asked for every application")
+    from app.learned import saved_sql, sql_needs_full_scan
+
+    learned_sql = (
+        "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "GROUP BY subscriber_id LIMIT 5"
+    )
+    if not sql_needs_full_scan(learned_sql):
+        raise SystemExit("saved query without a time column was treated as a time-filtered query")
+    bank = [
+        {"question": "give me the top 5 whatsapp users by traffic volume", "clarify": "Specify a time range.", "sql": None},
+        {"question": "give me the top 5 whatsapp users by traffic volume", "sql": learned_sql, "learned": True, "full_scan": True},
+    ]
+    found = saved_sql(bank, "Give me the top 5 WhatsApp users by traffic volume.")
+    if not found or found.get("sql") != learned_sql:
+        raise SystemExit("a marked answer was not reused for the same question")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

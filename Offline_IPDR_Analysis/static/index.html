@@ -73,7 +73,7 @@
 <body>
 <main>
   <h1>IPDR assistant</h1>
-  <p class="lede">Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and that query is reused for similar questions.</p>
+  <p class="lede">Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and that same question runs the saved query next time.</p>
   <div class="status" id="status"></div>
   <div class="transcript" id="transcript"></div>
   <form id="ask-form">
@@ -227,10 +227,12 @@ function addAnswerBubble(asked, data) {
 async function markCorrect(asked, sql, button) {
   button.disabled = true;
   try {
+    const questions = history.filter((turn) => !turn.sql).map((turn) => turn.question);
+    questions.push(asked);
     const response = await fetch("/api/learn", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({question: asked, sql})
+      body: JSON.stringify({question: asked, sql, questions})
     });
     const data = await response.json();
     if (!response.ok) {
@@ -238,7 +240,7 @@ async function markCorrect(asked, sql, button) {
       button.textContent = data.detail || "Could not save";
       return;
     }
-    button.replaceWith(Object.assign(document.createElement("span"), {className: "saved", textContent: "Saved for similar questions"}));
+    button.replaceWith(Object.assign(document.createElement("span"), {className: "saved", textContent: "Saved. The same question will run this query."}));
     loadHealth();
   } catch (error) {
     button.disabled = false;
