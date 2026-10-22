@@ -38,8 +38,7 @@ def sql_messages(
                 "Do not add a cell filter unless this question asks for mobile or fixed-line.\n"
                 "Keep the previous application filter. Change the columns, sort, or limit the user named. "
                 "Do not ask whether to keep the application when they only change the measure.\n"
-                "If they ask which other applications one subscriber used, GROUP BY app_label, "
-                "filter that subscriber_id, and drop the previous application filter.\n"
+                "If they ask which applications one subscriber used, GROUP BY app_label and filter that subscriber_id. Show every application. Do not exclude the previous one.\n"
             )
         blocks.append(lead + "\n\n".join(turns))
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."

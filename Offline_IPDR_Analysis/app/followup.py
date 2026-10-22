@@ -81,19 +81,14 @@ def use_full_scan(question: str, history: list[dict] | None, missing_time_means_
 
 
 def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
-    """Applications used by one subscriber. "Other" drops the application already shown."""
+    """Every application used by the named subscriber."""
     if not re.search(r"\b(application|applications|apps)\b", question.lower()):
         return None
     subscriber = named_subscriber(question)
     if not subscriber:
         return None
     where = [f"subscriber_id = '{subscriber}'"]
-    previous = _last_sql(history)
-    if re.search(r"\bother\b", question.lower()) and previous:
-        predicate = _app_predicate(previous)
-        if predicate:
-            where.append(f"NOT ({predicate})")
-    time_clause = _time_clause(previous)
+    time_clause = _time_clause(_last_sql(history))
     if time_clause:
         where.append(time_clause)
     limit = _limit_in(question) or 20
@@ -128,15 +123,6 @@ _NOT_SUBSCRIBER = {
     "application", "applications", "apps", "user", "subscriber", "users",
     "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
 }
-
-
-def _app_predicate(sql: str) -> str | None:
-    text = re.sub(r"\s+", " ", sql)
-    match = re.search(r"LOWER\(app_label\)\s+LIKE\s+'%[^']+%'", text, flags=re.IGNORECASE)
-    if match:
-        return match.group(0)
-    match = re.search(r"LOWER\(app_label\)\s+IN\s+\([^)]*\)", text, flags=re.IGNORECASE)
-    return match.group(0) if match else None
 
 
 def _time_clause(sql: str) -> str:

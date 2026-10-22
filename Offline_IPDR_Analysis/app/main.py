@@ -131,8 +131,8 @@ def ask(body: Question):
             _followup_notice(question),
         )
         if replayed is not None:
-            if replayed.get("row_count") == 0 and re.search(r"\bother\b", question.lower()):
-                replayed["explanation"] = "No other applications were found for that subscriber."
+            if replayed.get("row_count") == 0 and named_subscriber(question):
+                replayed["explanation"] = "No applications were found for that subscriber."
             return replayed
     clarification = needs_clarification(question, history)
     if clarification:
@@ -353,9 +353,7 @@ def _clarify(text: str) -> dict:
 def _followup_notice(question: str) -> str:
     folded = question.lower()
     if re.search(r"\b(application|applications|apps)\b", folded) and named_subscriber(question):
-        if re.search(r"\bother\b", folded):
-            return "This lists that subscriber's other applications, excluding the application from the previous query. It reads the whole table and can take several minutes."
-        return "This lists applications for that subscriber. It reads the whole table and can take several minutes."
+        return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if subscriber_kind([question]) in {"mobile", "fixed"}:
         return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."
     if re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded):

@@ -350,9 +350,9 @@ def main() -> None:
         not others
         or "group by app_label" not in others.lower()
         or "malikmubeen201" not in others.lower()
-        or "not (lower(app_label) like '%facebook%')" not in others.lower()
+        or " not " in others.lower()
     ):
-        raise SystemExit(f"other applications for one user were not built: {others}")
+        raise SystemExit(f"applications for one user were filtered: {others}")
     if check_sql(
         "what other applications are being used by malikmubeen201",
         others,
