@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.followup import subscriber_kind
+from app.followup import named_subscriber, subscriber_kind
 
 APP_NAMES = (
     "whatsapp", "facebook", "messenger", "tiktok", "youtube", "instagram", "snapchat",
@@ -85,10 +85,7 @@ def _asks_for_users(text: str) -> bool:
 
 def _asks_for_apps_of_one_subscriber(text: str) -> bool:
     folded = text.lower()
-    return bool(
-        re.search(r"\b(application|applications|apps|app)\b", folded)
-        and re.search(r"\b(user|subscriber)\s+[a-z0-9]", folded)
-    )
+    return bool(re.search(r"\b(application|applications|apps)\b", folded) and named_subscriber(text))
 
 
 def _excludes_unidentified(sql: str) -> bool:

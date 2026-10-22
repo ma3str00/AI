@@ -84,12 +84,9 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     """Applications used by one subscriber. "Other" drops the application already shown."""
     if not re.search(r"\b(application|applications|apps)\b", question.lower()):
         return None
-    if not re.search(r"\b(user|subscriber)\b", question.lower()):
+    subscriber = named_subscriber(question)
+    if not subscriber:
         return None
-    match = re.search(r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b", question)
-    if not match:
-        return None
-    subscriber = match.group(1)
     where = [f"subscriber_id = '{subscriber}'"]
     previous = _last_sql(history)
     if re.search(r"\bother\b", question.lower()) and previous:
@@ -106,6 +103,31 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY total_bytes DESC LIMIT {int(limit)}"
     )
+
+
+def named_subscriber(question: str) -> str | None:
+    """The subscriber id named in the question, including 'used by someid123'."""
+    patterns = (
+        r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, question)
+        if not match:
+            continue
+        token = match.group(1)
+        if token.lower() in _NOT_SUBSCRIBER:
+            continue
+        if re.search(r"\d", token) or "-" in token or "_" in token:
+            return token
+    return None
+
+
+_NOT_SUBSCRIBER = {
+    "the", "number", "traffic", "volume", "flow", "flows", "total", "bytes",
+    "application", "applications", "apps", "user", "subscriber", "users",
+    "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
+}
 
 
 def _app_predicate(sql: str) -> str | None:

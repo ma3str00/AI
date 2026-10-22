@@ -343,18 +343,18 @@ def main() -> None:
     if not by_flows or "order by flows" not in by_flows.lower() or "facebook" not in by_flows.lower():
         raise SystemExit(f"flow ranking did not keep facebook: {by_flows}")
     others = resolve_followup(
-        "what other applications are being used by user 03339169479abhd",
+        "what other applications are being used by malikmubeen201",
         [{"question": "now give me the top 20 by number of flows", "sql": by_flows}],
     )
     if (
         not others
         or "group by app_label" not in others.lower()
-        or "03339169479abhd" not in others.lower()
+        or "malikmubeen201" not in others.lower()
         or "not (lower(app_label) like '%facebook%')" not in others.lower()
     ):
         raise SystemExit(f"other applications for one user were not built: {others}")
     if check_sql(
-        "what other applications are being used by user 03339169479abhd",
+        "what other applications are being used by malikmubeen201",
         others,
         [{"question": "give me top 20 facebook users", "sql": facebook}],
         True,

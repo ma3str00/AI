@@ -16,7 +16,7 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
-from app.followup import conversation_full_scan, resolve_followup, subscriber_kind, use_full_scan
+from app.followup import conversation_full_scan, named_subscriber, resolve_followup, subscriber_kind, use_full_scan
 from app.learned import saved_sql, sql_needs_full_scan
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
@@ -131,6 +131,8 @@ def ask(body: Question):
             _followup_notice(question),
         )
         if replayed is not None:
+            if replayed.get("row_count") == 0 and re.search(r"\bother\b", question.lower()):
+                replayed["explanation"] = "No other applications were found for that subscriber."
             return replayed
     clarification = needs_clarification(question, history)
     if clarification:
@@ -204,8 +206,10 @@ def ask(body: Question):
             continue
         shown = present_rows(columns, rows, config)
         if full_scan:
-            if wants_full_table(question) or conversation_full_scan(question, history):
+            if wants_full_table(question) or _phrase_asks_for_all_data(question):
                 scan_note = "This query reads the whole table because you asked for no time filter. On a large table it can take several minutes."
+            elif conversation_full_scan(question, history):
+                scan_note = "This keeps the previous time scope, so it reads the whole table. On a large table it can take several minutes."
             else:
                 scan_note = "This query reads the whole table because you marked an answer with no time range as correct. On a large table it can take several minutes."
             warning = f"{scan_note} {warning}" if warning else scan_note
@@ -348,7 +352,9 @@ def _clarify(text: str) -> dict:
 
 def _followup_notice(question: str) -> str:
     folded = question.lower()
-    if re.search(r"\b(application|applications|apps)\b", folded) and re.search(r"\b(user|subscriber)\b", folded):
+    if re.search(r"\b(application|applications|apps)\b", folded) and named_subscriber(question):
+        if re.search(r"\bother\b", folded):
+            return "This lists that subscriber's other applications, excluding the application from the previous query. It reads the whole table and can take several minutes."
         return "This lists applications for that subscriber. It reads the whole table and can take several minutes."
     if subscriber_kind([question]) in {"mobile", "fixed"}:
         return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."
@@ -357,6 +363,14 @@ def _followup_notice(question: str) -> str:
     if "upload" in folded and "download" in folded:
         return "This keeps the previous filters and shows upload and download separately."
     return "This keeps the previous filters and changes only what you just asked."
+
+
+def _phrase_asks_for_all_data(question: str) -> bool:
+    folded = question.lower()
+    return any(
+        phrase in folded
+        for phrase in ("no time filter", "no time range", "all the data", "all data", "entire data", "whole table")
+    )
 
 
 def _is_time_question(text: str) -> bool:
