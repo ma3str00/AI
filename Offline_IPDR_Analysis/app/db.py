@@ -38,7 +38,12 @@ class Database:
             self._conn = None
             return False, str(exc)
 
-    def query(self, sql: str, max_execution_ms: int | None = None) -> tuple[list[str], list[dict], str | None]:
+    def query(
+        self,
+        sql: str,
+        max_execution_ms: int | None = None,
+        unbounded: bool = False,
+    ) -> tuple[list[str], list[dict], str | None]:
         with self._lock:
             conn = None
             try:
@@ -46,6 +51,9 @@ class Database:
                 if max_execution_ms is not None:
                     with conn.cursor() as cursor:
                         cursor.execute("SET SESSION max_execution_time = %s", (max_execution_ms,))
+                if unbounded:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SET SESSION sql_select_limit = DEFAULT")
                 warning = self._scan_warning(conn, sql)
                 with conn.cursor() as cursor:
                     cursor.execute(sql)
@@ -56,9 +64,12 @@ class Database:
                 self._conn = None
                 raise DatabaseError(str(exc)) from exc
             finally:
-                if conn is not None and max_execution_ms is not None and self._conn is not None:
+                if conn is not None and self._conn is not None:
                     with conn.cursor() as cursor:
-                        cursor.execute("SET SESSION max_execution_time = %s", (self.config.max_execution_ms,))
+                        if max_execution_ms is not None:
+                            cursor.execute("SET SESSION max_execution_time = %s", (self.config.max_execution_ms,))
+                        if unbounded:
+                            cursor.execute("SET SESSION sql_select_limit = %s", (self.config.max_rows,))
 
     def _connection(self):
         if self._conn is not None:

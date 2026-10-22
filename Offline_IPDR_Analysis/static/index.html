@@ -202,14 +202,20 @@ function addAnswerBubble(asked, data) {
     wrap.style.marginTop = "10px";
     const table = document.createElement("table");
     const head = document.createElement("tr");
+    const numberHead = document.createElement("th");
+    numberHead.textContent = "#";
+    head.append(numberHead);
     for (const column of data.columns) {
       const cell = document.createElement("th");
       cell.textContent = column;
       head.append(cell);
     }
     table.append(head);
-    for (const record of data.rows) {
+    data.rows.forEach((record, index) => {
       const line = document.createElement("tr");
+      const number = document.createElement("td");
+      number.textContent = String(index + 1);
+      line.append(number);
       for (const column of data.columns) {
         const cell = document.createElement("td");
         const value = record[column];
@@ -217,7 +223,7 @@ function addAnswerBubble(asked, data) {
         line.append(cell);
       }
       table.append(line);
-    }
+    });
     wrap.append(table);
     bubble.append(wrap);
   }

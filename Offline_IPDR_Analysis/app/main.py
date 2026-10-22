@@ -205,6 +205,7 @@ def ask(body: Question):
             columns, rows, warning = database.query(
                 safe_sql,
                 max_execution_ms=config.full_scan_execution_ms if full_scan else None,
+                unbounded=wants_all_groups(question),
             )
         except DatabaseError as exc:
             error = str(exc)
@@ -299,6 +300,7 @@ def _replay_saved(
         columns, rows, warning = database.query(
             safe_sql,
             max_execution_ms=config.full_scan_execution_ms if full_scan else None,
+            unbounded=allow_all_groups,
         )
     except DatabaseError as exc:
         return {
