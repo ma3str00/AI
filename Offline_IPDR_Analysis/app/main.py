@@ -16,8 +16,15 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
-from app.followup import conversation_full_scan, resolve_followup
+from app.followup import resolve_followup, use_full_scan
 from app.learned import saved_sql, sql_needs_full_scan
+from app.preferences import (
+    load_preferences,
+    missing_time_means_all,
+    remember_time_rule,
+    rule_only,
+    teaches_missing_time_means_all,
+)
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
@@ -91,6 +98,7 @@ def health():
         "llama": {"ok": model_ok, "detail": model_detail, "model": config.llama_model, "base_url": config.llama_base_url},
         "examples": len(_state["index"].examples),
         "learned": _state.get("learned_count", 0),
+        "missing_time": "all" if missing_time_means_all() else "ask",
         "labels": len(_state["mapping"].rows),
         "mapping_error": _state["mapping_error"],
         "time": {"stored_as": config.stored_as, "note": config.time_note, "session_time_zone": config.session_time_zone},
@@ -114,6 +122,11 @@ def ask(body: Question):
     llama: LlamaServer = _state["llama"]
 
     history = _history_payload(body.history)
+    _remember_time_rule([question, *[str(item.get("question") or "") for item in history]])
+    if rule_only(question):
+        return _clarify(
+            "Saved. If a question does not name a time range, the query runs on all of the data. It will not ask for one again."
+        )
     saved = saved_sql(_state["index"].examples, question)
     if saved:
         replayed = _replay_saved(saved, config, database)
@@ -133,8 +146,8 @@ def ask(body: Question):
     clarification = needs_clarification(question, history)
     if clarification:
         return _clarify(clarification)
-    full_scan = conversation_full_scan(question, history) or wants_full_table(question) or _followup_keeps_full_scan(question, history)
-    examples = _select_examples(index, question, history)
+    full_scan = use_full_scan(question, history, missing_time_means_all())
+    examples = _select_examples(index, question, history, full_scan)
     hints = mapping.hints(question)
     error = None
     previous_sql = None
@@ -234,6 +247,7 @@ def learn(body: LearnRequest):
         cleaned = text.strip()
         if cleaned and cleaned.lower() not in {item.lower() for item in questions}:
             questions.append(cleaned)
+    _remember_time_rule(questions)
     full_scan = sql_needs_full_scan(body.sql) or any(wants_full_table(text) for text in questions)
     try:
         safe_sql = prepare(body.sql, config.max_rows, allow_full_scan=full_scan)
@@ -298,6 +312,18 @@ def _reload_index() -> None:
     learned = load_examples(config.learned_jsonl) if config.learned_jsonl.exists() else []
     _state["learned_count"] = len(learned)
     _state["index"] = ExampleIndex(examples + learned)
+    load_preferences(_preferences_path())
+    _remember_time_rule([str(item.get("question") or "") for item in learned])
+
+
+def _preferences_path() -> Path:
+    config: Config = _state["config"]
+    return config.learned_jsonl.parent / "learned_preferences.json"
+
+
+def _remember_time_rule(texts: list[str]) -> None:
+    if any(teaches_missing_time_means_all(text) for text in texts):
+        remember_time_rule(_preferences_path(), texts)
 
 
 def _write_learned(path: Path, record: dict) -> None:
@@ -343,20 +369,7 @@ def _history_payload(history: list[Turn]) -> list[dict]:
     return payload
 
 
-def _followup_keeps_full_scan(question: str, history: list[dict]) -> bool:
-    if not history:
-        return False
-    text = question.lower()
-    if any(word in text for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week")):
-        return False
-    for item in reversed(history):
-        sql = (item.get("sql") or "").lower()
-        if sql:
-            return not any(column in sql for column in ("start_time", "end_time", "recv_time"))
-    return False
-
-
-def _select_examples(index: ExampleIndex, question: str, history: list[dict]) -> list[dict]:
+def _select_examples(index: ExampleIndex, question: str, history: list[dict], full_scan: bool) -> list[dict]:
     if any(item.get("sql") for item in history):
         if re.search(r"mobile|fixed", question.lower()):
             picked = [
@@ -369,6 +382,13 @@ def _select_examples(index: ExampleIndex, question: str, history: list[dict]) ->
     if history:
         seed = " ".join(item.get("question") or "" for item in history) + " " + question
     picked = [item for item in index.top(seed, 8) if item.get("sql") or item.get("clarify")]
+    if full_scan:
+        picked = [
+            item
+            for item in picked
+            if not (item.get("clarify") and "time range" in str(item.get("clarify")).lower())
+            and (item.get("full_scan") or not item.get("sql") or sql_needs_full_scan(str(item.get("sql"))))
+        ]
     if re.search(r"\b(users|user|subscribers|subscriber_id|subscriber id)\b", seed.lower()):
         about_users = [
             item

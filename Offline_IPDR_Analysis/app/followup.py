@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from app.schema import MOBILE_SQL
+from app.sql_guard import wants_full_table
 
 _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this week")
 
@@ -53,6 +54,20 @@ def conversation_full_scan(question: str, history: list[dict] | None) -> bool:
         return True
     previous = _last_sql(history or [])
     return bool(previous) and not any(column in previous.lower() for column in ("start_time", "end_time", "recv_time"))
+
+
+def use_full_scan(question: str, history: list[dict] | None, missing_time_means_all: bool) -> bool:
+    """A saved rule runs the whole table when this question names no time window.
+
+    A follow-up of a query that already has a time filter keeps that filter.
+    """
+    if _names_time(question):
+        return False
+    if conversation_full_scan(question, history) or wants_full_table(question):
+        return True
+    if _last_sql(history or []):
+        return False
+    return missing_time_means_all
 
 
 def _last_sql(history: list[dict]) -> str:

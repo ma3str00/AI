@@ -264,6 +264,21 @@ def main() -> None:
     )
     if "like '%mobile%'" in repaired.lower() or " and not " not in repaired.lower():
         raise SystemExit(f"dictionary repair left the mobile query in place: {repaired}")
+    from app.followup import use_full_scan
+    from app.preferences import rule_only, teaches_missing_time_means_all
+
+    taught = "if no time range is specified then the query should run on the entire data"
+    if not teaches_missing_time_means_all(taught) or not rule_only(taught):
+        raise SystemExit("the standing time rule was not recognized")
+    if teaches_missing_time_means_all("use all the data"):
+        raise SystemExit("one whole-table request was stored as the standing rule")
+    if not use_full_scan("give me the top 5 whatsapp users by traffic volume", [], True):
+        raise SystemExit("a saved rule did not run a new question on all of the data")
+    if use_full_scan("top 5 whatsapp users yesterday", [], True):
+        raise SystemExit("yesterday was widened to the whole table")
+    timed = [{"question": "top apps yesterday", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE start_time >= 1 GROUP BY app_label"}]
+    if use_full_scan("top 10 mobile users for the same", timed, True):
+        raise SystemExit("a follow-up dropped the previous time filter")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
