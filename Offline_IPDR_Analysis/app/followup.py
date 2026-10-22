@@ -248,12 +248,24 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_total = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
     if wants_split and not re.search(r"\b(also|as well|total)\b", folded):
         keep_total = False
-    upload_unit = unit if wants_split or (unit and not wants_split and keep_upload and "volume" in folded) else _existing_unit(sql, "c2s")
-    download_unit = unit if wants_split or (unit and not wants_split and keep_download and "volume" in folded) else _existing_unit(sql, "s2c")
-    total_unit = unit if unit and wants_volume and not wants_split else _existing_unit(sql, "total")
-    if unit and wants_volume and not wants_split and not keep_total and (keep_upload or keep_download):
+    names_upload = "upload" in folded
+    names_download = "download" in folded
+    if unit and names_upload and not names_download and not wants_volume:
         upload_unit = unit
+        download_unit = _existing_unit(sql, "s2c")
+        total_unit = _existing_unit(sql, "total")
+    elif unit and names_download and not names_upload and not wants_volume:
+        upload_unit = _existing_unit(sql, "c2s")
         download_unit = unit
+        total_unit = _existing_unit(sql, "total")
+    elif unit:
+        upload_unit = unit if keep_upload or wants_split else _existing_unit(sql, "c2s")
+        download_unit = unit if keep_download or wants_split else _existing_unit(sql, "s2c")
+        total_unit = unit if keep_total else _existing_unit(sql, "total")
+    else:
+        upload_unit = _existing_unit(sql, "c2s")
+        download_unit = _existing_unit(sql, "s2c")
+        total_unit = _existing_unit(sql, "total")
     key = _group_key(sql) or "app_label"
     columns = [key]
     if keep_flows:
@@ -300,14 +312,41 @@ def _group_key(sql: str) -> str | None:
     return match.group(1).lower() if match else None
 
 
+def asked_unit(question: str) -> str | None:
+    """mb, gb, or tb when the question names a display unit."""
+    found = _unit_of(question)
+    return found[1] if found else None
+
+
 def _unit_of(question: str) -> tuple[int, str] | None:
+    """The unit to display. In 'from GB to MB', MB is the one that was asked for."""
     folded = question.lower()
-    if re.search(r"terabytes?|\btb\b", folded):
-        return 1099511627776, "tb"
-    if re.search(r"gigabytes?|\bgb\b", folded):
-        return 1073741824, "gb"
-    if re.search(r"megabytes?|\bmb\b", folded):
-        return 1048576, "mb"
+    destination = None
+    for match in re.finditer(r"\b(?:to|into|in|as)\s+(?:the\s+)?([a-z0-9]+)", folded):
+        token = _unit_token(match.group(1))
+        if token:
+            destination = token
+    if destination:
+        return destination
+    found: tuple[int, tuple[int, str]] | None = None
+    for pattern, unit in _UNIT_PATTERNS:
+        for match in pattern.finditer(folded):
+            if found is None or match.start() >= found[0]:
+                found = (match.start(), unit)
+    return found[1] if found else None
+
+
+_UNIT_PATTERNS = (
+    (re.compile(r"terabytes?|\btb\b"), (1099511627776, "tb")),
+    (re.compile(r"gigabytes?|\bgb\b"), (1073741824, "gb")),
+    (re.compile(r"megabytes?|\bmb\b"), (1048576, "mb")),
+)
+
+
+def _unit_token(word: str) -> tuple[int, str] | None:
+    for pattern, unit in _UNIT_PATTERNS:
+        if pattern.fullmatch(word):
+            return unit
     return None
 
 

@@ -477,6 +477,34 @@ def main() -> None:
     )
     if "ranked by" in plain.lower():
         raise SystemExit(f"an unordered result was described as a ranking: {plain}")
+    games = (
+        "SELECT app_label, COUNT(*) AS flow_count, "
+        "ROUND(SUM(c2s_byte_num) / 1073741824, 2) AS upload_traffic_gb, "
+        "ROUND(SUM(s2c_byte_num) / 1073741824, 2) AS download_traffic_gb, "
+        "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
+        "FROM ntc_ssl_logs WHERE LOWER(app_category) IN ('game') "
+        "GROUP BY app_label ORDER BY users DESC LIMIT 200"
+    )
+    megabytes = resolve_followup(
+        "change the traffic number from GB to MB",
+        [{"question": "games", "sql": games}],
+    )
+    if (
+        not megabytes
+        or "/ 1048576" not in megabytes
+        or "upload_traffic_mb" not in megabytes.lower()
+        or "download_traffic_mb" not in megabytes.lower()
+        or "/ 1073741824" in megabytes
+        or "order by users desc" not in megabytes.lower()
+    ):
+        raise SystemExit(f"from GB to MB stayed in gigabytes: {megabytes}")
+    back = resolve_followup(
+        "change it from MB to GB",
+        [{"question": "megabytes", "sql": megabytes}],
+    )
+    if not back or "/ 1073741824" not in back or "upload_traffic_gb" not in back.lower() or "/ 1048576" in back:
+        raise SystemExit(f"from MB to GB stayed in megabytes: {back}")
     listing = (
         "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
         "WHERE LOWER(app_category) = 'web_browsing' GROUP BY app_label LIMIT 200"

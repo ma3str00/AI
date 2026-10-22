@@ -16,7 +16,7 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
-from app.followup import conversation_full_scan, named_subscriber, resolve_followup, subscriber_kind, use_full_scan
+from app.followup import asked_unit, conversation_full_scan, named_subscriber, resolve_followup, subscriber_kind, use_full_scan
 from app.learned import saved_sql, sql_needs_full_scan
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
@@ -385,18 +385,21 @@ def _followup_notice(question: str) -> str:
             folded,
         )
     )
-    if orders_by_users and re.search(r"gigabytes?|\bgb\b", folded):
-        return "This keeps the previous columns, shows the volumes in gigabytes, and orders the rows by the number of users."
+    unit_name = {"tb": "terabytes", "gb": "gigabytes", "mb": "megabytes"}.get(asked_unit(question) or "")
+    if orders_by_users and unit_name:
+        return f"This keeps the previous columns, shows the traffic in {unit_name}, and orders the rows by the number of users."
     if orders_by_users and "upload" in folded and "download" in folded:
         return "This keeps the previous filters, shows upload and download separately, and orders the rows by the number of users."
     if orders_by_users:
         return "This keeps the previous columns and orders the rows by the number of users."
     if wants_all_groups(question):
         return "This removes the row limit so every application in that result is shown."
-    if re.search(r"gigabytes?|\bgb\b", folded) and "upload" in folded and "download" in folded:
-        return "This keeps the previous columns and shows upload and download in gigabytes."
+    if unit_name and "upload" in folded and "download" in folded:
+        return f"This keeps the previous columns and shows upload and download in {unit_name}."
     if "upload" in folded and "download" in folded:
         return "This keeps the previous filters and shows upload and download separately."
+    if unit_name:
+        return f"This keeps the previous columns and shows the traffic in {unit_name}."
     return "This keeps the previous filters and changes only what you just asked."
 
 
