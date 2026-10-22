@@ -410,6 +410,29 @@ def main() -> None:
         raise SystemExit(f"gigabytes used the wrong divisor or dropped flows: {gigabytes}")
     if "/ 1048576" in gigabytes:
         raise SystemExit(f"gigabytes was calculated as megabytes: {gigabytes}")
+    users = resolve_followup(
+        "also show the corresponding number of unique users against each app",
+        [{"question": "gigabytes", "sql": gigabytes}],
+    )
+    if (
+        not users
+        or "count(distinct case when" not in users.lower()
+        or " as users" not in users.lower()
+        or "flow_count" not in users.lower()
+        or "upload_traffic_gb" not in users.lower()
+        or "group by app_label" not in users.lower()
+    ):
+        raise SystemExit(f"unique users were not added beside each application: {users}")
+    if check_sql(
+        "also show the corresponding number of unique users against each app",
+        users,
+        [{"question": "top applications", "sql": apps}],
+        True,
+    ):
+        raise SystemExit("a user count per application was rejected")
+    from app.sql_guard import prepare as guard_prepare
+
+    guard_prepare(users, max_rows=200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

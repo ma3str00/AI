@@ -21,7 +21,7 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
     folded = re.sub(r"\s+", " ", sql.lower())
     problems = []
 
-    if _asks_for_users(conversation) and not _asks_for_apps_of_one_subscriber(question):
+    if _asks_for_users(conversation) and not _asks_for_apps_of_one_subscriber(question) and not _counts_users_per_app(question):
         if "group by subscriber_id" not in folded:
             problems.append(
                 "Group by subscriber_id. Users and subscribers are subscriber_id, not app_label."
@@ -75,6 +75,13 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
 
 def _subscriber_kind(question: str) -> str | None:
     return subscriber_kind([question])
+
+
+def _counts_users_per_app(question: str) -> bool:
+    folded = question.lower()
+    return "unique user" in folded or "number of users" in folded or (
+        "user" in folded and "each app" in folded
+    )
 
 
 def _asks_for_users(text: str) -> bool:

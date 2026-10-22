@@ -220,11 +220,12 @@ def _present_measures(question: str, sql: str) -> str | None:
         return None
     folded = question.lower()
     unit = _unit_of(question)
+    wants_users = _wants_user_count(folded)
     wants_split = "upload" in folded and "download" in folded
     wants_flows = bool(re.search(r"\bflows?\b", folded)) or "flow count" in folded or "removed the flow" in folded
     wants_order = wants_flows and bool(re.search(r"\b(ordered|order|sorted)\b", folded))
     wants_volume = "volume" in folded or "traffic" in folded
-    if not (wants_split or wants_flows or unit or wants_order):
+    if not (wants_split or wants_flows or unit or wants_order or wants_users):
         return None
     if wants_flows and not wants_split and not unit and _group_key(sql) == "subscriber_id":
         return None
@@ -250,6 +251,11 @@ def _present_measures(question: str, sql: str) -> str | None:
         columns.append(_byte_column("SUM(s2c_byte_num)", "download_traffic", download_unit))
     if keep_total:
         columns.append(_byte_column("SUM(c2s_byte_num + s2c_byte_num)", "traffic_volume", total_unit))
+    if wants_users or _has_call(sql, r"count\s*\(\s*distinct\b"):
+        columns.append(
+            "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+            "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users"
+        )
     tail = re.sub(r"\s+", " ", sql)
     match = re.search(r"\bFROM\b", tail, flags=re.IGNORECASE)
     if not match:
@@ -264,6 +270,14 @@ def _present_measures(question: str, sql: str) -> str | None:
         else:
             statement = f"{statement} ORDER BY {order} DESC"
     return re.sub(r"\s+", " ", statement).strip()
+
+
+def _wants_user_count(question: str) -> bool:
+    """A user count beside each application, not a ranking of subscribers."""
+    return bool(
+        re.search(r"\b(unique users|number of users|user count|users against|users per|users for each)\b", question)
+        or ("user" in question and re.search(r"\b(each app|per app|against each|by app)\b", question))
+    )
 
 
 def _group_key(sql: str) -> str | None:

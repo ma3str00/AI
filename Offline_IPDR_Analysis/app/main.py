@@ -358,6 +358,10 @@ def _followup_notice(question: str) -> str:
         return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."
     if re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded):
         return "This keeps the previous filters and ranks by the number of flows."
+    if re.search(r"\b(unique users|number of users)\b", folded):
+        return "This adds the number of identified subscribers for each application and keeps the other columns."
+    if re.search(r"gigabytes?|\bgb\b", folded) and "upload" in folded and "download" in folded:
+        return "This keeps the previous columns and shows upload and download in gigabytes."
     if "upload" in folded and "download" in folded:
         return "This keeps the previous filters and shows upload and download separately."
     return "This keeps the previous filters and changes only what you just asked."
