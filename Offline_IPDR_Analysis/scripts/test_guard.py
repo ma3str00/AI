@@ -236,8 +236,17 @@ def main() -> None:
         raise SystemExit("confirmed follow-up added a time filter")
     guard_prepare(resolved, max_rows=200, allow_full_scan=True)
     later = resolve_followup("all data", thread + [{"question": "should stay limited to whatsapp", "sql": ""}])
-    if not later or "mcc" not in later.lower():
+    if not later or "mcc" not in later.lower() or " and not " in later.lower():
         raise SystemExit("all data did not rerun the confirmed mobile query")
+    fixed = resolve_followup(
+        "now give me the top 10 fixed-line users for the same",
+        thread + [{"question": "now give me the top 10 mobile users for the same", "sql": resolved}],
+    )
+    if not fixed or " and not " not in fixed.lower() or fixed.lower().count("nullif(mcc") != 1:
+        raise SystemExit(f"fixed-line follow-up kept the mobile filter: {fixed}")
+    if "whatsapp" not in fixed.lower() or "LIMIT 10" not in fixed:
+        raise SystemExit(f"fixed-line follow-up dropped the previous query: {fixed}")
+    guard_prepare(fixed, max_rows=200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

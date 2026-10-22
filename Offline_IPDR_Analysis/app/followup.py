@@ -15,21 +15,22 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
         return None
-    texts = [str(item.get("question") or "") for item in history] + [question]
-    blob = " ".join(texts).lower()
-    mobile = _mentions_mobile(blob)
-    fixed = _mentions_fixed(blob) and not mobile
-    if not mobile and not fixed:
+    texts = [str(item.get("question") or "") for item in history]
+    kind = _subscriber_kind(texts + [question])
+    if kind is None:
         return None
     if _names_time(question):
         return None
+    blob = " ".join(texts + [question]).lower()
     keep, drop = _app_choice(blob, previous)
+    if "for the same" in question.lower():
+        keep = True
     if _has_app_filter(previous) and not keep and not drop:
         return None
     if _subscriber_request(question) and not keep and not drop:
         return None
-    limit = _latest_limit(texts) or _limit_of(previous) or 5
-    return _rewrite(previous, keep_app=not drop, mobile=mobile, fixed=fixed, limit=limit)
+    limit = _limit_in(question) or _latest_limit(texts) or _limit_of(previous) or 5
+    return _rewrite(previous, keep_app=not drop, kind=kind, limit=limit)
 
 
 def conversation_full_scan(question: str, history: list[dict] | None) -> bool:
@@ -62,6 +63,22 @@ def _last_sql(history: list[dict]) -> str:
     return ""
 
 
+def _subscriber_kind(texts: list[str]) -> str | None:
+    """The latest mobile or fixed-line request wins. Earlier turns do not stick."""
+    found = None
+    for text in texts:
+        if _mentions_fixed(text) and not _mentions_mobile(text):
+            found = "fixed"
+        elif _mentions_mobile(text):
+            found = "mobile"
+    return found
+
+
+def _limit_in(text: str) -> int | None:
+    match = re.search(r"\btop\s+(\d+)\b", text.lower())
+    return int(match.group(1)) if match else None
+
+
 def _mentions_mobile(text: str) -> bool:
     folded = text.replace("_", "").replace("-", " ")
     return "mobile user" in folded or "mobile subscriber" in folded or ("exclude" in folded and "fixed" in folded)
@@ -83,7 +100,7 @@ def _app_choice(blob: str, previous: str) -> tuple[bool, bool]:
     )
     keep = any(
         phrase in blob
-        for phrase in ("stay limited", "keep whatsapp", "only whatsapp", "limited to whatsapp", "stay on whatsapp")
+        for phrase in ("stay limited", "keep whatsapp", "only whatsapp", "limited to whatsapp", "stay on whatsapp", "for the same")
     )
     if not keep and not drop and "whatsapp" in blob and "whatsapp" in previous.lower():
         # The user named WhatsApp again while answering, which keeps that filter.
@@ -113,23 +130,23 @@ def _limit_of(sql: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _rewrite(sql: str, keep_app: bool, mobile: bool, fixed: bool, limit: int) -> str:
+def _rewrite(sql: str, keep_app: bool, kind: str, limit: int) -> str:
     text = re.sub(r"\s+", " ", sql).strip()
     if not keep_app:
         text = re.sub(r"\s+AND\s+LOWER\(app_label\)\s+LIKE\s+'%[^']+%'", "", text, flags=re.IGNORECASE)
         text = re.sub(r"LOWER\(app_label\)\s+LIKE\s+'%[^']+%'\s+AND\s+", "", text, flags=re.IGNORECASE)
-    if mobile and "mcc" not in text.lower():
-        text = re.sub(r"\bGROUP BY\b", f"AND {MOBILE_SQL} GROUP BY", text, count=1, flags=re.IGNORECASE)
-    if fixed and "not (" not in text.lower():
-        text = re.sub(
-            r"\bGROUP BY\b",
-            f"AND NOT {MOBILE_SQL} GROUP BY",
-            text,
-            count=1,
-            flags=re.IGNORECASE,
-        )
+    text = _without_cell(text)
+    cell = f"AND NOT {MOBILE_SQL}" if kind == "fixed" else f"AND {MOBILE_SQL}"
+    text = re.sub(r"\bGROUP BY\b", f"{cell} GROUP BY", text, count=1, flags=re.IGNORECASE)
     if re.search(r"\blimit\s+\d+\b", text, flags=re.IGNORECASE):
         text = re.sub(r"\blimit\s+\d+\b", f"LIMIT {int(limit)}", text, count=1, flags=re.IGNORECASE)
     else:
         text = f"{text} LIMIT {int(limit)}"
+    return text
+
+
+def _without_cell(sql: str) -> str:
+    pattern = re.escape(re.sub(r"\s+", " ", MOBILE_SQL))
+    text = re.sub(rf"\s+AND\s+NOT\s+{pattern}", "", sql, flags=re.IGNORECASE)
+    text = re.sub(rf"\s+AND\s+{pattern}", "", text, flags=re.IGNORECASE)
     return text

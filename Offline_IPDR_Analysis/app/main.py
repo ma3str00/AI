@@ -120,7 +120,12 @@ def ask(body: Question):
             return replayed
     resolved = resolve_followup(question, history)
     if resolved:
-        replayed = _replay_saved({"sql": resolved, "full_scan": conversation_full_scan(question, history)}, config, database)
+        replayed = _replay_saved(
+            {"sql": resolved, "full_scan": conversation_full_scan(question, history)},
+            config,
+            database,
+            "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty.",
+        )
         if replayed is not None:
             return replayed
     clarification = needs_clarification(question, history)
@@ -246,7 +251,7 @@ def learn(body: LearnRequest):
     return {"ok": True, "learned": _state["learned_count"], "examples": len(_state["index"].examples)}
 
 
-def _replay_saved(saved: dict, config: Config, database: Database) -> dict | None:
+def _replay_saved(saved: dict, config: Config, database: Database, notice: str | None = None) -> dict | None:
     full_scan = bool(saved.get("full_scan")) or sql_needs_full_scan(str(saved.get("sql") or ""))
     try:
         safe_sql = prepare(str(saved["sql"]), config.max_rows, allow_full_scan=full_scan)
@@ -270,7 +275,7 @@ def _replay_saved(saved: dict, config: Config, database: Database) -> dict | Non
         }
     shown = present_rows(columns, rows, config)
     if full_scan:
-        scan_note = "This is the query you marked correct. It reads the whole table and can take several minutes."
+        scan_note = notice or "This is the query you marked correct. It reads the whole table and can take several minutes."
         warning = f"{scan_note} {warning}" if warning else scan_note
     return {
         "ok": True,
@@ -319,9 +324,7 @@ def _clarify(text: str) -> dict:
 
 def _is_time_question(text: str) -> bool:
     folded = text.lower()
-    if "application" in folded or "whatsapp" in folded or "app filter" in folded:
-        return False
-    return "time" in folded
+    return "time range" in folded or "time filter" in folded or "time period" in folded
 
 
 def _history_payload(history: list[Turn]) -> list[dict]:

@@ -94,7 +94,7 @@ Traffic volume means that byte total. Applications means GROUP BY app_label. Cat
 Users or subscribers means GROUP BY subscriber_id. Do not group a users question by app_label. Exclude unidentified ids with AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0. A value such as 203.0.113.10_56175 is client IPv4 and client port, not a subscriber.
 If the question names an app and asks for users, filter that app with LOWER(app_label) LIKE '%name%' and still group by subscriber_id.
 Compare categories in lowercase: web_browsing, im, voip, tunneling, game, streaming, email. VPN means tunneling.
-Mobile users means a valid subscriber_id and at least one of mcc, mnc, lac, cid, or usr_loc_info is filled. Fixed-line users means a valid subscriber_id and all of those cell fields are empty. A numeric subscriber_id can be fixed-line. Never filter app_label for mobile or fixed-line, and never write LIKE '%mobile%' or LIKE '%fixed%'.
+Mobile means at least one of mcc, mnc, lac, cid, or usr_loc_info is filled. The latest question decides mobile or fixed-line. Fixed-line means a valid subscriber_id and those cell fields are all empty. Never filter app_label for either one.
 Match 03... and 923... as the same Pakistani mobile number.
 client_location and server_location are IP-database places. geo and loc are the cell or the fixed-line address. data_center is empty. Never use it.
 Prefer WHERE start_time. If the user gives no time range, clarify and ask for one. If they explicitly say no time filter or all the data, omit the time predicate.

@@ -557,9 +557,27 @@ def _mobile_fixed(add) -> None:
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT {limit}"
     )
     add(
-        "now give me the top 10 mobile users, exclude the fixedline users",
+        "now give me the top 10 mobile users for the same",
         mobile_users.format(where="LOWER(app_label) LIKE '%whatsapp%'", limit=10),
-        ["mobile", "fixed", "users", "subscriber_id", "whatsapp", "top", "full_scan"],
+        ["mobile", "whatsapp", "users", "subscriber_id", "same", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "now give me the top 10 fixed-line users for the same",
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        f"AND {IDENTIFIED_SQL} AND NOT {MOBILE_SQL} "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10",
+        ["fixed", "whatsapp", "users", "subscriber_id", "same", "full_scan"],
+        full_scan=True,
+    )
+    add(
+        "give me the top 5 whatsapp users",
+        mobile_users.format(where="LOWER(app_label) LIKE '%whatsapp%'", limit=5).replace(
+            f" AND {MOBILE_SQL}", ""
+        ),
+        ["whatsapp", "users", "subscriber_id", "top", "full_scan"],
         full_scan=True,
     )
     add(
