@@ -433,6 +433,21 @@ def main() -> None:
     from app.sql_guard import prepare as guard_prepare
 
     guard_prepare(users, max_rows=200, allow_full_scan=True)
+    listing = (
+        "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
+        "WHERE LOWER(app_category) = 'web_browsing' GROUP BY app_label LIMIT 200"
+    )
+    opened = resolve_followup(
+        "you dont need to apply the limit, I need to see all of them",
+        [{"question": "list of applications", "sql": listing}],
+    )
+    if not opened or "limit" in opened.lower():
+        raise SystemExit(f"the row limit was kept: {opened}")
+    if "web_browsing" not in opened.lower():
+        raise SystemExit(f"removing the limit dropped the category: {opened}")
+    shown_all = guard_prepare(opened, max_rows=200, allow_full_scan=True, allow_all_groups=True)
+    if "limit" in shown_all.lower():
+        raise SystemExit(f"the guard put the limit back: {shown_all}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

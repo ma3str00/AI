@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from app.schema import MOBILE_SQL
-from app.sql_guard import wants_full_table
+from app.sql_guard import wants_all_groups, wants_full_table
 
 _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this week")
 
@@ -16,6 +16,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps = _apps_of_one_subscriber(question, history)
     if apps:
         return apps
+    unlimited = _without_row_limit(question, history)
+    if unlimited:
+        return unlimited
     if _pending(history) and _answer_keeps(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
     if _pending(history) and _answer_drops(question):
@@ -45,6 +48,16 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
         return None
     limit = _limit_in(question) or _latest_limit(texts) or _limit_of(previous) or 5
     return _rewrite(previous, keep_app=not drop, kind=kind, limit=limit)
+
+
+def _without_row_limit(question: str, history: list[dict]) -> str | None:
+    previous = _last_sql(history)
+    if not previous or not wants_all_groups(question):
+        return None
+    if _group_key(previous) not in {"app_label", "app_category"}:
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    return re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
 
 
 def conversation_full_scan(question: str, history: list[dict] | None) -> bool:

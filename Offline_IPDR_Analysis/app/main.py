@@ -25,7 +25,7 @@ from app.prompts import sql_messages
 from app.retrieve import ExampleIndex, load_examples
 from app.rules import dictionary_problem, repair_sql
 from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
-from app.sql_guard import GuardError, prepare, wants_full_table
+from app.sql_guard import GuardError, prepare, wants_all_groups, wants_full_table
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "static" / "index.html"
@@ -129,6 +129,7 @@ def ask(body: Question):
             config,
             database,
             _followup_notice(question),
+            allow_all_groups=wants_all_groups(question),
         )
         if replayed is not None:
             if replayed.get("row_count") == 0 and named_subscriber(question):
@@ -190,7 +191,12 @@ def ask(body: Question):
             previous_sql = sql
             continue
         try:
-            safe_sql = prepare(sql, config.max_rows, allow_full_scan=full_scan)
+            safe_sql = prepare(
+                sql,
+                config.max_rows,
+                allow_full_scan=full_scan,
+                allow_all_groups=wants_all_groups(question),
+            )
         except GuardError as exc:
             error = str(exc)
             previous_sql = sql
@@ -272,10 +278,21 @@ def learn(body: LearnRequest):
     }
 
 
-def _replay_saved(saved: dict, config: Config, database: Database, notice: str | None = None) -> dict | None:
+def _replay_saved(
+    saved: dict,
+    config: Config,
+    database: Database,
+    notice: str | None = None,
+    allow_all_groups: bool = False,
+) -> dict | None:
     full_scan = bool(saved.get("full_scan")) or sql_needs_full_scan(str(saved.get("sql") or ""))
     try:
-        safe_sql = prepare(str(saved["sql"]), config.max_rows, allow_full_scan=full_scan)
+        safe_sql = prepare(
+            str(saved["sql"]),
+            config.max_rows,
+            allow_full_scan=full_scan,
+            allow_all_groups=allow_all_groups,
+        )
     except GuardError:
         return None
     try:
@@ -360,6 +377,8 @@ def _followup_notice(question: str) -> str:
         return "This keeps the previous filters and ranks by the number of flows."
     if re.search(r"\b(unique users|number of users)\b", folded):
         return "This adds the number of identified subscribers for each application and keeps the other columns."
+    if wants_all_groups(question):
+        return "This removes the row limit so every application in that result is shown."
     if re.search(r"gigabytes?|\bgb\b", folded) and "upload" in folded and "download" in folded:
         return "This keeps the previous columns and shows upload and download in gigabytes."
     if "upload" in folded and "download" in folded:

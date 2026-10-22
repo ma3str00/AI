@@ -49,7 +49,28 @@ def wants_full_table(question: str) -> bool:
     return any(marker in text for marker in whole_table) and not has_range
 
 
-def prepare(sql: str, max_rows: int, allow_full_scan: bool = False) -> str:
+def wants_all_groups(question: str) -> bool:
+    """The user asked to see every grouped row, not a capped sample."""
+    folded = question.lower().replace("'", "").replace("’", "")
+    return any(
+        phrase in folded
+        for phrase in (
+            "no limit",
+            "without a limit",
+            "without the limit",
+            "dont apply the limit",
+            "do not apply the limit",
+            "dont need to apply the limit",
+            "do not need to apply the limit",
+            "remove the limit",
+            "see all of them",
+            "all of them",
+            "every one of them",
+        )
+    )
+
+
+def prepare(sql: str, max_rows: int, allow_full_scan: bool = False, allow_all_groups: bool = False) -> str:
     text = _strip(sql)
     try:
         statements = [item for item in sqlglot.parse(text, read="mysql") if item is not None]
@@ -94,6 +115,10 @@ def prepare(sql: str, max_rows: int, allow_full_scan: bool = False) -> str:
                 "A question with no time range is not run unless you explicitly ask for all of the data."
             )
 
+    if allow_all_groups and _groups_by_label(expr):
+        expr.set("limit", None)
+        return expr.sql(dialect="mysql")
+
     limit = expr.args.get("limit")
     if limit is None:
         return f"{text}\nLIMIT {int(max_rows)}"
@@ -102,6 +127,14 @@ def prepare(sql: str, max_rows: int, allow_full_scan: bool = False) -> str:
         expr.set("limit", exp.Limit(expression=exp.Literal.number(max_rows)))
         return expr.sql(dialect="mysql")
     return text
+
+
+def _groups_by_label(expr: exp.Select) -> bool:
+    group = expr.args.get("group")
+    if group is None:
+        return False
+    names = {column.name.lower() for column in group.find_all(exp.Column)}
+    return bool(names) and names <= {"app_label", "app_category"}
 
 
 def _is_aggregate(expr: exp.Select) -> bool:
