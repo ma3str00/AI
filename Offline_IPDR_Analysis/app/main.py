@@ -377,8 +377,20 @@ def _followup_notice(question: str) -> str:
         return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."
     if re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded):
         return "This keeps the previous filters and ranks by the number of flows."
-    if re.search(r"\b(unique users|number of users)\b", folded):
+    if re.search(r"\b(unique users|number of users)\b", folded) and not re.search(r"\b(order|ordered|sort|sorted)\b", folded):
         return "This adds the number of identified subscribers for each application and keeps the other columns."
+    orders_by_users = bool(
+        re.search(
+            r"\b(?:order|ordered|sort|sorted)\b(?:(?!\b(?:order|ordered|sort|sorted)\b).){0,80}\b(?:user count|users|number of users|unique users)\b",
+            folded,
+        )
+    )
+    if orders_by_users and re.search(r"gigabytes?|\bgb\b", folded):
+        return "This keeps the previous columns, shows the volumes in gigabytes, and orders the rows by the number of users."
+    if orders_by_users and "upload" in folded and "download" in folded:
+        return "This keeps the previous filters, shows upload and download separately, and orders the rows by the number of users."
+    if orders_by_users:
+        return "This keeps the previous columns and orders the rows by the number of users."
     if wants_all_groups(question):
         return "This removes the row limit so every application in that result is shown."
     if re.search(r"gigabytes?|\bgb\b", folded) and "upload" in folded and "download" in folded:

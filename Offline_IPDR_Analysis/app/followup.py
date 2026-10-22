@@ -236,9 +236,9 @@ def _present_measures(question: str, sql: str) -> str | None:
     wants_users = _wants_user_count(folded)
     wants_split = "upload" in folded and "download" in folded
     wants_flows = bool(re.search(r"\bflows?\b", folded)) or "flow count" in folded or "removed the flow" in folded
-    wants_order = wants_flows and bool(re.search(r"\b(ordered|order|sorted)\b", folded))
+    asks_sort = bool(re.search(r"\b(order|ordered|sort|sorted)\b", folded))
     wants_volume = "volume" in folded or "traffic" in folded
-    if not (wants_split or wants_flows or unit or wants_order or wants_users):
+    if not (wants_split or wants_flows or unit or asks_sort or wants_users):
         return None
     if wants_flows and not wants_split and not unit and _group_key(sql) == "subscriber_id":
         return None
@@ -275,7 +275,9 @@ def _present_measures(question: str, sql: str) -> str | None:
         return None
     rest = tail[match.start():]
     rest = re.sub(r"(?is)\bORDER BY\b.+?(?=\bLIMIT\b|$)", "", rest).strip()
-    order = "flow_count" if wants_order or (wants_flows and "by flow" in folded) else _kept_order(sql, columns)
+    order = _requested_order(folded, columns)
+    if order is None:
+        order = "flow_count" if wants_flows and "by flow" in folded else _kept_order(sql, columns)
     statement = f"SELECT {', '.join(columns)} {rest}"
     if order:
         if re.search(r"(?i)\bLIMIT\b", statement):
@@ -335,6 +337,35 @@ def _byte_column(expression: str, name: str, unit: tuple[int, str] | None) -> st
 
 def _has_call(sql: str, pattern: str) -> bool:
     return bool(re.search(pattern, sql, flags=re.IGNORECASE))
+
+
+def _requested_order(question: str, columns: list[str]) -> str | None:
+    """The sort the latest question asked for, using the last order or sort phrase."""
+    pieces = re.split(r"\b(?:order|ordered|sort|sorted)\b", question)
+    if len(pieces) < 2:
+        return None
+    target = pieces[-1]
+    aliases = []
+    for item in columns:
+        match = re.search(r"\bas\s+([a-z0-9_]+)\s*$", item, flags=re.IGNORECASE)
+        aliases.append((match.group(1) if match else item).lower())
+
+    def pick(*names: str) -> str | None:
+        for name in names:
+            for alias in aliases:
+                if alias == name or alias.startswith(name + "_"):
+                    return alias
+        return None
+
+    if re.search(r"\b(user count|users|number of users|unique users)\b", target):
+        return pick("users")
+    if re.search(r"\b(flows?|flow count)\b", target):
+        return pick("flow_count", "flows")
+    if "upload" in target and "download" not in target:
+        return pick("upload_traffic", "upload_bytes")
+    if "download" in target and "upload" not in target:
+        return pick("download_traffic", "download_bytes")
+    return None
 
 
 def _kept_order(sql: str, columns: list[str]) -> str | None:

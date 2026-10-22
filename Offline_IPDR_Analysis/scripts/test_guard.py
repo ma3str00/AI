@@ -433,6 +433,50 @@ def main() -> None:
     from app.sql_guard import prepare as guard_prepare
 
     guard_prepare(users, max_rows=200, allow_full_scan=True)
+    streaming = (
+        "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
+        "WHERE LOWER(app_category) IN ('streaming') GROUP BY app_label LIMIT 200"
+    )
+    counted = resolve_followup(
+        "show me the unique number of users against each app",
+        [{"question": "streaming", "sql": streaming}],
+    )
+    ordered_users = resolve_followup(
+        "Please also show the upload and download traffic volume against each app, order them by user count",
+        [{"question": "users", "sql": counted or streaming}],
+    )
+    if (
+        not ordered_users
+        or "order by users desc" not in ordered_users.lower()
+        or "sum(c2s_byte_num) as upload_traffic" not in ordered_users.lower()
+        or "sum(s2c_byte_num) as download_traffic" not in ordered_users.lower()
+    ):
+        raise SystemExit(f"ordering by user count was ignored: {ordered_users}")
+    unsorted = (
+        "SELECT app_label, COUNT(*) AS flow_count, SUM(c2s_byte_num) AS upload_traffic, "
+        "SUM(s2c_byte_num) AS download_traffic, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
+        "FROM ntc_ssl_logs WHERE LOWER(app_category) IN ('streaming') GROUP BY app_label LIMIT 200"
+    )
+    by_users = resolve_followup(
+        "show the traffic volumes in gigabytes. You are still showing the data in alphabetical order, I want them ordered by user count",
+        [{"question": "volumes", "sql": unsorted}],
+    )
+    if (
+        not by_users
+        or "order by users desc" not in by_users.lower()
+        or "upload_traffic_gb" not in by_users.lower()
+        or "download_traffic_gb" not in by_users.lower()
+        or "/ 1073741824" not in by_users
+    ):
+        raise SystemExit(f"gigabytes stayed alphabetical: {by_users}")
+    plain = explain_rows(
+        ["app_label", "flow_count"],
+        [{"app_label": "AhCDN", "flow_count": 54}, {"app_label": "Anghami", "flow_count": 1}],
+        streaming,
+    )
+    if "ranked by" in plain.lower():
+        raise SystemExit(f"an unordered result was described as a ranking: {plain}")
     listing = (
         "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
         "WHERE LOWER(app_category) = 'web_browsing' GROUP BY app_label LIMIT 200"

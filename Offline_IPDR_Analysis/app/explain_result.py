@@ -9,15 +9,16 @@ def explain_rows(columns: list[str], rows: list[dict], sql: str | None = None) -
     if not rows:
         return "No matching flows were found."
     label = _first(columns, ("app_label", "app_category", "subscriber_id", "requested_server", "client_ip", "server_ip", "client_location", "server_location", "hour_gmt5", "day_gmt5"))
-    measure = _ordered_measure(sql, columns) or _first(columns, ("total_bytes", "total_mb", "total_gb", "download_bytes", "upload_bytes", "flows", "blocked_flows", "flow_count"))
+    ordered = _ordered_measure(sql, columns)
+    measure = ordered or _first(columns, ("users", "total_bytes", "total_mb", "total_gb", "download_bytes", "upload_bytes", "flows", "blocked_flows", "flow_count"))
     if label and measure and len(rows) > 1:
-        return _ranking(rows, label, measure, columns)
+        return _ranking(rows, label, measure, columns, ranked=bool(ordered))
     if len(rows) == 1:
         return _one_row(rows[0])
     return f"{len(rows)} rows matched. The table below is the result."
 
 
-def _ranking(rows: list[dict], label: str, measure: str, columns: list[str]) -> str:
+def _ranking(rows: list[dict], label: str, measure: str, columns: list[str], ranked: bool = True) -> str:
     parts = []
     for row in rows[:8]:
         name = row.get(label) or "(blank)"
@@ -29,7 +30,8 @@ def _ranking(rows: list[dict], label: str, measure: str, columns: list[str]) -> 
     more = ""
     if len(rows) > 8:
         more = f" {len(rows) - 8} more are in the table."
-    return f"By {label}, ranked by {measure}: " + "; ".join(parts) + "." + more
+    lead = f"ranked by {measure}" if ranked else "in the returned order"
+    return f"By {label}, {lead}: " + "; ".join(parts) + "." + more
 
 
 def _one_row(row: dict) -> str:
