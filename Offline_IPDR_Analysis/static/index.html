@@ -73,7 +73,7 @@
 <body>
 <main>
   <h1>IPDR assistant</h1>
-  <p class="lede">Ask a question, then keep going. A question with no time range runs on all of the data. Name yesterday, today, or a range when you want one. Mark an answer correct and that same question runs the saved query next time.</p>
+  <p class="lede">Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and the assistant learns from that answer. A marked query with no time range teaches it to use the whole table when a later question names no time.</p>
   <div class="status" id="status"></div>
   <div class="transcript" id="transcript"></div>
   <form id="ask-form">
@@ -113,7 +113,7 @@ async function loadHealth() {
       pill(data.llama.ok ? data.llama.model : "llama-server not ready", data.llama.ok ? "ok" : "bad"),
       pill(data.examples + " examples"),
       pill((data.learned || 0) + " learned"),
-      pill(data.missing_time === "all" ? "no time range: whole table" : "no time range: asks"),
+      pill(data.missing_time === "all" ? "learned: no time range uses whole table" : "no time range: asks until marked"),
       pill(data.labels + " app labels"),
       pill(data.time.note)
     );
@@ -241,7 +241,10 @@ async function markCorrect(asked, sql, button) {
       button.textContent = data.detail || "Could not save";
       return;
     }
-    button.replaceWith(Object.assign(document.createElement("span"), {className: "saved", textContent: "Saved. The same question will run this query."}));
+    const savedText = data.learned_time_rule
+      ? "Saved. A question with no time range now runs on all of the data."
+      : "Saved. The same question will run this query.";
+    button.replaceWith(Object.assign(document.createElement("span"), {className: "saved", textContent: savedText}));
     loadHealth();
   } catch (error) {
     button.disabled = false;

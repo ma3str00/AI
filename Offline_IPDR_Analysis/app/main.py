@@ -16,15 +16,9 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
-from app.followup import resolve_followup, use_full_scan
+from app.followup import conversation_full_scan, resolve_followup, use_full_scan
 from app.learned import saved_sql, sql_needs_full_scan
-from app.preferences import (
-    load_preferences,
-    missing_time_means_all,
-    remember_time_rule,
-    rule_only,
-    teaches_missing_time_means_all,
-)
+from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
@@ -122,11 +116,6 @@ def ask(body: Question):
     llama: LlamaServer = _state["llama"]
 
     history = _history_payload(body.history)
-    _remember_time_rule([question, *[str(item.get("question") or "") for item in history]])
-    if rule_only(question):
-        return _clarify(
-            "Saved. If a question does not name a time range, the query runs on all of the data. It will not ask for one again."
-        )
     saved = saved_sql(_state["index"].examples, question)
     if saved:
         replayed = _replay_saved(saved, config, database)
@@ -163,6 +152,7 @@ def ask(body: Question):
                     previous_sql,
                     full_scan=full_scan,
                     history=history,
+                    missing_time_means_all=missing_time_means_all(),
                 ),
                 json_mode=True,
                 temperature=0,
@@ -214,7 +204,10 @@ def ask(body: Question):
             continue
         shown = present_rows(columns, rows, config)
         if full_scan:
-            scan_note = "This query reads the whole table because you asked for no time filter. On a large table it can take several minutes."
+            if wants_full_table(question) or conversation_full_scan(question, history):
+                scan_note = "This query reads the whole table because you asked for no time filter. On a large table it can take several minutes."
+            else:
+                scan_note = "This query reads the whole table because you marked an answer with no time range as correct. On a large table it can take several minutes."
             warning = f"{scan_note} {warning}" if warning else scan_note
         explanation = explain_rows(columns, shown)
         return {
@@ -247,7 +240,7 @@ def learn(body: LearnRequest):
         cleaned = text.strip()
         if cleaned and cleaned.lower() not in {item.lower() for item in questions}:
             questions.append(cleaned)
-    _remember_time_rule(questions)
+    taught_time_rule = lesson_from_marked_answer([body.question], body.sql)
     full_scan = sql_needs_full_scan(body.sql) or any(wants_full_table(text) for text in questions)
     try:
         safe_sql = prepare(body.sql, config.max_rows, allow_full_scan=full_scan)
@@ -265,7 +258,13 @@ def learn(body: LearnRequest):
             }
             _write_learned(config.learned_jsonl, record)
         _reload_index()
-    return {"ok": True, "learned": _state["learned_count"], "examples": len(_state["index"].examples)}
+    return {
+        "ok": True,
+        "learned": _state["learned_count"],
+        "examples": len(_state["index"].examples),
+        "missing_time": "all" if missing_time_means_all() else "ask",
+        "learned_time_rule": taught_time_rule and missing_time_means_all(),
+    }
 
 
 def _replay_saved(saved: dict, config: Config, database: Database, notice: str | None = None) -> dict | None:
@@ -313,17 +312,12 @@ def _reload_index() -> None:
     _state["learned_count"] = len(learned)
     _state["index"] = ExampleIndex(examples + learned)
     load_preferences(_preferences_path())
-    _remember_time_rule([str(item.get("question") or "") for item in learned])
+    absorb_marked_answers(_preferences_path(), learned)
 
 
 def _preferences_path() -> Path:
     config: Config = _state["config"]
     return config.learned_jsonl.parent / "learned_preferences.json"
-
-
-def _remember_time_rule(texts: list[str]) -> None:
-    if any(teaches_missing_time_means_all(text) for text in texts):
-        remember_time_rule(_preferences_path(), texts)
 
 
 def _write_learned(path: Path, record: dict) -> None:

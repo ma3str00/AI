@@ -85,7 +85,19 @@ block_type int, 0 means the DPI allowed the flow. Any other value means the flow
 """.strip()
 
 
-def system_prompt(session_time_zone: str) -> str:
+def system_prompt(session_time_zone: str, missing_time_means_all: bool = False) -> str:
+    if missing_time_means_all:
+        time_rule = (
+            "A marked answer taught you that a new question with no time range reads the whole table. "
+            "Do not ask for a time range. A follow-up keeps the previous query's time filter unless the user changes it."
+        )
+    else:
+        time_rule = (
+            "Prefer WHERE start_time. If the user gives no time range, clarify and ask for one. "
+            "If they explicitly say no time filter or all the data, omit the time predicate. "
+            "If this conversation already said that a missing time range means all of the data, do not ask again. "
+            "A follow-up keeps the previous query's time filter unless the user changes it."
+        )
     return f"""Write one MySQL SELECT for {DATABASE}.{TABLE}.
 Session time_zone is {session_time_zone}. Timestamps are unix seconds. UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') and FROM_UNIXTIME use GMT+5.
 Use start_time for when a flow happened. recv_time only if the user says received. end_time only if the user says ended.
@@ -97,7 +109,7 @@ Compare categories in lowercase: web_browsing, im, voip, tunneling, game, stream
 Mobile means at least one of mcc, mnc, lac, cid, or usr_loc_info is filled. The latest question decides mobile or fixed-line. Fixed-line means a valid subscriber_id and those cell fields are all empty. Never filter app_label for either one.
 Match 03... and 923... as the same Pakistani mobile number.
 client_location and server_location are IP-database places. geo and loc are the cell or the fixed-line address. data_center is empty. Never use it.
-Prefer WHERE start_time when the user names a time such as yesterday, today, last N, or a between range. A new question that names no time omits the time predicate and does not ask for one. A follow-up keeps the previous query's time filter unless the user changes it.
+{time_rule}
 A follow-up keeps the previous SQL's filters unless the user changes them. If the follow-up does not say whether to keep the previous application, return a clarify question instead of guessing.
 Aggregate unless they ask to list flows. Rankings need ORDER BY and LIMIT. No SELECT *, JOIN, UNION, or other tables.
 Return only {{"sql":"SELECT ..."}} or {{"clarify":"one sentence"}}.

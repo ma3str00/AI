@@ -878,9 +878,12 @@ def _user_rankings(add) -> None:
     whatsapp = "LOWER(app_label) LIKE '%whatsapp%'"
     add(
         "give me the top 5 whatsapp users by traffic volume",
-        ranking(whatsapp),
-        ["whatsapp", "users", "subscriber_id", "traffic", "volume", "top", "full_scan"],
-        full_scan=True,
+        None,
+        ["whatsapp", "users", "subscriber_id", "traffic", "volume", "top"],
+        clarify=(
+            "WhatsApp users means subscriber_id, excluding ids that contain an underscore, "
+            "with LOWER(app_label) LIKE '%whatsapp%'. Give a time range, or say to use all the data."
+        ),
     )
     add(
         "give me the top 5 whatsapp users by traffic volume across all the data",

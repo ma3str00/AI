@@ -265,15 +265,27 @@ def main() -> None:
     if "like '%mobile%'" in repaired.lower() or " and not " not in repaired.lower():
         raise SystemExit(f"dictionary repair left the mobile query in place: {repaired}")
     from app.followup import use_full_scan
-    from app.preferences import rule_only, teaches_missing_time_means_all
+    from app.preferences import lesson_from_marked_answer, missing_time_means_all
 
-    taught = "if no time range is specified then the query should run on the entire data"
-    if not teaches_missing_time_means_all(taught) or not rule_only(taught):
-        raise SystemExit("the standing time rule was not recognized")
-    if teaches_missing_time_means_all("use all the data"):
-        raise SystemExit("one whole-table request was stored as the standing rule")
+    whole_table = (
+        "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "GROUP BY subscriber_id LIMIT 5"
+    )
+    if not lesson_from_marked_answer(["give me the top 5 whatsapp users by traffic volume"], whole_table):
+        raise SystemExit("a marked whole-table answer did not teach the time rule")
+    if lesson_from_marked_answer(["top 5 whatsapp users yesterday"], whole_table):
+        raise SystemExit("a marked yesterday question was treated as the time rule")
+    if lesson_from_marked_answer(
+        ["give me the top 5 whatsapp users by traffic volume"],
+        "SELECT subscriber_id FROM ntc_ssl_logs WHERE start_time >= 1 GROUP BY subscriber_id LIMIT 5",
+    ):
+        raise SystemExit("a marked time filter was treated as the time rule")
+    if missing_time_means_all():
+        raise SystemExit("the time rule was on before any answer was marked")
+    if use_full_scan("give me the top 5 whatsapp users by traffic volume", [], False):
+        raise SystemExit("a new question scanned the whole table before the rule was learned")
     if not use_full_scan("give me the top 5 whatsapp users by traffic volume", [], True):
-        raise SystemExit("a saved rule did not run a new question on all of the data")
+        raise SystemExit("a learned rule did not run a new question on all of the data")
     if use_full_scan("top 5 whatsapp users yesterday", [], True):
         raise SystemExit("yesterday was widened to the whole table")
     timed = [{"question": "top apps yesterday", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE start_time >= 1 GROUP BY app_label"}]

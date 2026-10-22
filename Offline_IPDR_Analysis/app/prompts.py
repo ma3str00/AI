@@ -14,6 +14,7 @@ def sql_messages(
     previous_sql: str | None = None,
     full_scan: bool = False,
     history: list[dict] | None = None,
+    missing_time_means_all: bool = False,
 ) -> list[dict]:
     blocks = []
     if history:
@@ -63,7 +64,7 @@ def sql_messages(
             f"Previous SQL: {previous_sql or ''}"
         )
     return [
-        {"role": "system", "content": system_prompt(session_time_zone)},
+        {"role": "system", "content": system_prompt(session_time_zone, missing_time_means_all)},
         {"role": "user", "content": "\n\n".join(blocks)},
     ]
 
