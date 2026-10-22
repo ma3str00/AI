@@ -330,6 +330,48 @@ def main() -> None:
     )
     if not affirmed or "upload_bytes" not in affirmed.lower() or "youtube" not in affirmed.lower():
         raise SystemExit(f"yes did not keep the application and apply the metric: {affirmed}")
+    facebook = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%facebook%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    by_flows = resolve_followup(
+        "now give me the top 20 by number of flows",
+        [{"question": "give me top 20 facebook users", "sql": facebook}],
+    )
+    if not by_flows or "order by flows" not in by_flows.lower() or "facebook" not in by_flows.lower():
+        raise SystemExit(f"flow ranking did not keep facebook: {by_flows}")
+    others = resolve_followup(
+        "what other applications are being used by user 03339169479abhd",
+        [{"question": "now give me the top 20 by number of flows", "sql": by_flows}],
+    )
+    if (
+        not others
+        or "group by app_label" not in others.lower()
+        or "03339169479abhd" not in others.lower()
+        or "not (lower(app_label) like '%facebook%')" not in others.lower()
+    ):
+        raise SystemExit(f"other applications for one user were not built: {others}")
+    if check_sql(
+        "what other applications are being used by user 03339169479abhd",
+        others,
+        [{"question": "give me top 20 facebook users", "sql": facebook}],
+        True,
+    ):
+        raise SystemExit("applications for one subscriber were rejected")
+    from app.explain_result import explain_rows
+
+    told = explain_rows(
+        ["subscriber_id", "total_bytes", "flows"],
+        [
+            {"subscriber_id": "a", "total_bytes": 10, "flows": 7},
+            {"subscriber_id": "b", "total_bytes": 99, "flows": 2},
+        ],
+        by_flows,
+    )
+    if "ranked by flows" not in told.lower():
+        raise SystemExit(f"flow ranking was described as bytes: {told}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

@@ -13,6 +13,9 @@ _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this 
 def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     """Build SQL from the last real query when the reply only changes one part of it."""
     history = history or []
+    apps = _apps_of_one_subscriber(question, history)
+    if apps:
+        return apps
     if _pending(history) and _answer_keeps(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
     if _pending(history) and _answer_drops(question):
@@ -75,6 +78,54 @@ def use_full_scan(question: str, history: list[dict] | None, missing_time_means_
     if _last_sql(history or []):
         return False
     return missing_time_means_all
+
+
+def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
+    """Applications used by one subscriber. "Other" drops the application already shown."""
+    if not re.search(r"\b(application|applications|apps)\b", question.lower()):
+        return None
+    if not re.search(r"\b(user|subscriber)\b", question.lower()):
+        return None
+    match = re.search(r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b", question)
+    if not match:
+        return None
+    subscriber = match.group(1)
+    where = [f"subscriber_id = '{subscriber}'"]
+    previous = _last_sql(history)
+    if re.search(r"\bother\b", question.lower()) and previous:
+        predicate = _app_predicate(previous)
+        if predicate:
+            where.append(f"NOT ({predicate})")
+    time_clause = _time_clause(previous)
+    if time_clause:
+        where.append(time_clause)
+    limit = _limit_in(question) or 20
+    return (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY app_label ORDER BY total_bytes DESC LIMIT {int(limit)}"
+    )
+
+
+def _app_predicate(sql: str) -> str | None:
+    text = re.sub(r"\s+", " ", sql)
+    match = re.search(r"LOWER\(app_label\)\s+LIKE\s+'%[^']+%'", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(0)
+    match = re.search(r"LOWER\(app_label\)\s+IN\s+\([^)]*\)", text, flags=re.IGNORECASE)
+    return match.group(0) if match else None
+
+
+def _time_clause(sql: str) -> str:
+    if not sql:
+        return ""
+    parts = re.findall(
+        r"((?:start_time|end_time|recv_time)\s*(?:>=|<=|<>|!=|=|>|<)\s*(?:UNIX_TIMESTAMP\([^)]*\)|'[^']*'|\d+))",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    return " AND ".join(parts)
 
 
 def _last_sql(history: list[dict]) -> str:

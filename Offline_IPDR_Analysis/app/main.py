@@ -128,7 +128,7 @@ def ask(body: Question):
             {"sql": resolved, "full_scan": conversation_full_scan(question, history)},
             config,
             database,
-            "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty.",
+            _followup_notice(question),
         )
         if replayed is not None:
             return replayed
@@ -209,7 +209,7 @@ def ask(body: Question):
             else:
                 scan_note = "This query reads the whole table because you marked an answer with no time range as correct. On a large table it can take several minutes."
             warning = f"{scan_note} {warning}" if warning else scan_note
-        explanation = explain_rows(columns, shown)
+        explanation = explain_rows(columns, shown, safe_sql)
         return {
             "ok": True,
             "clarify": None,
@@ -228,7 +228,7 @@ def ask(body: Question):
         "rows": [],
         "explanation": None,
         "warning": None,
-        "error": "I could not turn that into a query. Say whether to keep the previous application, or start a new question.",
+        "error": "I could not turn that into a query.",
     }
 
 
@@ -240,6 +240,7 @@ def learn(body: LearnRequest):
         cleaned = text.strip()
         if cleaned and cleaned.lower() not in {item.lower() for item in questions}:
             questions.append(cleaned)
+    already_learned_time = missing_time_means_all()
     taught_time_rule = lesson_from_marked_answer([body.question], body.sql)
     full_scan = sql_needs_full_scan(body.sql) or any(wants_full_table(text) for text in questions)
     try:
@@ -263,7 +264,7 @@ def learn(body: LearnRequest):
         "learned": _state["learned_count"],
         "examples": len(_state["index"].examples),
         "missing_time": "all" if missing_time_means_all() else "ask",
-        "learned_time_rule": taught_time_rule and missing_time_means_all(),
+        "learned_time_rule": taught_time_rule and missing_time_means_all() and not already_learned_time,
     }
 
 
@@ -299,7 +300,7 @@ def _replay_saved(saved: dict, config: Config, database: Database, notice: str |
         "sql": safe_sql,
         "columns": columns,
         "rows": shown,
-        "explanation": explain_rows(columns, shown),
+        "explanation": explain_rows(columns, shown, safe_sql),
         "warning": warning,
         "row_count": len(shown),
     }
@@ -343,6 +344,19 @@ def _clarify(text: str) -> dict:
         "explanation": text,
         "warning": None,
     }
+
+
+def _followup_notice(question: str) -> str:
+    folded = question.lower()
+    if re.search(r"\b(application|applications|apps)\b", folded) and re.search(r"\b(user|subscriber)\b", folded):
+        return "This lists applications for that subscriber. It reads the whole table and can take several minutes."
+    if subscriber_kind([question]) in {"mobile", "fixed"}:
+        return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."
+    if re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded):
+        return "This keeps the previous filters and ranks by the number of flows."
+    if "upload" in folded and "download" in folded:
+        return "This keeps the previous filters and shows upload and download separately."
+    return "This keeps the previous filters and changes only what you just asked."
 
 
 def _is_time_question(text: str) -> bool:

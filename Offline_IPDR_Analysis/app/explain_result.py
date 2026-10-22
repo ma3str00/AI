@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 
-def explain_rows(columns: list[str], rows: list[dict]) -> str:
+
+def explain_rows(columns: list[str], rows: list[dict], sql: str | None = None) -> str:
     if not rows:
         return "No matching flows were found."
     label = _first(columns, ("app_label", "app_category", "subscriber_id", "requested_server", "client_ip", "server_ip", "client_location", "server_location", "hour_gmt5", "day_gmt5"))
-    measure = _first(columns, ("total_bytes", "total_mb", "total_gb", "download_bytes", "upload_bytes", "flows", "blocked_flows", "flow_count"))
+    measure = _ordered_measure(sql, columns) or _first(columns, ("total_bytes", "total_mb", "total_gb", "download_bytes", "upload_bytes", "flows", "blocked_flows", "flow_count"))
     if label and measure and len(rows) > 1:
         return _ranking(rows, label, measure, columns)
     if len(rows) == 1:
@@ -66,6 +68,15 @@ def _measure_text(value, name: str) -> str:
     if abs(number) >= 1024:
         return f"{number / 1024:.1f} KB"
     return f"{int(number)} bytes"
+
+
+def _ordered_measure(sql: str | None, columns: list[str]) -> str | None:
+    if not sql:
+        return None
+    match = re.search(r"\border\s+by\s+([a-z0-9_]+)", sql.lower())
+    if match and match.group(1) in columns:
+        return match.group(1)
+    return None
 
 
 def _first(columns: list[str], names: tuple[str, ...]) -> str | None:

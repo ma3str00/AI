@@ -21,7 +21,7 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
     folded = re.sub(r"\s+", " ", sql.lower())
     problems = []
 
-    if _asks_for_users(conversation) and not _asks_for_apps_of_one_subscriber(conversation):
+    if _asks_for_users(conversation) and not _asks_for_apps_of_one_subscriber(question):
         if "group by subscriber_id" not in folded:
             problems.append(
                 "Group by subscriber_id. Users and subscribers are subscriber_id, not app_label."
@@ -84,7 +84,11 @@ def _asks_for_users(text: str) -> bool:
 
 
 def _asks_for_apps_of_one_subscriber(text: str) -> bool:
-    return "which apps did subscriber" in text or "which app did subscriber" in text
+    folded = text.lower()
+    return bool(
+        re.search(r"\b(application|applications|apps|app)\b", folded)
+        and re.search(r"\b(user|subscriber)\s+[a-z0-9]", folded)
+    )
 
 
 def _excludes_unidentified(sql: str) -> bool:
@@ -98,8 +102,8 @@ def _excludes_unidentified(sql: str) -> bool:
 
 
 def _required_apps(current: str, prior: list[str]) -> list[str]:
-    if _drops_previous_apps(current):
-        return _apps(current)
+    if _asks_for_apps_of_one_subscriber(current) or _drops_previous_apps(current):
+        return _apps(current) if not re.search(r"\bother\b", current.lower()) else []
     current_apps = _apps(current)
     if current_apps:
         return current_apps
@@ -189,6 +193,8 @@ def _drops_previous_apps(question: str) -> bool:
             "regardless of app",
             "include every",
             "not just",
-            "across all applications",
+            "other applications",
+            "other application",
+            "other apps",
         )
     )
