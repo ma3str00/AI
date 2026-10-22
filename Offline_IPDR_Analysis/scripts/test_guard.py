@@ -372,6 +372,44 @@ def main() -> None:
     )
     if "ranked by flows" not in told.lower():
         raise SystemExit(f"flow ranking was described as bytes: {told}")
+    apps = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 10"
+    )
+    split = resolve_followup(
+        "now give me the corresponding upload and download traffic volume along with the flows",
+        [{"question": "top applications", "sql": apps}],
+    )
+    if (
+        not split
+        or "sum(c2s_byte_num) as upload_traffic" not in split.lower()
+        or "sum(s2c_byte_num) as download_traffic" not in split.lower()
+        or "count(*) as flow_count" not in split.lower()
+        or "c2s_byte_num + s2c_byte_num" in split.lower()
+    ):
+        raise SystemExit(f"upload and download were combined: {split}")
+    kept = resolve_followup(
+        "I want to see the upload and download traffic volume separately",
+        [{"question": "flows", "sql": split}],
+    )
+    if not kept or "flow_count" not in kept.lower():
+        raise SystemExit(f"splitting upload and download dropped the flows: {kept}")
+    terabytes = resolve_followup(
+        "show the volume in Terabytes",
+        [{"question": "separately", "sql": kept}],
+    )
+    if not terabytes or "/ 1099511627776" not in terabytes or "upload_traffic_tb" not in terabytes.lower() or "flow_count" not in terabytes.lower():
+        raise SystemExit(f"terabytes used the wrong divisor: {terabytes}")
+    if "/ 1073741824" in terabytes or "/ 1048576" in terabytes:
+        raise SystemExit(f"terabytes was calculated as gigabytes or megabytes: {terabytes}")
+    gigabytes = resolve_followup(
+        "the upload & download should also be displayed in Gigabytes",
+        [{"question": "terabytes", "sql": terabytes}],
+    )
+    if not gigabytes or "/ 1073741824" not in gigabytes or "upload_traffic_gb" not in gigabytes.lower() or "flow_count" not in gigabytes.lower():
+        raise SystemExit(f"gigabytes used the wrong divisor or dropped flows: {gigabytes}")
+    if "/ 1048576" in gigabytes:
+        raise SystemExit(f"gigabytes was calculated as megabytes: {gigabytes}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

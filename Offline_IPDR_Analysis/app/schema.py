@@ -101,7 +101,7 @@ def system_prompt(session_time_zone: str, missing_time_means_all: bool = False) 
     return f"""Write one MySQL SELECT for {DATABASE}.{TABLE}.
 Session time_zone is {session_time_zone}. Timestamps are unix seconds. UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') and FROM_UNIXTIME use GMT+5.
 Use start_time for when a flow happened. recv_time only if the user says received. end_time only if the user says ended.
-duration is milliseconds. Bytes: c2s_byte_num is upload, s2c_byte_num is download, total is their sum. MB is / 1048576.
+duration is milliseconds. Bytes: c2s_byte_num is upload, s2c_byte_num is download, total is their sum. MB is / 1048576. GB is / 1073741824. TB is / 1099511627776.
 Traffic volume means that byte total. Applications means GROUP BY app_label. Categories means LOWER(app_category).
 Users or subscribers means GROUP BY subscriber_id. Do not group a users question by app_label. Exclude unidentified ids with AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0. A value such as 203.0.113.10_56175 is client IPv4 and client port, not a subscriber.
 If the question names an app and asks for users, filter that app with LOWER(app_label) LIKE '%name%' and still group by subscriber_id.

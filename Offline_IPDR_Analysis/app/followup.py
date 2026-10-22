@@ -21,6 +21,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     if _pending(history) and _answer_drops(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_drop=True)
     previous = _last_sql(history)
+    presented = _present_measures(question, previous)
+    if presented:
+        return presented
     if not previous or "group by subscriber_id" not in previous.lower():
         return None
     revised = _revise(question, history)
@@ -207,6 +210,117 @@ def _app_choice(blob: str, previous: str) -> tuple[bool, bool]:
 
 def _has_app_filter(sql: str) -> bool:
     return "app_label" in sql.lower()
+
+
+def _present_measures(question: str, sql: str) -> str | None:
+    """Add or convert measures on the previous result without dropping the ones already shown."""
+    if not sql or not re.search(r"\bgroup\s+by\b", sql, flags=re.IGNORECASE):
+        return None
+    if _group_key(sql) == "subscriber_id" and _unit_of(question) is None:
+        return None
+    folded = question.lower()
+    unit = _unit_of(question)
+    wants_split = "upload" in folded and "download" in folded
+    wants_flows = bool(re.search(r"\bflows?\b", folded)) or "flow count" in folded or "removed the flow" in folded
+    wants_order = wants_flows and bool(re.search(r"\b(ordered|order|sorted)\b", folded))
+    wants_volume = "volume" in folded or "traffic" in folded
+    if not (wants_split or wants_flows or unit or wants_order):
+        return None
+    if wants_flows and not wants_split and not unit and _group_key(sql) == "subscriber_id":
+        return None
+    keep_flows = wants_flows or _has_call(sql, r"count\s*\(\s*\*\s*\)")
+    keep_upload = wants_split or _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\)")
+    keep_download = wants_split or _has_call(sql, r"sum\s*\(\s*s2c_byte_num\s*\)")
+    keep_total = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
+    if wants_split and not re.search(r"\b(also|as well|total)\b", folded):
+        keep_total = False
+    upload_unit = unit if wants_split or (unit and not wants_split and keep_upload and "volume" in folded) else _existing_unit(sql, "c2s")
+    download_unit = unit if wants_split or (unit and not wants_split and keep_download and "volume" in folded) else _existing_unit(sql, "s2c")
+    total_unit = unit if unit and wants_volume and not wants_split else _existing_unit(sql, "total")
+    if unit and wants_volume and not wants_split and not keep_total and (keep_upload or keep_download):
+        upload_unit = unit
+        download_unit = unit
+    key = _group_key(sql) or "app_label"
+    columns = [key]
+    if keep_flows:
+        columns.append("COUNT(*) AS flow_count")
+    if keep_upload:
+        columns.append(_byte_column("SUM(c2s_byte_num)", "upload_traffic", upload_unit))
+    if keep_download:
+        columns.append(_byte_column("SUM(s2c_byte_num)", "download_traffic", download_unit))
+    if keep_total:
+        columns.append(_byte_column("SUM(c2s_byte_num + s2c_byte_num)", "traffic_volume", total_unit))
+    tail = re.sub(r"\s+", " ", sql)
+    match = re.search(r"\bFROM\b", tail, flags=re.IGNORECASE)
+    if not match:
+        return None
+    rest = tail[match.start():]
+    rest = re.sub(r"(?is)\bORDER BY\b.+?(?=\bLIMIT\b|$)", "", rest).strip()
+    order = "flow_count" if wants_order or (wants_flows and "by flow" in folded) else _kept_order(sql, columns)
+    statement = f"SELECT {', '.join(columns)} {rest}"
+    if order:
+        if re.search(r"(?i)\bLIMIT\b", statement):
+            statement = re.sub(r"(?i)\bLIMIT\b", f"ORDER BY {order} DESC LIMIT", statement, count=1)
+        else:
+            statement = f"{statement} ORDER BY {order} DESC"
+    return re.sub(r"\s+", " ", statement).strip()
+
+
+def _group_key(sql: str) -> str | None:
+    match = re.search(r"\bgroup\s+by\s+([a-z0-9_]+)", sql, flags=re.IGNORECASE)
+    return match.group(1).lower() if match else None
+
+
+def _unit_of(question: str) -> tuple[int, str] | None:
+    folded = question.lower()
+    if re.search(r"terabytes?|\btb\b", folded):
+        return 1099511627776, "tb"
+    if re.search(r"gigabytes?|\bgb\b", folded):
+        return 1073741824, "gb"
+    if re.search(r"megabytes?|\bmb\b", folded):
+        return 1048576, "mb"
+    return None
+
+
+def _existing_unit(sql: str, kind: str) -> tuple[int, str] | None:
+    folded = sql.lower().replace(" ", "")
+    if kind == "c2s":
+        blob = folded.split("s2c_byte_num", 1)[0]
+    elif kind == "s2c":
+        blob = folded.split("s2c_byte_num", 1)[-1]
+    else:
+        blob = folded
+    if "/1099511627776" in blob:
+        return 1099511627776, "tb"
+    if "/1073741824" in blob:
+        return 1073741824, "gb"
+    if "/1048576" in blob:
+        return 1048576, "mb"
+    return None
+
+
+def _byte_column(expression: str, name: str, unit: tuple[int, str] | None) -> str:
+    if unit is None:
+        return f"{expression} AS {name}"
+    divisor, suffix = unit
+    return f"ROUND({expression} / {divisor}, 2) AS {name}_{suffix}"
+
+
+def _has_call(sql: str, pattern: str) -> bool:
+    return bool(re.search(pattern, sql, flags=re.IGNORECASE))
+
+
+def _kept_order(sql: str, columns: list[str]) -> str | None:
+    match = re.search(r"\border\s+by\s+([a-z0-9_]+)", sql, flags=re.IGNORECASE)
+    if not match:
+        return None
+    aliases = {item.rsplit(" AS ", 1)[-1].lower() for item in columns}
+    current = match.group(1).lower()
+    if current in aliases:
+        return current
+    if current in {"flows", "flow_count"} and "flow_count" in aliases:
+        return "flow_count"
+    return None
 
 
 def _subscriber_request(question: str) -> bool:
