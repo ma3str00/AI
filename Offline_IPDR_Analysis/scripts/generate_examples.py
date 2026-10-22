@@ -83,6 +83,7 @@ def main() -> None:
     _paraphrases(add)
     _full_table(add)
     _user_rankings(add)
+    _dictionary(add)
     _unavailable(add)
     missing = [question for question in STARTER_QUESTIONS if question.lower() not in seen]
     if missing:
@@ -917,6 +918,58 @@ def _user_rankings(add) -> None:
         "Top 5 subscribers by traffic volume yesterday, excluding unidentified client IP and port ids",
         ranking(yesterday),
         ["subscribers", "subscriber_id", "traffic", "volume", "unidentified"],
+    )
+
+
+def _dictionary(add) -> None:
+    """One example for each dictionary rule, across the apps people actually ask about."""
+    yesterday = WINDOWS[1][1]
+    apps = ("whatsapp", "facebook", "tiktok", "youtube", "telegram", "instagram")
+
+    def ranking(where: str, limit: int) -> str:
+        return (
+            "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+            "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+            f"FROM ntc_ssl_logs WHERE {where} "
+            f"GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT {limit}"
+        )
+
+    for app in apps:
+        app_filter = f"LOWER(app_label) LIKE '%{app}%'"
+        add(
+            f"top 5 {app} users by traffic volume across all the data",
+            ranking(f"{app_filter} AND {IDENTIFIED_SQL}", 5),
+            [app, "users", "traffic", "dictionary", "full_scan"],
+            full_scan=True,
+        )
+        add(
+            f"top 10 mobile {app} users by traffic volume across all the data",
+            ranking(f"{app_filter} AND {IDENTIFIED_SQL} AND {MOBILE_SQL}", 10),
+            [app, "mobile", "users", "dictionary", "full_scan"],
+            full_scan=True,
+        )
+        add(
+            f"top 10 fixed-line {app} users by traffic volume across all the data",
+            ranking(f"{app_filter} AND {IDENTIFIED_SQL} AND NOT {MOBILE_SQL}", 10),
+            [app, "fixed", "users", "dictionary", "full_scan"],
+            full_scan=True,
+        )
+        add(
+            f"top 10 {app} users by traffic volume yesterday",
+            ranking(f"{yesterday} AND {app_filter} AND {IDENTIFIED_SQL}", 10),
+            [app, "users", "yesterday", "dictionary"],
+        )
+    add(
+        "top 10 users by upload bytes yesterday, excluding unidentified client IP and port ids",
+        f"SELECT subscriber_id, SUM(c2s_byte_num) AS upload_bytes FROM ntc_ssl_logs "
+        f"WHERE {yesterday} AND {IDENTIFIED_SQL} GROUP BY subscriber_id ORDER BY upload_bytes DESC LIMIT 10",
+        ["upload", "users", "dictionary"],
+    )
+    add(
+        "top 10 users by download bytes yesterday, excluding unidentified client IP and port ids",
+        f"SELECT subscriber_id, SUM(s2c_byte_num) AS download_bytes FROM ntc_ssl_logs "
+        f"WHERE {yesterday} AND {IDENTIFIED_SQL} GROUP BY subscriber_id ORDER BY download_bytes DESC LIMIT 10",
+        ["download", "users", "dictionary"],
     )
 
 

@@ -111,7 +111,7 @@ Times in the result are already GMT+5 wall time.
 duration is milliseconds.
 c2s bytes are upload from the subscriber. s2c bytes are download to the subscriber.
 A subscriber_id that contains an underscore is an unidentified session (client IP and port), not a username.
-A numeric subscriber_id can be either a mobile number or a fixed-line username. Mobile rows are the ones with mcc, mnc, lac, cid, or usr_loc_info. Fixed-line rows are the ones without those cell fields and with geo or loc.
+A numeric subscriber_id can be either a mobile number or a fixed-line username. Mobile rows have mcc, mnc, lac, cid, or usr_loc_info. Fixed-line rows are valid subscriber ids with those cell fields empty.
 client_location and server_location are IP-database places, not GPS and not the cell address.
 geo and loc are the cell or the fixed-line street address.
 block_type 0 was allowed. Any other value was blocked.

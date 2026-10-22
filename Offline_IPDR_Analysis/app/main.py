@@ -22,6 +22,7 @@ from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
 from app.retrieve import ExampleIndex, load_examples
+from app.rules import dictionary_problem, repair_sql
 from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
 from app.sql_guard import GuardError, prepare, wants_full_table
 
@@ -120,6 +121,7 @@ def ask(body: Question):
             return replayed
     resolved = resolve_followup(question, history)
     if resolved:
+        resolved = repair_sql(question, resolved, history)
         replayed = _replay_saved(
             {"sql": resolved, "full_scan": conversation_full_scan(question, history)},
             config,
@@ -176,7 +178,8 @@ def ask(body: Question):
             error = "The model returned neither sql nor clarify."
             previous_sql = raw[:800]
             continue
-        mismatch = check_sql(question, sql, history, full_scan)
+        sql = repair_sql(question, sql, history)
+        mismatch = check_sql(question, sql, history, full_scan) or dictionary_problem(question, sql)
         if mismatch:
             error = mismatch
             previous_sql = sql

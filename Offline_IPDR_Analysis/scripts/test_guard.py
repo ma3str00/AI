@@ -247,6 +247,23 @@ def main() -> None:
     if "whatsapp" not in fixed.lower() or "LIMIT 10" not in fixed:
         raise SystemExit(f"fixed-line follow-up dropped the previous query: {fixed}")
     guard_prepare(fixed, max_rows=200, allow_full_scan=True)
+    from app.rules import repair_sql
+
+    copied = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%mobile%' "
+        "AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
+        "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
+        "OR NULLIF(usr_loc_info, '') IS NOT NULL) "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+    )
+    repaired = repair_sql(
+        "now give me the top 10 fixed-line users for the same",
+        copied,
+        [{"question": "top 5 whatsapp users", "sql": previous}],
+    )
+    if "like '%mobile%'" in repaired.lower() or " and not " not in repaired.lower():
+        raise SystemExit(f"dictionary repair left the mobile query in place: {repaired}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

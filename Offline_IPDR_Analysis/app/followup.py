@@ -74,6 +74,10 @@ def _subscriber_kind(texts: list[str]) -> str | None:
     return found
 
 
+def subscriber_kind(texts: list[str]) -> str | None:
+    return _subscriber_kind(texts)
+
+
 def _limit_in(text: str) -> int | None:
     match = re.search(r"\btop\s+(\d+)\b", text.lower())
     return int(match.group(1)) if match else None
