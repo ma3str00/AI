@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from app.followup import subscriber_kind
+
 APP_NAMES = (
     "whatsapp", "facebook", "messenger", "tiktok", "youtube", "instagram", "snapchat",
     "telegram", "imo", "zoom", "gmail", "netflix", "spotify", "pubg", "telegram",
@@ -42,7 +44,7 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
             "Do not add start_time, end_time, or recv_time. Keep the previous query's time scope."
         )
 
-    kind = _subscriber_kind(current)
+    kind = subscriber_kind([current])
     if kind == "mobile":
         if not any(column in folded for column in ("mcc", "mnc", "lac", "cid", "usr_loc_info")):
             problems.append(
@@ -72,15 +74,7 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
 
 
 def _subscriber_kind(question: str) -> str | None:
-    text = re.sub(r"\s+", " ", question.lower().replace("_", "").replace("-", " "))
-    exclude_fixed = "exclude" in text and "fixed" in text
-    wants_mobile = bool(re.search(r"\bmobile (users|user|subscribers|subscriber)\b", text)) or exclude_fixed
-    wants_fixed = bool(re.search(r"\bfixed ?line (users|user|subscribers|subscriber)\b", text))
-    if wants_mobile:
-        return "mobile"
-    if wants_fixed:
-        return "fixed"
-    return None
+    return subscriber_kind([question])
 
 
 def _asks_for_users(text: str) -> bool:
@@ -134,10 +128,8 @@ def _forbids_new_time_filter(current: str, history: list[dict] | None, full_scan
 
 
 def needs_clarification(question: str, history: list[dict] | None) -> str | None:
-    """Ask before guessing when a follow-up can keep or drop an earlier filter."""
+    """Ask before guessing when a follow-up can keep or drop an earlier application."""
     history = history or []
-    if _pending_clarify(history) and re.fullmatch(r"(yes|no|ok|okay)\.?", question.strip().lower()):
-        return "Say which one you want: keep the previous application filter, or include every application."
     if _pending_clarify(history) or _drops_previous_apps(question):
         return None
     previous = ""
@@ -152,7 +144,8 @@ def needs_clarification(question: str, history: list[dict] | None) -> str | None
         return None
     if re.search(r"\b(keep|same|those|these|continue|still)\b", question.lower()):
         return None
-    if _subscriber_kind(question) is None and not re.search(r"\b(instead|rather|switch)\b", question.lower()):
+    scope_kind = subscriber_kind([question])
+    if scope_kind == "any" or (scope_kind is None and not _switches_application(question)):
         return None
     names = " and ".join(previous_apps)
     scope = "with no time filter" if not any(column in previous.lower() for column in TIME_COLUMNS) else "with the same time range"
@@ -162,6 +155,13 @@ def needs_clarification(question: str, history: list[dict] | None) -> str | None
         "Fixed-line means a valid subscriber id with those cell fields empty. "
         f"Should this stay limited to {names}, or include every application?"
     )
+
+
+def _switches_application(question: str) -> bool:
+    text = question.lower()
+    if not re.search(r"\b(instead|rather|switch)\b", text):
+        return False
+    return not re.search(r"\b(volume|traffic|flow|flows|upload|download|bytes|count)\b", text)
 
 
 def drops_previous_apps(question: str) -> bool:

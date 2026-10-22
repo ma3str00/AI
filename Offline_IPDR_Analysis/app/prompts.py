@@ -34,8 +34,10 @@ def sql_messages(
                 "Users means subscriber_id. A subscriber_id containing '_' is client IPv4 and port, not a username.\n"
                 "Mobile users means a valid subscriber_id with mcc, mnc, lac, cid, or usr_loc_info filled. "
                 "Fixed-line means a valid subscriber_id with those cell fields empty. "
-                "Do not use app_label or LIKE '%mobile%' for that.\n"
-                "If the user does not say whether to keep the previous application, return a clarify question and no SQL.\n"
+                "Do not use app_label or LIKE '%mobile%' for that. "
+                "Do not add a cell filter unless this question asks for mobile or fixed-line.\n"
+                "Keep the previous application filter. Change the columns, sort, or limit the user named. "
+                "Do not ask whether to keep the application when they only change the measure.\n"
             )
         blocks.append(lead + "\n\n".join(turns))
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."

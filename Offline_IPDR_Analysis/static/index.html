@@ -252,6 +252,15 @@ async function markCorrect(asked, sql, button) {
   }
 }
 
+function detailText(detail) {
+  if (!detail) return "Request failed";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((item) => (item && item.msg) || JSON.stringify(item)).join(" ");
+  }
+  return JSON.stringify(detail);
+}
+
 function resetConversation() {
   history.length = 0;
   transcript.replaceChildren();
@@ -263,11 +272,11 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = question.value.trim();
   if (!text) return;
-  const prior = history.map((turn) => ({
-    question: turn.question,
-    sql: turn.sql,
-    explanation: turn.explanation
-  }));
+    const prior = history.slice(-12).map((turn) => ({
+      question: turn.question,
+      sql: (turn.sql || "").slice(0, 4000),
+      explanation: (turn.explanation || "").slice(0, 500)
+    }));
   addUserBubble(text);
   question.value = "";
   askButton.disabled = true;
@@ -280,7 +289,7 @@ form.addEventListener("submit", async (event) => {
     });
     const data = await response.json();
     if (!response.ok) {
-      addAnswerBubble(text, {error: data.detail || "Request failed", explanation: ""});
+      addAnswerBubble(text, {error: detailText(data.detail), explanation: ""});
     } else {
       addAnswerBubble(text, data);
       history.push({

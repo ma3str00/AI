@@ -16,7 +16,7 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
-from app.followup import conversation_full_scan, resolve_followup, use_full_scan
+from app.followup import conversation_full_scan, resolve_followup, subscriber_kind, use_full_scan
 from app.learned import saved_sql, sql_needs_full_scan
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
@@ -42,7 +42,7 @@ class Turn(BaseModel):
 
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
-    history: list[Turn] = Field(default_factory=list, max_length=6)
+    history: list[Turn] = Field(default_factory=list, max_length=24)
 
 
 class LearnRequest(BaseModel):
@@ -352,7 +352,7 @@ def _is_time_question(text: str) -> bool:
 
 def _history_payload(history: list[Turn]) -> list[dict]:
     payload = []
-    for turn in history[-6:]:
+    for turn in history[-12:]:
         payload.append(
             {
                 "question": turn.question.strip(),
@@ -365,7 +365,7 @@ def _history_payload(history: list[Turn]) -> list[dict]:
 
 def _select_examples(index: ExampleIndex, question: str, history: list[dict], full_scan: bool) -> list[dict]:
     if any(item.get("sql") for item in history):
-        if re.search(r"mobile|fixed", question.lower()):
+        if subscriber_kind([question]) in {"mobile", "fixed"}:
             picked = [
                 item for item in index.top(question, 6)
                 if item.get("sql") and "mcc" in item["sql"].lower()

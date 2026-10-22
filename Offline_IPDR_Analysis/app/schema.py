@@ -110,7 +110,7 @@ Mobile means at least one of mcc, mnc, lac, cid, or usr_loc_info is filled. The 
 Match 03... and 923... as the same Pakistani mobile number.
 client_location and server_location are IP-database places. geo and loc are the cell or the fixed-line address. data_center is empty. Never use it.
 {time_rule}
-A follow-up keeps the previous SQL's filters unless the user changes them. If the follow-up does not say whether to keep the previous application, return a clarify question instead of guessing.
+A follow-up keeps the previous application filter and time scope. Change only the measure, limit, or subscriber type the user named. Do not ask about the application when they only change the measure.
 Aggregate unless they ask to list flows. Rankings need ORDER BY and LIMIT. No SELECT *, JOIN, UNION, or other tables.
 Return only {{"sql":"SELECT ..."}} or {{"clarify":"one sentence"}}.
 """

@@ -25,14 +25,13 @@ def repair_sql(question: str, sql: str, history: list[dict] | None) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    kind = subscriber_kind([question]) or subscriber_kind(
-        [str(item.get("question") or "") for item in (history or [])] + [question]
-    )
-    # A type named in this question always wins. Otherwise keep a cell test already in the SQL
-    # aligned with the latest type asked in the conversation.
-    current = subscriber_kind([question])
-    if current or (kind and _has_cell(text)):
-        text = _set_cell(text, current or kind)
+    kind = subscriber_kind([str(item.get("question") or "") for item in (history or [])] + [question])
+    if kind == "mobile":
+        text = _set_cell(text, "mobile")
+    elif kind == "fixed":
+        text = _set_cell(text, "fixed")
+    elif _has_cell(text):
+        text = _strip_cell(text)
     if _user_ranking(text) and not _excludes_unidentified(text):
         text = re.sub(r"\bGROUP BY\b", f"AND {IDENTIFIED_SQL} GROUP BY", text, count=1, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text).strip()
@@ -60,12 +59,20 @@ def dictionary_problem(question: str, sql: str) -> str | None:
 
 
 def _set_cell(sql: str, kind: str) -> str:
-    text = re.sub(rf"\s+AND\s+NOT\s+{_CELL}", "", sql, flags=re.IGNORECASE)
-    text = re.sub(rf"\s+AND\s+{_CELL}", "", text, flags=re.IGNORECASE)
+    text = _strip_cell(sql)
     clause = f"AND NOT {MOBILE_SQL}" if kind == "fixed" else f"AND {MOBILE_SQL}"
     if re.search(r"\bGROUP BY\b", text, flags=re.IGNORECASE):
         return re.sub(r"\bGROUP BY\b", f"{clause} GROUP BY", text, count=1, flags=re.IGNORECASE)
     return f"{text} {clause}"
+
+
+def _strip_cell(sql: str) -> str:
+    text = re.sub(rf"\s+AND\s+NOT\s+{_CELL}", "", sql, flags=re.IGNORECASE)
+    text = re.sub(rf"\s+AND\s+{_CELL}", "", text, flags=re.IGNORECASE)
+    loose = r"\(\s*NULLIF\(\s*mcc\b.*?NULLIF\(\s*usr_loc_info\b.*?\)\s*\)"
+    text = re.sub(rf"\s+AND\s+NOT\s+{loose}", "", text, flags=re.IGNORECASE)
+    text = re.sub(rf"\s+AND\s+{loose}", "", text, flags=re.IGNORECASE)
+    return text
 
 
 def _has_cell(sql: str) -> bool:

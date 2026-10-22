@@ -11,14 +11,21 @@ _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this 
 
 
 def resolve_followup(question: str, history: list[dict] | None) -> str | None:
-    """Build SQL from the last real query when the reply only confirms scope."""
+    """Build SQL from the last real query when the reply only changes one part of it."""
     history = history or []
+    if _pending(history) and _answer_keeps(question):
+        return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
+    if _pending(history) and _answer_drops(question):
+        return _revise(str(history[-1].get("question") or ""), history[:-1], force_drop=True)
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
         return None
+    revised = _revise(question, history)
+    if revised:
+        return revised
     texts = [str(item.get("question") or "") for item in history]
     kind = _subscriber_kind(texts + [question])
-    if kind is None:
+    if kind not in {"mobile", "fixed"}:
         return None
     if _names_time(question):
         return None
@@ -79,10 +86,12 @@ def _last_sql(history: list[dict]) -> str:
 
 
 def _subscriber_kind(texts: list[str]) -> str | None:
-    """The latest mobile or fixed-line request wins. Earlier turns do not stick."""
+    """The latest mobile, fixed-line, or all-connections request wins."""
     found = None
     for text in texts:
-        if _mentions_fixed(text) and not _mentions_mobile(text):
+        if _rejects_connection(text):
+            found = "any"
+        elif _mentions_fixed(text) and not _mentions_mobile(text):
             found = "fixed"
         elif _mentions_mobile(text):
             found = "mobile"
@@ -99,8 +108,17 @@ def _limit_in(text: str) -> int | None:
 
 
 def _mentions_mobile(text: str) -> bool:
+    if _rejects_connection(text):
+        return False
     folded = text.replace("_", "").replace("-", " ")
     return "mobile user" in folded or "mobile subscriber" in folded or ("exclude" in folded and "fixed" in folded)
+
+
+def _rejects_connection(text: str) -> bool:
+    folded = text.lower().replace("-", " ")
+    if any(phrase in folded for phrase in ("regardless", "irrespective", "nature of connection", "any connection", "all connections")):
+        return True
+    return "mobile" in folded and bool(re.search(r"\b(not only|not just|gave|given|showing|showed)\b", folded))
 
 
 def _mentions_fixed(text: str) -> bool:
@@ -168,4 +186,106 @@ def _without_cell(sql: str) -> str:
     pattern = re.escape(re.sub(r"\s+", " ", MOBILE_SQL))
     text = re.sub(rf"\s+AND\s+NOT\s+{pattern}", "", sql, flags=re.IGNORECASE)
     text = re.sub(rf"\s+AND\s+{pattern}", "", text, flags=re.IGNORECASE)
+    loose = (
+        r"\(\s*NULLIF\(\s*mcc\b.*?NULLIF\(\s*usr_loc_info\b.*?\)\s*\)"
+    )
+    text = re.sub(rf"\s+AND\s+NOT\s+{loose}", "", text, flags=re.IGNORECASE)
+    text = re.sub(rf"\s+AND\s+{loose}", "", text, flags=re.IGNORECASE)
     return text
+
+
+def _pending(history: list[dict]) -> bool:
+    if not history:
+        return False
+    last = history[-1]
+    return not str(last.get("sql") or "").strip() and bool(str(last.get("explanation") or "").strip())
+
+
+def _answer_keeps(question: str) -> bool:
+    folded = question.strip().lower()
+    if folded in {"yes", "yes.", "ok", "okay", "keep", "keep it"}:
+        return True
+    return "keep the previous" in folded or "stay limited" in folded or "limited to" in folded
+
+
+def _answer_drops(question: str) -> bool:
+    folded = question.strip().lower()
+    return folded in {"no", "no."} or "include every application" in folded or "every application" in folded
+
+
+def _wants_split(question: str) -> bool:
+    folded = question.lower()
+    return "upload" in folded and "download" in folded
+
+
+def _rank_target(question: str) -> str | None:
+    folded = question.lower()
+    wants_flows = bool(re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded))
+    wants_volume = bool(re.search(r"\b(traffic volume|by volume|by traffic|total bytes)\b", folded))
+    if wants_flows and wants_volume:
+        return "flows" if folded.rfind("flow") > folded.rfind("volume") else "total_bytes"
+    if wants_flows:
+        return "flows"
+    if wants_volume and "instead" in folded:
+        return "total_bytes"
+    return None
+
+
+def _revise(question: str, history: list[dict], force_keep: bool = False, force_drop: bool = False) -> str | None:
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    if _subscriber_request(question) and not _wants_split(question) and _rank_target(question) is None:
+        return None
+    split = _wants_split(question)
+    rank = _rank_target(question)
+    reject = _rejects_connection(question) or subscriber_kind(
+        [str(item.get("question") or "") for item in history] + [question]
+    ) == "any" and _rejects_connection(question)
+    if not (split or rank or _rejects_connection(question) or (force_keep and (split or rank)) or (force_drop and (split or rank))):
+        return None
+    texts = [str(item.get("question") or "") for item in history]
+    kind = _subscriber_kind(texts + [question])
+    keep, drop = _app_choice(" ".join(texts + [question]).lower(), previous)
+    if force_keep or "for the same" in question.lower() or split or rank or _rejects_connection(question):
+        if not force_drop and not drop:
+            keep = True
+    if force_drop:
+        keep, drop = False, True
+    text = re.sub(r"\s+", " ", previous).strip()
+    if drop or not keep:
+        text = re.sub(r"\s+AND\s+LOWER\(app_label\)\s+LIKE\s+'%[^']+%'", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"LOWER\(app_label\)\s+LIKE\s+'%[^']+%'\s+AND\s+", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+AND\s+LOWER\(app_label\)\s+IN\s+\([^)]*\)", "", text, flags=re.IGNORECASE)
+    if kind == "fixed":
+        text = _without_cell(text)
+        text = re.sub(r"\bGROUP BY\b", f"AND NOT {MOBILE_SQL} GROUP BY", text, count=1, flags=re.IGNORECASE)
+    elif kind == "mobile":
+        text = _without_cell(text)
+        text = re.sub(r"\bGROUP BY\b", f"AND {MOBILE_SQL} GROUP BY", text, count=1, flags=re.IGNORECASE)
+    else:
+        text = _without_cell(text)
+    if split:
+        text = re.sub(
+            r"(?is)^SELECT\b.+?\bFROM\b",
+            "SELECT subscriber_id, SUM(c2s_byte_num) AS upload_bytes, "
+            "SUM(s2c_byte_num) AS download_bytes, "
+            "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+            "COUNT(*) AS flows FROM",
+            text,
+            count=1,
+        )
+    if rank == "flows" and not re.search(r"\bas\s+flows\b", text, flags=re.IGNORECASE):
+        text = re.sub(r"(?i)\bFROM\b", ", COUNT(*) AS flows FROM", text, count=1)
+    if rank:
+        column = "flows" if rank == "flows" else ("total_bytes" if re.search(r"\bas\s+total_bytes\b", text, flags=re.IGNORECASE) else "total_mb")
+        if re.search(r"(?i)\bORDER BY\b", text):
+            text = re.sub(r"(?is)\bORDER BY\b.+?(?=\bLIMIT\b|$)", f"ORDER BY {column} DESC ", text, count=1)
+        elif re.search(r"(?i)\bLIMIT\b", text):
+            text = re.sub(r"(?i)\bLIMIT\b", f"ORDER BY {column} DESC LIMIT", text, count=1)
+        else:
+            text = f"{text} ORDER BY {column} DESC"
+    limit = _limit_in(question) or _limit_of(text)
+    if limit and re.search(r"(?i)\blimit\s+\d+\b", text):
+        text = re.sub(r"(?i)\blimit\s+\d+\b", f"LIMIT {int(limit)}", text, count=1)
+    return re.sub(r"\s+", " ", text).strip()

@@ -291,6 +291,45 @@ def main() -> None:
     timed = [{"question": "top apps yesterday", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE start_time >= 1 GROUP BY app_label"}]
     if use_full_scan("top 10 mobile users for the same", timed, True):
         raise SystemExit("a follow-up dropped the previous time filter")
+    youtube = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) IN ('youtube') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
+        "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
+        "OR NULLIF(usr_loc_info, '') IS NOT NULL) "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    plain = repair_sql("give me top 20 youtube users", youtube, [])
+    if "nullif(mcc" in plain.lower() or "youtube" not in plain.lower():
+        raise SystemExit(f"youtube users kept the mobile filter: {plain}")
+    complaint = "you gave mobile users only. I need to see the top 20 users regardless of their nature of connection"
+    if needs_clarification(complaint, [{"question": "give me top 20 youtube users", "sql": youtube}]):
+        raise SystemExit("a connection complaint asked about the application")
+    opened = resolve_followup(complaint, [{"question": "give me top 20 youtube users", "sql": youtube}])
+    if not opened or "nullif(mcc" in opened.lower() or "youtube" not in opened.lower():
+        raise SystemExit(f"connection complaint did not drop the cell filter: {opened}")
+    split_q = "now show me the upload and download data separately for each user"
+    if needs_clarification(split_q, [{"question": "give me top 20 youtube users", "sql": opened}]):
+        raise SystemExit("an upload and download follow-up asked about the application")
+    split = resolve_followup(split_q, [{"question": "give me top 20 youtube users", "sql": opened}])
+    if not split or "upload_bytes" not in split.lower() or "download_bytes" not in split.lower() or "youtube" not in split.lower():
+        raise SystemExit(f"upload and download were not split: {split}")
+    flow_q = "now instead of showing the top 20 users by traffic volume, show me the top 20 users by flow count"
+    if needs_clarification(flow_q, [{"question": split_q, "sql": split}]):
+        raise SystemExit("a flow-count follow-up asked about the application")
+    ranked = resolve_followup(flow_q, [{"question": split_q, "sql": split}])
+    if not ranked or "order by flows" not in ranked.lower() or "upload_bytes" not in ranked.lower():
+        raise SystemExit(f"flow count did not replace the sort: {ranked}")
+    affirmed = resolve_followup(
+        "yes",
+        [
+            {"question": "give me top 20 youtube users", "sql": opened},
+            {"question": split_q, "sql": "", "explanation": "Do you want to keep the previous application filter?"},
+        ],
+    )
+    if not affirmed or "upload_bytes" not in affirmed.lower() or "youtube" not in affirmed.lower():
+        raise SystemExit(f"yes did not keep the application and apply the metric: {affirmed}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
