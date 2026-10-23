@@ -590,6 +590,24 @@ def main() -> None:
         raise SystemExit(f"repeating the subscriber repeated the application list: {just_user}")
     if check_sql("show me the websites accessed by this user", websites, after_apps, True):
         raise SystemExit("a website list for one subscriber was rejected")
+    ranking = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 25"
+    )
+    details = resolve_followup(
+        "show me the activity details of 03250040727FF",
+        [{"question": "show the top 25 users with maximum activity", "sql": ranking}],
+    )
+    if (
+        not details
+        or "group by app_label" not in details.lower()
+        or "subscriber_id = '03250040727FF'" not in details
+        or "group by subscriber_id" in details.lower()
+        or "limit" in details.lower()
+    ):
+        raise SystemExit(f"activity details repeated the subscriber total: {details}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

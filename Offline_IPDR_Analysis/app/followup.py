@@ -173,6 +173,8 @@ def _asks_for_their_apps(text: str) -> bool:
         return True
     if re.search(r"\bactivities\b", folded):
         return True
+    if re.search(r"\bactivity\s+details?\b", folded) or re.search(r"\bdetails?\s+of\b", folded):
+        return True
     return bool(re.search(r"\b(the rest|rest of|what else|everything else)\b", folded))
 
 
@@ -181,6 +183,8 @@ def _wants_every_listed_app(text: str) -> bool:
     if re.search(r"\b(all|every)\b", folded) and re.search(r"\b(applications?|apps|activities|activity)\b", folded):
         return True
     if re.search(r"\bother\s+(activities|activity|applications?|apps)\b", folded):
+        return True
+    if re.search(r"\bdetails?\b", folded):
         return True
     return bool(re.search(r"\b(the rest|rest of|what else|everything else)\b", folded))
 
@@ -212,17 +216,24 @@ def named_subscriber(question: str) -> str | None:
     patterns = (
         r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\bof\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
     )
     for pattern in patterns:
         match = re.search(pattern, question)
         if not match:
             continue
         token = match.group(1)
-        if token.lower() in _NOT_SUBSCRIBER:
-            continue
-        if re.search(r"\d", token) or "-" in token or "_" in token:
+        if _subscriber_token(token):
             return token
     return None
+
+
+def _subscriber_token(token: str) -> bool:
+    if token.lower() in _NOT_SUBSCRIBER:
+        return False
+    if re.fullmatch(r"\d{1,5}", token):
+        return False
+    return bool(re.search(r"\d", token) or "-" in token or "_" in token)
 
 
 _NOT_SUBSCRIBER = {
