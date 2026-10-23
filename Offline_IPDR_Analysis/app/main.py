@@ -381,6 +381,8 @@ def _followup_notice(question: str, sql: str = "") -> str:
     compact = sql.lower()
     if "group by requested_server" in compact and "subscriber_id = " in compact:
         return "This lists the websites that subscriber requested. A website is the TLS server name in requested_server."
+    if "group by requested_server" in compact and re.search(r"\b(hits?|visits?|requests?)\b", folded):
+        return "This ranks websites by the number of hits. A hit is one flow."
     if "group by app_label" in compact and "subscriber_id = " in compact:
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):
@@ -390,6 +392,8 @@ def _followup_notice(question: str, sql: str = "") -> str:
     if re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded):
         return "This keeps the previous filters and ranks by the number of flows."
     if re.search(r"\b(unique users|number of users)\b", folded) and not re.search(r"\b(order|ordered|sort|sorted)\b", folded):
+        if "requested_server" in compact:
+            return "This adds the number of identified subscribers for each website and keeps the same ranking."
         return "This adds the number of identified subscribers for each application and keeps the other columns."
     orders_by_users = bool(
         re.search(

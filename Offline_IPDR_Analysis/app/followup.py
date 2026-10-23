@@ -22,6 +22,12 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     unlimited = _without_row_limit(question, history)
     if unlimited:
         return unlimited
+    counted = _add_user_count(question, history)
+    if counted:
+        return counted
+    ranked_sites = _top_websites(question)
+    if ranked_sites:
+        return ranked_sites
     if _pending(history) and _answer_keeps(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
     if _pending(history) and _answer_drops(question):
@@ -125,6 +131,66 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY requested_server ORDER BY total_bytes DESC{limit_sql}"
     )
+
+
+def _top_websites(question: str) -> str | None:
+    """A ranking of websites. Hits are flows, not bytes."""
+    folded = question.lower()
+    if not _asks_for_websites(folded):
+        return None
+    if named_subscriber(question) or _points_at_known_user(question):
+        return None
+    if not re.search(r"\b(top|highest|maximum|most)\b", folded):
+        return None
+    limit = _limit_in(question) or 10
+    order = "flows" if _means_hits(folded) else "total_bytes"
+    return (
+        "SELECT requested_server, COUNT(*) AS flows, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
+        "FROM ntc_ssl_logs WHERE IFNULL(requested_server, '') <> '' "
+        f"GROUP BY requested_server ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+def _means_hits(text: str) -> bool:
+    return bool(re.search(r"\b(hits?|visits?|requests?)\b", text.lower()))
+
+
+def _add_user_count(question: str, history: list[dict]) -> str | None:
+    """Add identified subscribers beside the current rows and keep that ranking."""
+    folded = question.lower()
+    if not _wants_user_count(folded):
+        return None
+    if _unit_of(question) or ("upload" in folded and "download" in folded):
+        return None
+    previous = _last_sql(history)
+    if not previous or not re.search(r"\bgroup\s+by\b", previous, flags=re.IGNORECASE):
+        return None
+    if _group_key(previous) == "subscriber_id":
+        return None
+    base = previous
+    if not re.search(r"\border\s+by\b", previous, flags=re.IGNORECASE):
+        base = _last_ordered_like(history, _group_key(previous)) or previous
+    if not _has_call(base, r"count\s*\(\s*distinct\b"):
+        base = re.sub(
+            r"(?i)\bFROM\b",
+            ", COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+            "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users FROM",
+            base,
+            count=1,
+        )
+    return re.sub(r"\s+", " ", base).strip()
+
+
+def _last_ordered_like(history: list[dict], group_key: str | None) -> str | None:
+    if not group_key:
+        return None
+    for item in reversed(history):
+        sql = str(item.get("sql") or "")
+        if _group_key(sql) == group_key and re.search(r"\border\s+by\b", sql, flags=re.IGNORECASE):
+            return sql
+    return None
 
 
 def _asks_for_websites(text: str) -> bool:

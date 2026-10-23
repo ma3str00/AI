@@ -608,6 +608,50 @@ def main() -> None:
         or "limit" in details.lower()
     ):
         raise SystemExit(f"activity details repeated the subscriber total: {details}")
+    hits = resolve_followup(
+        "show the top 10 websites with maximum hits",
+        [{"question": "show the top 25 snapchat users", "sql": ranking}],
+    )
+    if (
+        not hits
+        or "group by requested_server" not in hits.lower()
+        or "order by flows desc" not in hits.lower()
+        or "order by total_bytes" in hits.lower()
+        or "limit 10" not in hits.lower()
+    ):
+        raise SystemExit(f"website hits were ranked by bytes: {hits}")
+    with_users = resolve_followup(
+        "also give me the unique number of users that accessed those sites",
+        [
+            {"question": "show the top 25 snapchat users", "sql": ranking},
+            {"question": "show the top 10 websites with maximum hits", "sql": hits},
+        ],
+    )
+    if (
+        not with_users
+        or " as users" not in with_users.lower()
+        or "order by flows desc" not in with_users.lower()
+        or "total_bytes" not in with_users.lower()
+        or "total_mb" not in with_users.lower()
+    ):
+        raise SystemExit(f"unique users replaced the top websites: {with_users}")
+    lost = (
+        "SELECT requested_server, COUNT(*) AS flow_count, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb, "
+        "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
+        "FROM ntc_ssl_logs WHERE IFNULL(requested_server, '') <> '' "
+        "GROUP BY requested_server LIMIT 10"
+    )
+    restored = resolve_followup(
+        "I meant the unique number of users that accessed the top 10 sites",
+        [
+            {"question": "show the top 10 websites with maximum hits", "sql": hits},
+            {"question": "also give me the unique number of users that accessed those sites", "sql": lost},
+        ],
+    )
+    if not restored or "order by flows desc" not in restored.lower() or " as users" not in restored.lower():
+        raise SystemExit(f"the top websites were not restored: {restored}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
