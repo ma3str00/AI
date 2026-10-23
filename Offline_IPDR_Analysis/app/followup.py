@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from app.glossary import mentions
 from app.schema import MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
 
@@ -13,6 +14,9 @@ _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this 
 def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     """Build SQL from the last real query when the reply only changes one part of it."""
     history = history or []
+    swapped = _same_request_other_person(question, history)
+    if swapped:
+        return swapped
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -154,7 +158,31 @@ def _top_websites(question: str) -> str | None:
 
 
 def _means_hits(text: str) -> bool:
-    return bool(re.search(r"\b(hits?|visits?|requests?)\b", text.lower()))
+    return mentions(text, "hit")
+
+
+def _asks_for_websites(text: str) -> bool:
+    return mentions(text, "website")
+
+
+def _same_request_other_person(question: str, history: list[dict]) -> str | None:
+    """'What about <id>?' keeps the previous result and changes the subscriber."""
+    if not mentions(question, "other_person"):
+        return None
+    subscriber = named_subscriber(question)
+    if not subscriber:
+        return None
+    previous = _last_sql(history)
+    if not previous or not re.search(r"subscriber_id\s*=\s*'[^']+'", previous, flags=re.IGNORECASE):
+        return None
+    updated = re.sub(
+        r"subscriber_id\s*=\s*'[^']+'",
+        f"subscriber_id = '{subscriber}'",
+        previous,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", updated).strip()
 
 
 def _add_user_count(question: str, history: list[dict]) -> str | None:
@@ -191,10 +219,6 @@ def _last_ordered_like(history: list[dict], group_key: str | None) -> str | None
         if _group_key(sql) == group_key and re.search(r"\border\s+by\b", sql, flags=re.IGNORECASE):
             return sql
     return None
-
-
-def _asks_for_websites(text: str) -> bool:
-    return bool(re.search(r"\b(websites?|sites?|domains?|sni|hostnames?)\b", text.lower()))
 
 
 def _wants_every_listed_site(text: str) -> bool:
@@ -234,14 +258,14 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
 
 
 def _asks_for_their_apps(text: str) -> bool:
+    if mentions(text, "their_apps"):
+        return True
     folded = text.lower()
     if re.search(r"\b(applications?|apps)\b", folded):
         return True
-    if re.search(r"\bactivities\b", folded):
-        return True
     if re.search(r"\bactivity\s+details?\b", folded) or re.search(r"\bdetails?\s+of\b", folded):
         return True
-    return bool(re.search(r"\b(the rest|rest of|what else|everything else)\b", folded))
+    return False
 
 
 def _wants_every_listed_app(text: str) -> bool:
@@ -279,18 +303,18 @@ def _recent_unanswered(history: list[dict], predicate) -> bool:
 
 def named_subscriber(question: str) -> str | None:
     """The subscriber id named in the question, including 'used by someid123'."""
+    cleaned = question.replace("'", "").replace("’", "").replace('"', "").replace("`", "")
     patterns = (
+        r"\b(?:what|how)\s+about\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bof\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
     )
     for pattern in patterns:
-        match = re.search(pattern, question)
-        if not match:
-            continue
-        token = match.group(1)
-        if _subscriber_token(token):
-            return token
+        for match in re.finditer(pattern, cleaned):
+            token = match.group(1)
+            if _subscriber_token(token):
+                return token
     return None
 
 

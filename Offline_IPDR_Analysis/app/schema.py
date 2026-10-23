@@ -1,5 +1,7 @@
 """Column rules for ipdr.ntc_ssl_logs. The model, the example bank, and the UI all use these."""
 
+from app.glossary import prompt_block
+
 TABLE = "ntc_ssl_logs"
 DATABASE = "ipdr"
 
@@ -113,6 +115,8 @@ client_location and server_location are IP-database places. geo and loc are the 
 A follow-up keeps the previous application filter and time scope. Change only the measure, limit, or subscriber type the user named. Do not ask about the application when they only change the measure.
 Aggregate unless they ask to list flows. Rankings need ORDER BY and LIMIT. No SELECT *, JOIN, UNION, or other tables.
 Return only {{"sql":"SELECT ..."}} or {{"clarify":"one sentence"}}.
+
+{prompt_block()}
 """
 
 

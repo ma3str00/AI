@@ -652,6 +652,28 @@ def main() -> None:
     )
     if not restored or "order by flows desc" not in restored.lower() or " as users" not in restored.lower():
         raise SystemExit(f"the top websites were not restored: {restored}")
+    from app.glossary import mentions
+
+    if not mentions("top websites by visits", "hit") or not mentions("which domains", "website"):
+        raise SystemExit("the glossary missed a known word")
+    if mentions("top users with maximum activity", "their_apps"):
+        raise SystemExit("a user ranking was read as one person's applications")
+    previous_person = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE subscriber_id = '03225007549uu' GROUP BY app_label ORDER BY total_bytes DESC"
+    )
+    swapped = resolve_followup(
+        "what about 03315446519QAE?",
+        [{"question": "show me the other activities done by 03225007549uu", "sql": previous_person}],
+    )
+    if not swapped or "subscriber_id = '03315446519QAE'" not in swapped or "03225007549uu" in swapped:
+        raise SystemExit(f"what about did not switch the subscriber: {swapped}")
+    quoted = resolve_followup(
+        "other activities done by the subscriber '03315446519QAE'",
+        [{"question": "show me the other activities done by 03225007549uu", "sql": previous_person}],
+    )
+    if not quoted or "subscriber_id = '03315446519QAE'" not in quoted or "03225007549uu" in quoted:
+        raise SystemExit(f"a quoted subscriber id was ignored: {quoted}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
