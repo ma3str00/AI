@@ -96,24 +96,72 @@ def use_full_scan(question: str, history: list[dict] | None, missing_time_means_
     return missing_time_means_all
 
 
+def lists_one_subscriber_apps(question: str, history: list[dict] | None) -> bool:
+    return _apps_of_one_subscriber(question, history or []) is not None
+
+
 def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
-    """Every application used by the named subscriber."""
-    if not re.search(r"\b(application|applications|apps)\b", question.lower()):
-        return None
+    """Every application used by one subscriber, including 'this user' and 'the rest of their activities'."""
     subscriber = named_subscriber(question)
+    if not subscriber and _points_at_known_user(question):
+        subscriber = _subscriber_from_history(history)
     if not subscriber:
+        return None
+    supplying_name = bool(named_subscriber(question)) or "referring to" in question.lower()
+    if not _asks_for_their_apps(question) and not (supplying_name and _recent_app_request(history)):
         return None
     where = [f"subscriber_id = '{subscriber}'"]
     time_clause = _time_clause(_last_sql(history))
     if time_clause:
         where.append(time_clause)
-    limit = _limit_in(question) or 20
+    texts = [question, *[str(item.get("question") or "") for item in history[-6:]]]
+    limit = _limit_in(question)
+    limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
+    if limit is None and not any(_wants_every_listed_app(text) for text in texts):
+        limit_sql = " LIMIT 20"
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
-        f"GROUP BY app_label ORDER BY total_bytes DESC LIMIT {int(limit)}"
+        f"GROUP BY app_label ORDER BY total_bytes DESC{limit_sql}"
     )
+
+
+def _asks_for_their_apps(text: str) -> bool:
+    folded = text.lower()
+    if re.search(r"\b(applications?|apps)\b", folded):
+        return True
+    if re.search(r"\bactivities\b", folded):
+        return True
+    return bool(re.search(r"\b(the rest|rest of|what else|everything else)\b", folded))
+
+
+def _wants_every_listed_app(text: str) -> bool:
+    folded = text.lower()
+    if re.search(r"\b(all|every)\b", folded) and re.search(r"\b(applications?|apps|activities|activity)\b", folded):
+        return True
+    return bool(re.search(r"\b(the rest|rest of|what else|everything else)\b", folded))
+
+
+def _points_at_known_user(text: str) -> bool:
+    return bool(re.search(r"\b(this|that|same|the)\s+(user|subscriber)\b", text.lower()))
+
+
+def _subscriber_from_history(history: list[dict]) -> str | None:
+    for item in reversed(history):
+        found = named_subscriber(str(item.get("question") or ""))
+        if found:
+            return found
+    return None
+
+
+def _recent_app_request(history: list[dict]) -> bool:
+    for item in reversed(history[-8:]):
+        if _asks_for_their_apps(str(item.get("question") or "")):
+            return True
+        if str(item.get("sql") or "").strip():
+            break
+    return False
 
 
 def named_subscriber(question: str) -> str | None:

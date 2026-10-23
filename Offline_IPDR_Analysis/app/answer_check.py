@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.followup import named_subscriber, subscriber_kind
+from app.followup import lists_one_subscriber_apps, named_subscriber, subscriber_kind
 
 APP_NAMES = (
     "whatsapp", "facebook", "messenger", "tiktok", "youtube", "instagram", "snapchat",
@@ -21,7 +21,12 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
     folded = re.sub(r"\s+", " ", sql.lower())
     problems = []
 
-    if _asks_for_users(conversation) and not _asks_for_apps_of_one_subscriber(question) and not _counts_users_per_app(question):
+    if (
+        _asks_for_users(conversation)
+        and not _asks_for_apps_of_one_subscriber(question)
+        and not lists_one_subscriber_apps(question, history)
+        and not _counts_users_per_app(question)
+    ):
         if "group by subscriber_id" not in folded:
             problems.append(
                 "Group by subscriber_id. Users and subscribers are subscriber_id, not app_label."
@@ -32,7 +37,7 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
                 "AND LOCATE('_', subscriber_id) = 0. A value like 203.0.113.10_56175 is client IPv4 and port."
             )
 
-    for name in _required_apps(current, prior):
+    for name in _required_apps(current, prior, history):
         if name not in folded:
             problems.append(
                 f"Keep the app filter LOWER(app_label) LIKE '%{name}%'. "
@@ -105,8 +110,8 @@ def _excludes_unidentified(sql: str) -> bool:
     )
 
 
-def _required_apps(current: str, prior: list[str]) -> list[str]:
-    if _asks_for_apps_of_one_subscriber(current) or _drops_previous_apps(current):
+def _required_apps(current: str, prior: list[str], history: list[dict] | None = None) -> list[str]:
+    if lists_one_subscriber_apps(current, history) or _asks_for_apps_of_one_subscriber(current) or _drops_previous_apps(current):
         return _apps(current) if not re.search(r"\bother\b", current.lower()) else []
     current_apps = _apps(current)
     if current_apps:

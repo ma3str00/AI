@@ -128,11 +128,11 @@ def ask(body: Question):
             {"sql": resolved, "full_scan": conversation_full_scan(question, history)},
             config,
             database,
-            _followup_notice(question),
-            allow_all_groups=wants_all_groups(question),
+            _followup_notice(question, resolved),
+            allow_all_groups=wants_all_groups(question) or _lists_every_app(resolved),
         )
         if replayed is not None:
-            if replayed.get("row_count") == 0 and named_subscriber(question):
+            if replayed.get("row_count") == 0 and "subscriber_id = " in resolved.lower():
                 replayed["explanation"] = "No applications were found for that subscriber."
             return replayed
     clarification = needs_clarification(question, history)
@@ -369,9 +369,17 @@ def _clarify(text: str) -> dict:
     }
 
 
-def _followup_notice(question: str) -> str:
+def _lists_every_app(sql: str) -> bool:
+    folded = sql.lower()
+    return "group by app_label" in folded and not re.search(r"\blimit\b", folded)
+
+
+def _followup_notice(question: str, sql: str = "") -> str:
     folded = question.lower()
-    if re.search(r"\b(application|applications|apps)\b", folded) and named_subscriber(question):
+    compact = sql.lower()
+    if "group by app_label" in compact and "subscriber_id = " in compact:
+        return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
+    if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if subscriber_kind([question]) in {"mobile", "fixed"}:
         return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."

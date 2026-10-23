@@ -505,6 +505,44 @@ def main() -> None:
     )
     if not back or "/ 1073741824" not in back or "upload_traffic_gb" not in back.lower() or "/ 1048576" in back:
         raise SystemExit(f"from MB to GB stayed in megabytes: {back}")
+    whatsapp_users = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+    )
+    ranked_users = [{"question": "give me the users with highest amount of whatsapp activity", "sql": whatsapp_users}]
+    rest = resolve_followup("show me the rest of activities done by htr897713", ranked_users)
+    if (
+        not rest
+        or "htr897713" not in rest
+        or "group by app_label" not in rest.lower()
+        or "whatsapp" in rest.lower()
+        or "limit" in rest.lower()
+    ):
+        raise SystemExit(f"the rest of a subscriber's activities was not listed: {rest}")
+    referred = ranked_users + [
+        {"question": "show me the rest of activities done by htr897713", "sql": "", "explanation": "Which view do you want?"},
+    ]
+    by_this_user = resolve_followup("I want to see the applications used by this user", referred)
+    if not by_this_user or "htr897713" not in by_this_user or "group by app_label" not in by_this_user.lower():
+        raise SystemExit(f"this user did not keep htr897713: {by_this_user}")
+    named_again = referred + [
+        {"question": "I want to see the applications used by this user", "sql": "", "explanation": "Which application?"},
+        {"question": "all the applications that this user has been using", "sql": "", "explanation": "Which measure?"},
+        {"question": "all the applications used by this user", "sql": "", "explanation": "Which user?"},
+    ]
+    referred_user = resolve_followup("I am referring to user htr897713", named_again)
+    if (
+        not referred_user
+        or "subscriber_id = 'htr897713'" not in referred_user
+        or "group by app_label" not in referred_user.lower()
+        or "limit" in referred_user.lower()
+    ):
+        raise SystemExit(f"naming the user again did not list their applications: {referred_user}")
+    if check_sql("I am referring to user htr897713", referred_user, named_again, True):
+        raise SystemExit("listing one subscriber's applications was rejected")
     listing = (
         "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
         "WHERE LOWER(app_category) = 'web_browsing' GROUP BY app_label LIMIT 200"

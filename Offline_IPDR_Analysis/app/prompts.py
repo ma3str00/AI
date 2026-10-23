@@ -38,7 +38,7 @@ def sql_messages(
                 "Do not add a cell filter unless this question asks for mobile or fixed-line.\n"
                 "Keep the previous application filter. Change the columns, sort, or limit the user named. "
                 "Do not ask whether to keep the application when they only change the measure.\n"
-                "If they ask which applications one subscriber used, GROUP BY app_label and filter that subscriber_id. Show every application. Do not exclude the previous one.\n"
+                "If they ask which applications or activities one subscriber used, including 'the rest' and 'this user', GROUP BY app_label and filter that subscriber_id. Show every application. Do not exclude the previous one. Do not ask which application or which user when the subscriber is already known.\n"
             )
         blocks.append(lead + "\n\n".join(turns))
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."
@@ -51,6 +51,7 @@ def sql_messages(
             "If they asked for users or subscribers, GROUP BY subscriber_id and exclude ids containing '_'. "
             "If they asked for applications, GROUP BY app_label. An app name in the question is a WHERE filter. "
             "Do not mention data_center. Do not ask for a time range. "
+            "If they want the applications or activities of a known subscriber, return that SQL. Do not ask which application or which user. "
             "If you are unsure whether to keep a previous filter, return a clarify question."
         )
     if not examples:
