@@ -39,6 +39,7 @@ def sql_messages(
                 "Keep the previous application filter. Change the columns, sort, or limit the user named. "
                 "Do not ask whether to keep the application when they only change the measure.\n"
                 "If they ask which applications or activities one subscriber used, including 'the rest' and 'this user', GROUP BY app_label and filter that subscriber_id. Show every application. Do not exclude the previous one. Do not ask which application or which user when the subscriber is already known.\n"
+                "Websites, domains, and SNI mean GROUP BY requested_server for that same subscriber. Do not repeat the application list.\n"
             )
         blocks.append(lead + "\n\n".join(turns))
     hint_text = hints if len(hints) <= 400 else hints[:400] + "..."

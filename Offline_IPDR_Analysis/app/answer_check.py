@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.followup import lists_one_subscriber_apps, named_subscriber, subscriber_kind
+from app.followup import _asks_for_websites, lists_one_subscriber_apps, named_subscriber, subscriber_kind
 
 APP_NAMES = (
     "whatsapp", "facebook", "messenger", "tiktok", "youtube", "instagram", "snapchat",
@@ -25,6 +25,7 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
         _asks_for_users(conversation)
         and not _asks_for_apps_of_one_subscriber(question)
         and not lists_one_subscriber_apps(question, history)
+        and not _asks_for_websites(question)
         and not _counts_users_per_app(question)
     ):
         if "group by subscriber_id" not in folded:
@@ -111,7 +112,12 @@ def _excludes_unidentified(sql: str) -> bool:
 
 
 def _required_apps(current: str, prior: list[str], history: list[dict] | None = None) -> list[str]:
-    if lists_one_subscriber_apps(current, history) or _asks_for_apps_of_one_subscriber(current) or _drops_previous_apps(current):
+    if (
+        lists_one_subscriber_apps(current, history)
+        or _asks_for_websites(current)
+        or _asks_for_apps_of_one_subscriber(current)
+        or _drops_previous_apps(current)
+    ):
         return _apps(current) if not re.search(r"\bother\b", current.lower()) else []
     current_apps = _apps(current)
     if current_apps:

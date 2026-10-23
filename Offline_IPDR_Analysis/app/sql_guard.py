@@ -134,7 +134,7 @@ def _groups_by_label(expr: exp.Select) -> bool:
     if group is None:
         return False
     names = {column.name.lower() for column in group.find_all(exp.Column)}
-    return bool(names) and names <= {"app_label", "app_category"}
+    return bool(names) and names <= {"app_label", "app_category", "requested_server"}
 
 
 def _is_aggregate(expr: exp.Select) -> bool:

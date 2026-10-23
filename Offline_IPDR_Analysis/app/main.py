@@ -371,12 +371,16 @@ def _clarify(text: str) -> dict:
 
 def _lists_every_app(sql: str) -> bool:
     folded = sql.lower()
-    return "group by app_label" in folded and not re.search(r"\blimit\b", folded)
+    if re.search(r"\blimit\b", folded):
+        return False
+    return "group by app_label" in folded or "group by requested_server" in folded
 
 
 def _followup_notice(question: str, sql: str = "") -> str:
     folded = question.lower()
     compact = sql.lower()
+    if "group by requested_server" in compact and "subscriber_id = " in compact:
+        return "This lists the websites that subscriber requested. A website is the TLS server name in requested_server."
     if "group by app_label" in compact and "subscriber_id = " in compact:
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):

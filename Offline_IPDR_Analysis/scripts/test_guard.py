@@ -558,6 +558,38 @@ def main() -> None:
     shown_all = guard_prepare(opened, max_rows=200, allow_full_scan=True, allow_all_groups=True)
     if "limit" in shown_all.lower():
         raise SystemExit(f"the guard put the limit back: {shown_all}")
+    twitter_users = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) IN ('twitter_upload', 'twitter') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    twitter_history = [{"question": "give me the users with highest amount of twitter activity", "sql": twitter_users}]
+    other = resolve_followup("show me the other activities done by 03215340135W", twitter_history)
+    if not other or "group by app_label" not in other.lower() or "03215340135W" not in other or "twitter" in other.lower():
+        raise SystemExit(f"other activities were not listed for that subscriber: {other}")
+    after_apps = twitter_history + [{"question": "show me the other activities done by 03215340135W", "sql": other}]
+    websites = resolve_followup("show me the websites accessed by this user", after_apps)
+    if (
+        not websites
+        or "group by requested_server" not in websites.lower()
+        or "03215340135W" not in websites
+        or "group by app_label" in websites.lower()
+    ):
+        raise SystemExit(f"websites for this user became an application list: {websites}")
+    narrowed = after_apps + [
+        {"question": "show me the websites accessed by this user", "sql": "", "explanation": "Which user do you mean?"},
+    ]
+    just_user = resolve_followup("just by 03215340135W", narrowed)
+    if (
+        not just_user
+        or "group by requested_server" not in just_user.lower()
+        or "subscriber_id = '03215340135W'" not in just_user
+        or "group by app_label" in just_user.lower()
+    ):
+        raise SystemExit(f"repeating the subscriber repeated the application list: {just_user}")
+    if check_sql("show me the websites accessed by this user", websites, after_apps, True):
+        raise SystemExit("a website list for one subscriber was rejected")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

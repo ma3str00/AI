@@ -13,6 +13,9 @@ _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this 
 def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     """Build SQL from the last real query when the reply only changes one part of it."""
     history = history or []
+    sites = _websites_of_one_subscriber(question, history)
+    if sites:
+        return sites
     apps = _apps_of_one_subscriber(question, history)
     if apps:
         return apps
@@ -96,6 +99,43 @@ def use_full_scan(question: str, history: list[dict] | None, missing_time_means_
     return missing_time_means_all
 
 
+def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | None:
+    """TLS server names requested by one subscriber. A website is requested_server."""
+    subscriber = named_subscriber(question)
+    if not subscriber and _points_at_known_user(question):
+        subscriber = _subscriber_from_history(history)
+    if not subscriber:
+        return None
+    supplying_name = bool(named_subscriber(question)) or "referring to" in question.lower()
+    if not _asks_for_websites(question) and not (supplying_name and _recent_unanswered(history, _asks_for_websites)):
+        return None
+    where = [f"subscriber_id = '{subscriber}'", "IFNULL(requested_server, '') <> ''"]
+    time_clause = _time_clause(_last_sql(history))
+    if time_clause:
+        where.append(time_clause)
+    texts = [question, *[str(item.get("question") or "") for item in history[-6:]]]
+    limit = _limit_in(question)
+    limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
+    if limit is None and not any(_wants_every_listed_site(text) for text in texts):
+        limit_sql = " LIMIT 50"
+    return (
+        "SELECT requested_server, COUNT(*) AS flows, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY requested_server ORDER BY total_bytes DESC{limit_sql}"
+    )
+
+
+def _asks_for_websites(text: str) -> bool:
+    return bool(re.search(r"\b(websites?|sites?|domains?|sni|hostnames?)\b", text.lower()))
+
+
+def _wants_every_listed_site(text: str) -> bool:
+    folded = text.lower()
+    return bool(re.search(r"\b(all|every)\b", folded) and _asks_for_websites(folded))
+
+
 def lists_one_subscriber_apps(question: str, history: list[dict] | None) -> bool:
     return _apps_of_one_subscriber(question, history or []) is not None
 
@@ -108,7 +148,7 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     if not subscriber:
         return None
     supplying_name = bool(named_subscriber(question)) or "referring to" in question.lower()
-    if not _asks_for_their_apps(question) and not (supplying_name and _recent_app_request(history)):
+    if not _asks_for_their_apps(question) and not (supplying_name and _recent_unanswered(history, _asks_for_their_apps)):
         return None
     where = [f"subscriber_id = '{subscriber}'"]
     time_clause = _time_clause(_last_sql(history))
@@ -140,6 +180,8 @@ def _wants_every_listed_app(text: str) -> bool:
     folded = text.lower()
     if re.search(r"\b(all|every)\b", folded) and re.search(r"\b(applications?|apps|activities|activity)\b", folded):
         return True
+    if re.search(r"\bother\s+(activities|activity|applications?|apps)\b", folded):
+        return True
     return bool(re.search(r"\b(the rest|rest of|what else|everything else)\b", folded))
 
 
@@ -155,12 +197,13 @@ def _subscriber_from_history(history: list[dict]) -> str | None:
     return None
 
 
-def _recent_app_request(history: list[dict]) -> bool:
+def _recent_unanswered(history: list[dict], predicate) -> bool:
+    """True when a question still waiting for SQL matches the predicate."""
     for item in reversed(history[-8:]):
-        if _asks_for_their_apps(str(item.get("question") or "")):
-            return True
         if str(item.get("sql") or "").strip():
             break
+        if predicate(str(item.get("question") or "")):
+            return True
     return False
 
 
