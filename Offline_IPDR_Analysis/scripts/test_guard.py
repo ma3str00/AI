@@ -674,6 +674,34 @@ def main() -> None:
     )
     if not quoted or "subscriber_id = '03315446519QAE'" not in quoted or "03225007549uu" in quoted:
         raise SystemExit(f"a quoted subscriber id was ignored: {quoted}")
+    apps_with_users = (
+        "SELECT app_label, COUNT(*) AS flows, "
+        "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
+        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY flows DESC LIMIT 20"
+    )
+    tiktok_users = resolve_followup(
+        "show me the top 50 tiktok users",
+        [{"question": "show me the unique user count against each of these 20 apps", "sql": apps_with_users}],
+    )
+    if (
+        not tiktok_users
+        or "group by subscriber_id" not in tiktok_users.lower()
+        or "locate('_', subscriber_id) = 0" not in tiktok_users.lower()
+        or "like '%tiktok%'" not in tiktok_users.lower()
+        or "count(distinct" in tiktok_users.lower()
+        or "order by total_bytes desc" not in tiktok_users.lower()
+        or "limit 50" not in tiktok_users.lower()
+    ):
+        raise SystemExit(f"tiktok users reused the per-app user count: {tiktok_users}")
+    copied = (
+        "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%tiktok%' "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 50"
+    )
+    if not check_sql("show me the top 50 tiktok users", copied, [{"question": "unique users", "sql": apps_with_users}], True):
+        raise SystemExit("a user ranking of IP_port ids was accepted")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

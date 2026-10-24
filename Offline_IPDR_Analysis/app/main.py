@@ -387,6 +387,8 @@ def _followup_notice(question: str, sql: str = "") -> str:
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
+    if "group by subscriber_id" in compact and re.search(r"\b(users?|subscribers?)\b", folded):
+        return "This ranks identified subscribers. An id containing an underscore is an IP and port and is left out."
     if subscriber_kind([question]) in {"mobile", "fixed"}:
         return "This changes the previous query. Mobile means the cell fields are filled. Fixed-line means a valid subscriber id with those fields empty."
     if re.search(r"\b(flow count|number of flows|by flows|by flow)\b", folded):

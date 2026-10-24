@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from app.app_map import CATEGORY_PHRASES
 from app.glossary import mentions
 from app.schema import MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
@@ -32,6 +33,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     ranked_sites = _top_websites(question)
     if ranked_sites:
         return ranked_sites
+    people = _top_people(question, history)
+    if people:
+        return people
     if _pending(history) and _answer_keeps(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
     if _pending(history) and _answer_drops(question):
@@ -183,6 +187,57 @@ def _same_request_other_person(question: str, history: list[dict]) -> str | None
         flags=re.IGNORECASE,
     )
     return re.sub(r"\s+", " ", updated).strip()
+
+
+def _top_people(question: str, history: list[dict] | None = None) -> str | None:
+    """A ranking of identified subscribers. Unidentified IP_port ids are not users."""
+    folded = question.lower()
+    if not re.search(r"\b(top|highest|maximum|most)\b", folded):
+        return None
+    if not re.search(r"\b(users?|subscribers?)\b", folded):
+        return None
+    if _wants_user_count(folded) or mentions(question, "website") or mentions(question, "their_apps"):
+        return None
+    if named_subscriber(question) or _rejects_connection(question):
+        return None
+    if subscriber_kind([question]) in {"mobile", "fixed"}:
+        return None
+    previous = _last_sql(history or [])
+    if previous and "group by subscriber_id" in previous.lower():
+        return None
+    limit = _limit_in(question) or 20
+    order = "flows" if _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded) else "total_bytes"
+    where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
+    subject = _subject_filter(folded)
+    if subject:
+        where.insert(0, subject)
+    return (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY subscriber_id ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+_NOT_AN_APP = {
+    "user", "users", "show", "with", "maximum", "activity", "traffic", "highest", "most",
+    "each", "against", "unique", "count", "number", "these", "apps", "from", "their",
+    "this", "that", "application", "applications", "subscriber", "subscribers", "volume",
+    "bytes", "flows", "flow", "download", "upload", "mobile", "fixed", "line", "data",
+    "what", "about", "give", "want", "please", "only", "just", "same", "done", "used",
+    "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
+}
+
+
+def _subject_filter(folded: str) -> str | None:
+    for phrase, category in CATEGORY_PHRASES:
+        if re.search(rf"\b{re.escape(phrase)}\b", folded):
+            return f"LOWER(app_category) = '{category}'"
+    tokens = [token for token in re.findall(r"[a-z0-9]{4,}", folded) if token not in _NOT_AN_APP]
+    if not tokens:
+        return None
+    stem = max(tokens, key=len)
+    return f"LOWER(app_label) LIKE '%{stem}%'"
 
 
 def _add_user_count(question: str, history: list[dict]) -> str | None:

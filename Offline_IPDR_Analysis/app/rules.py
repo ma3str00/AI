@@ -95,5 +95,7 @@ def _user_ranking(sql: str) -> bool:
 
 
 def _excludes_unidentified(sql: str) -> bool:
-    compact = sql.lower().replace(" ", "")
-    return "locate('_'" in compact or 'locate("_"' in compact or "instr(subscriber_id,'_')=0" in compact
+    """The row filter must drop IP_port ids. A CASE inside a count does not."""
+    outside = re.sub(r"\bcase\b.*?\bend\b", " ", sql, flags=re.IGNORECASE | re.DOTALL)
+    compact = outside.lower().replace(" ", "")
+    return "locate('_',subscriber_id)=0" in compact or 'locate("_",subscriber_id)=0' in compact

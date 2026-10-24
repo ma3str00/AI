@@ -102,10 +102,11 @@ def _asks_for_apps_of_one_subscriber(text: str) -> bool:
 
 
 def _excludes_unidentified(sql: str) -> bool:
-    compact = sql.replace(" ", "")
+    outside = re.sub(r"\bcase\b.*?\bend\b", " ", sql, flags=re.IGNORECASE | re.DOTALL)
+    compact = outside.replace(" ", "")
     return (
-        "locate('_'" in compact
-        or 'locate("_"' in compact
+        "locate('_',subscriber_id)=0" in compact
+        or 'locate("_",subscriber_id)=0' in compact
         or "instr(subscriber_id,'_')=0" in compact
         or "notlike'%\\_%'" in compact
     )
