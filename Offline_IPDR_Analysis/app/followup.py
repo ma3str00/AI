@@ -288,9 +288,21 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     subject = _subject_filter(folded)
     if subject:
         where.insert(0, subject)
+    columns = ["subscriber_id"]
+    for column in _display_columns(question):
+        columns.append(
+            f"GROUP_CONCAT(DISTINCT CASE WHEN IFNULL({column}, '') <> '' THEN {column} END "
+            f"ORDER BY {column} SEPARATOR ', ') AS {column}"
+        )
+    columns.extend(
+        [
+            "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes",
+            "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb",
+            "COUNT(*) AS flows",
+        ]
+    )
     return (
-        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
-        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        f"SELECT {', '.join(columns)} "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY subscriber_id ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -303,10 +315,32 @@ _NOT_AN_APP = {
     "bytes", "flows", "flow", "download", "upload", "mobile", "fixed", "line", "data",
     "what", "about", "give", "want", "please", "only", "just", "same", "done", "used",
     "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
+    "along", "with",
 }
 
 
+_DISPLAY_COLUMNS = (
+    ("client asn", "client_asn"),
+    ("server asn", "server_asn"),
+    ("client ip", "client_ip"),
+    ("server ip", "server_ip"),
+    ("imei", "imei"),
+    ("imsi", "imsi"),
+)
+
+
+def _display_columns(text: str) -> list[str]:
+    folded = text.lower()
+    columns = []
+    for phrase, column in _DISPLAY_COLUMNS:
+        if column not in columns and re.search(rf"\b{re.escape(phrase)}\b", folded):
+            columns.append(column)
+    return columns
+
+
 def _subject_filter(folded: str) -> str | None:
+    for phrase, _column in _DISPLAY_COLUMNS:
+        folded = re.sub(rf"\b{re.escape(phrase)}\b", " ", folded)
     for phrase, category in CATEGORY_PHRASES:
         if re.search(rf"\b{re.escape(phrase)}\b", folded):
             return f"LOWER(app_category) = '{category}'"

@@ -733,6 +733,19 @@ def main() -> None:
         or "limit 10" not in against.lower()
     ):
         raise SystemExit(f"users against an application stayed on the application list: {against}")
+    with_asn = resolve_followup("show me the top 20 users by hit count along with the client asn", [])
+    if (
+        not with_asn
+        or "group by subscriber_id" not in with_asn.lower()
+        or "like '%client%'" in with_asn.lower()
+        or "group_concat(distinct case when ifnull(client_asn, '') <> '' then client_asn end" not in with_asn.lower()
+        or "order by flows desc" not in with_asn.lower()
+        or "limit 20" not in with_asn.lower()
+    ):
+        raise SystemExit(f"client asn was treated as an application: {with_asn}")
+    prepared_asn = prepare(with_asn, 200, allow_full_scan=True)
+    if "client_asn" not in prepared_asn.lower() or "like '%client%'" in prepared_asn.lower():
+        raise SystemExit(f"the guard dropped the client asn column: {prepared_asn}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
