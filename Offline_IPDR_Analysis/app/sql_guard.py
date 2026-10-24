@@ -66,6 +66,10 @@ def wants_all_groups(question: str) -> bool:
             "see all of them",
             "all of them",
             "every one of them",
+            "every row",
+            "all rows",
+            "every website",
+            "every subscriber",
         )
     )
 
@@ -134,7 +138,7 @@ def _groups_by_label(expr: exp.Select) -> bool:
     if group is None:
         return False
     names = {column.name.lower() for column in group.find_all(exp.Column)}
-    return bool(names) and names <= {"app_label", "app_category", "requested_server"}
+    return bool(names) and names <= {"app_label", "app_category", "requested_server", "subscriber_id"}
 
 
 def _is_aggregate(expr: exp.Select) -> bool:

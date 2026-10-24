@@ -74,7 +74,7 @@ def _without_row_limit(question: str, history: list[dict]) -> str | None:
     previous = _last_sql(history)
     if not previous or not wants_all_groups(question):
         return None
-    if _group_key(previous) not in {"app_label", "app_category"}:
+    if _group_key(previous) not in {"app_label", "app_category", "requested_server", "subscriber_id"}:
         return None
     text = re.sub(r"\s+", " ", previous).strip()
     return re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
@@ -450,8 +450,132 @@ def subscriber_kind(texts: list[str]) -> str | None:
 
 
 def _limit_in(text: str) -> int | None:
-    match = re.search(r"\btop\s+(\d+)\b", text.lower())
+    match = re.search(r"\b(?:top|first|limit)\s+(\d+)\b", text.lower())
     return int(match.group(1)) if match else None
+
+
+_LIMIT_FILLER = {
+    "show", "me", "the", "a", "an", "please", "of", "them", "rows", "row",
+    "give", "just", "only", "list", "lists",
+}
+_LIMIT_MARK = "Which result should use the new limit?"
+
+
+def _is_limit_only(question: str) -> bool:
+    if _limit_in(question) is None:
+        return False
+    rest = re.sub(r"\b(?:top|first|limit)\s+\d+\b", " ", question.lower())
+    rest = re.sub(r"[^a-z\s]", " ", rest)
+    return not [word for word in rest.split() if word not in _LIMIT_FILLER]
+
+
+def _saved_sqls(history: list[dict]) -> list[str]:
+    return [str(item.get("sql") or "").strip() for item in history if str(item.get("sql") or "").strip()]
+
+
+def _result_description(sql: str) -> str:
+    folded = sql.lower()
+    named = re.search(r"subscriber_id\s*=\s*'([^']+)'", sql, flags=re.IGNORECASE)
+    if "group by requested_server" in folded and named:
+        return f"the websites for {named.group(1)}"
+    if "count(distinct requested_server)" in folded and "group by subscriber_id" in folded:
+        return "the subscribers ranked by website count"
+    if "group by app_label" in folded and named:
+        return f"the applications for {named.group(1)}"
+    if "group by subscriber_id" in folded:
+        return "the subscriber ranking"
+    if "group by app_label" in folded:
+        return "the application list"
+    if "group by requested_server" in folded:
+        return "the website list"
+    return "the previous result"
+
+
+def _pending_limit(history: list[dict]) -> bool:
+    if not history:
+        return False
+    last = history[-1]
+    return not str(last.get("sql") or "").strip() and _LIMIT_MARK in str(last.get("explanation") or "")
+
+
+def _with_limit(sql: str, limit: int | None, drop: bool) -> str:
+    text = re.sub(r"\s+", " ", sql).strip()
+    text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text)
+    if drop or limit is None:
+        return text
+    return f"{text} LIMIT {int(limit)}"
+
+
+def _pick_saved_sql(question: str, sqls: list[str]) -> str | None:
+    folded = question.lower()
+    website = bool(re.search(r"\b(websites?|sites?|domains?)\b", folded))
+    people = bool(re.search(r"\b(users?|subscribers?|ranking|people)\b", folded))
+    if website and people:
+        if re.search(r"\b(ranking|by website count|the users|the subscribers)\b", folded):
+            website = False
+        else:
+            people = False
+    last = bool(re.search(r"\b(those|that list|last one|on screen|this list)\b", folded))
+    if last and not website and not people:
+        return sqls[-1]
+    chosen = []
+    for sql in sqls:
+        described = _result_description(sql)
+        if website and described.startswith("the website"):
+            chosen.append(sql)
+        elif people and "subscriber" in described:
+            chosen.append(sql)
+    if len(chosen) == 1:
+        return chosen[0]
+    if not website and not people and len(sqls) == 1:
+        return sqls[-1]
+    return None
+
+
+def limit_followup(question: str, history: list[dict] | None, max_rows: int) -> tuple[str | None, str | None]:
+    """A bare limit either edits the last result or asks which result and which size."""
+    history = history or []
+    sqls = _saved_sqls(history)
+    if _pending_limit(history):
+        chosen = _pick_saved_sql(question, sqls)
+        if chosen is None:
+            return None, f"{_LIMIT_MARK} Say which list you mean, and whether you want the top {max_rows} or every row."
+        if wants_all_groups(question) or re.search(r"\b(every row|all rows|every website|every subscriber)\b", question.lower()):
+            return _with_limit(chosen, None, True), None
+        number = _limit_in(question)
+        if number is None:
+            asked = re.search(r"\btop\s+(\d+)\b", str(history[-1].get("explanation") or "").lower())
+            number = int(asked.group(1)) if asked else None
+        if number is not None and number > max_rows:
+            return None, (
+                f"{_LIMIT_MARK} One result can show {max_rows} rows of {_result_description(chosen)}. "
+                f"Do you want the top {max_rows}, or every row?"
+            )
+        if number is None:
+            return None, f"{_LIMIT_MARK} Say the top {max_rows}, or every row, for {_result_description(chosen)}."
+        return _with_limit(chosen, number, False), None
+    number = _limit_in(question)
+    if number is None or not _is_limit_only(question):
+        if number is not None and number > max_rows:
+            return None, (
+                f"{_LIMIT_MARK} One result can show {max_rows} rows. "
+                f"Do you want the top {max_rows}, or every row?"
+            )
+        return None, None
+    if not sqls:
+        return None, f"{_LIMIT_MARK} Top {number} of what? Name the users, applications, or websites."
+    if len(sqls) >= 2 and _group_key(sqls[-1]) != _group_key(sqls[-2]):
+        cap = f" One result can show {max_rows} rows, so also say {max_rows} or all." if number > max_rows else ""
+        return None, (
+            f"{_LIMIT_MARK} The top {number} of {_result_description(sqls[-1])}, "
+            f"or the top {number} of {_result_description(sqls[-2])}?{cap}"
+        )
+    if number > max_rows:
+        return None, (
+            f"{_LIMIT_MARK} One result can show {max_rows} rows of {_result_description(sqls[-1])}. "
+            f"Do you want the top {max_rows}, or every row?"
+        )
+    return _with_limit(sqls[-1], number, False), None
 
 
 def _mentions_mobile(text: str) -> bool:

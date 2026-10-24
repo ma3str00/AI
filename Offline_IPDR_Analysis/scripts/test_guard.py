@@ -721,6 +721,32 @@ def main() -> None:
         or "group by requested_server" in by_site_count.lower()
     ):
         raise SystemExit(f"website count ranked websites instead of subscribers: {by_site_count}")
+    from app.followup import limit_followup
+
+    user_rank = (
+        "SELECT subscriber_id, COUNT(DISTINCT requested_server) AS websites, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY websites DESC LIMIT 10"
+    )
+    site_list = (
+        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE subscriber_id = '030944736121' AND IFNULL(requested_server, '') <> '' "
+        "GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
+    )
+    both = [
+        {"question": "users with maximum website count", "sql": user_rank},
+        {"question": "websites accessed by 030944736121", "sql": site_list},
+    ]
+    _sql, asked = limit_followup("show the top 500", both, 200)
+    if _sql or not asked or "websites for 030944736121" not in asked or "subscribers ranked by website count" not in asked:
+        raise SystemExit(f"an ambiguous limit was assumed: {asked}")
+    chosen, again = limit_followup(
+        "the websites for that subscriber, top 200",
+        both + [{"question": "show the top 500", "sql": "", "explanation": asked}],
+        200,
+    )
+    if again or not chosen or "030944736121" not in chosen or "limit 200" not in chosen.lower() or "group by requested_server" not in chosen.lower():
+        raise SystemExit(f"the website list did not take the new limit: {chosen} {again}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

@@ -16,7 +16,15 @@ from app.app_map import AppMap
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
-from app.followup import asked_unit, conversation_full_scan, named_subscriber, resolve_followup, subscriber_kind, use_full_scan
+from app.followup import (
+    asked_unit,
+    conversation_full_scan,
+    limit_followup,
+    named_subscriber,
+    resolve_followup,
+    subscriber_kind,
+    use_full_scan,
+)
 from app.learned import saved_sql, sql_needs_full_scan
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
@@ -121,7 +129,10 @@ def ask(body: Question):
         replayed = _replay_saved(saved, config, database)
         if replayed is not None:
             return replayed
-    resolved = resolve_followup(question, history)
+    choice_sql, choice_question = limit_followup(question, history, config.max_rows)
+    if choice_question:
+        return _clarify(choice_question)
+    resolved = choice_sql or resolve_followup(question, history)
     if resolved:
         resolved = repair_sql(question, resolved, history)
         replayed = _replay_saved(
@@ -373,7 +384,7 @@ def _lists_every_app(sql: str) -> bool:
     folded = sql.lower()
     if re.search(r"\blimit\b", folded):
         return False
-    return "group by app_label" in folded or "group by requested_server" in folded
+    return "group by app_label" in folded or "group by requested_server" in folded or "group by subscriber_id" in folded
 
 
 def _followup_notice(question: str, sql: str = "") -> str:
