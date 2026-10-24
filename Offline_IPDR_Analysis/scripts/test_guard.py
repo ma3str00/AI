@@ -600,6 +600,23 @@ def main() -> None:
         or "lower(app_label) = 'http'" not in http_sites.lower()
     ):
         raise SystemExit(f"websites for one application were not filtered: {http_sites}")
+    facebook_sites = (
+        "SELECT requested_server, COUNT(*) AS flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
+        "FROM ntc_ssl_logs WHERE subscriber_id = '03339169479abhd' AND LOWER(app_label) = 'facebook' "
+        "AND IFNULL(requested_server, '') <> '' GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
+    )
+    same_ssl = resolve_followup(
+        "show me the same for app type ssl",
+        [{"question": "show me the websites access by the user of app type facebook", "sql": facebook_sites}],
+    )
+    if (
+        not same_ssl
+        or "lower(app_label) = 'ssl'" not in same_ssl.lower()
+        or "facebook" in same_ssl.lower()
+        or "03339169479abhd" not in same_ssl
+        or "group by requested_server" not in same_ssl.lower()
+    ):
+        raise SystemExit(f"the same for another application asked again: {same_ssl}")
     ranking = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

@@ -18,6 +18,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
+    other_app = _same_request_other_app(question, history)
+    if other_app:
+        return other_app
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -209,6 +212,34 @@ def _named_app_label(text: str) -> str | None:
     if label in _NOT_AN_APP or label in {"type", "label", "category", "name"}:
         return None
     return label
+
+
+def _same_request_other_app(question: str, history: list[dict]) -> str | None:
+    """'The same for app type SSL' keeps the previous result and changes the application."""
+    if not re.search(r"\bsame\b", question.lower()):
+        return None
+    label = _named_app_label(question)
+    if not label:
+        return None
+    previous = _last_sql(history)
+    if not previous:
+        return None
+    updated = re.sub(
+        r"(?i)LOWER\(app_label\)\s*=\s*'[^']+'",
+        f"LOWER(app_label) = '{label}'",
+        previous,
+        count=1,
+    )
+    if updated == previous:
+        updated = re.sub(
+            r"(?i)LOWER\(app_label\)\s+LIKE\s+'%[^']+%'",
+            f"LOWER(app_label) LIKE '%{label}%'",
+            previous,
+            count=1,
+        )
+    if updated == previous:
+        return None
+    return re.sub(r"\s+", " ", updated).strip()
 
 
 def _asks_for_websites(text: str) -> bool:
