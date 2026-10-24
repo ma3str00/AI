@@ -127,6 +127,9 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
     if not _asks_for_websites(question) and not (supplying_name and _recent_unanswered(history, _asks_for_websites)):
         return None
     where = [f"subscriber_id = '{subscriber}'", "IFNULL(requested_server, '') <> ''"]
+    app_label = _named_app_label(question)
+    if app_label:
+        where.insert(1, f"LOWER(app_label) = '{app_label}'")
     time_clause = _time_clause(_last_sql(history))
     if time_clause:
         where.append(time_clause)
@@ -188,6 +191,23 @@ def _people_by_website_count(question: str) -> str | None:
 
 def _means_hits(text: str) -> bool:
     return mentions(text, "hit")
+
+
+def _named_app_label(text: str) -> str | None:
+    """The application named as a filter, as in 'against app type HTTP'."""
+    folded = text.lower()
+    match = re.search(r"\bapp(?:lication)?\s+type\s+([a-z0-9][a-z0-9_.-]{1,40})\b", folded)
+    if not match:
+        match = re.search(
+            r"\b(?:for|against|of|in)\s+(?:the\s+)?app(?:lication)?\s+([a-z0-9][a-z0-9_.-]{1,40})\b",
+            folded,
+        )
+    if not match:
+        return None
+    label = match.group(1)
+    if label in _NOT_AN_APP or label in {"type", "label", "category", "name"}:
+        return None
+    return label
 
 
 def _asks_for_websites(text: str) -> bool:

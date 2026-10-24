@@ -590,6 +590,16 @@ def main() -> None:
         raise SystemExit(f"repeating the subscriber repeated the application list: {just_user}")
     if check_sql("show me the websites accessed by this user", websites, after_apps, True):
         raise SystemExit("a website list for one subscriber was rejected")
+    if "app_label" in websites.lower():
+        raise SystemExit(f"a website list added an application filter: {websites}")
+    http_sites = resolve_followup("show me the websites used by this user against app type HTTP", after_apps)
+    if (
+        not http_sites
+        or "group by requested_server" not in http_sites.lower()
+        or "03215340135W" not in http_sites
+        or "lower(app_label) = 'http'" not in http_sites.lower()
+    ):
+        raise SystemExit(f"websites for one application were not filtered: {http_sites}")
     ranking = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
