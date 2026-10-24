@@ -381,6 +381,8 @@ def _followup_notice(question: str, sql: str = "") -> str:
     compact = sql.lower()
     if "group by requested_server" in compact and "subscriber_id = " in compact:
         return "This lists the websites that subscriber requested. A website is the TLS server name in requested_server."
+    if "count(distinct requested_server)" in compact and "group by subscriber_id" in compact:
+        return "This ranks identified subscribers by how many different websites they requested."
     if "group by requested_server" in compact and re.search(r"\b(hits?|visits?|requests?)\b", folded):
         return "This ranks websites by the number of hits. A hit is one flow."
     if "group by app_label" in compact and "subscriber_id = " in compact:

@@ -702,6 +702,25 @@ def main() -> None:
     )
     if not check_sql("show me the top 50 tiktok users", copied, [{"question": "unique users", "sql": apps_with_users}], True):
         raise SystemExit("a user ranking of IP_port ids was accepted")
+    one_site = (
+        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE subscriber_id = '92343809067' AND IFNULL(requested_server, '') <> '' "
+        "GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
+    )
+    by_site_count = resolve_followup(
+        "give me the top 10 users with the highest website count",
+        [{"question": "show me the websites accessed by 92343809067", "sql": one_site}],
+    )
+    if (
+        not by_site_count
+        or "group by subscriber_id" not in by_site_count.lower()
+        or "count(distinct requested_server) as websites" not in by_site_count.lower()
+        or "order by websites desc" not in by_site_count.lower()
+        or "limit 10" not in by_site_count.lower()
+        or "92343809067" in by_site_count
+        or "group by requested_server" in by_site_count.lower()
+    ):
+        raise SystemExit(f"website count ranked websites instead of subscribers: {by_site_count}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

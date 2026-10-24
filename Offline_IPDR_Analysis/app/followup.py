@@ -30,6 +30,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     counted = _add_user_count(question, history)
     if counted:
         return counted
+    by_sites = _people_by_website_count(question)
+    if by_sites:
+        return by_sites
     ranked_sites = _top_websites(question)
     if ranked_sites:
         return ranked_sites
@@ -148,6 +151,8 @@ def _top_websites(question: str) -> str | None:
         return None
     if named_subscriber(question) or _points_at_known_user(question):
         return None
+    if re.search(r"\b(users?|subscribers?)\b", folded):
+        return None
     if not re.search(r"\b(top|highest|maximum|most)\b", folded):
         return None
     limit = _limit_in(question) or 10
@@ -158,6 +163,26 @@ def _top_websites(question: str) -> str | None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
         "FROM ntc_ssl_logs WHERE IFNULL(requested_server, '') <> '' "
         f"GROUP BY requested_server ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+def _people_by_website_count(question: str) -> str | None:
+    """Subscribers ranked by how many different websites they requested."""
+    folded = question.lower()
+    if not re.search(r"\b(users?|subscribers?|people)\b", folded):
+        return None
+    if not mentions(question, "website"):
+        return None
+    if not re.search(r"\b(count|number|most|highest|maximum|unique|distinct)\b", folded):
+        return None
+    if named_subscriber(question):
+        return None
+    limit = _limit_in(question) or 10
+    return (
+        "SELECT subscriber_id, COUNT(DISTINCT requested_server) AS websites, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND IFNULL(requested_server, '') <> '' "
+        f"GROUP BY subscriber_id ORDER BY websites DESC LIMIT {int(limit)}"
     )
 
 
