@@ -747,6 +747,20 @@ def main() -> None:
     )
     if again or not chosen or "030944736121" not in chosen or "limit 200" not in chosen.lower() or "group by requested_server" not in chosen.lower():
         raise SystemExit(f"the website list did not take the new limit: {chosen} {again}")
+    sized, size_again = limit_followup(
+        "The top 500 of the websites for 030944736121",
+        both + [{"question": "show the top 500", "sql": "", "explanation": asked}],
+        200,
+    )
+    if sized or not size_again or "websites for 030944736121" not in size_again or "every row" not in size_again:
+        raise SystemExit(f"a limit above 200 did not ask for a size: {size_again}")
+    kept, kept_again = limit_followup(
+        "top 200 if 500 cannot be displayed",
+        both + [{"question": "The top 500 of the websites for 030944736121", "sql": "", "explanation": size_again}],
+        200,
+    )
+    if kept_again or not kept or "030944736121" not in kept or "limit 200" not in kept.lower() or "group by subscriber_id" in kept.lower():
+        raise SystemExit(f"a size reply forgot the chosen list: {kept} {kept_again}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

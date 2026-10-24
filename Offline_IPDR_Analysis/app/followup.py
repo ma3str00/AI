@@ -506,6 +506,12 @@ def _with_limit(sql: str, limit: int | None, drop: bool) -> str:
     return f"{text} LIMIT {int(limit)}"
 
 
+def _settled_sql(explanation: str, sqls: list[str]) -> str | None:
+    text = explanation.lower()
+    hits = [sql for sql in sqls if _result_description(sql).lower() in text]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _pick_saved_sql(question: str, sqls: list[str]) -> str | None:
     folded = question.lower()
     website = bool(re.search(r"\b(websites?|sites?|domains?)\b", folded))
@@ -537,7 +543,8 @@ def limit_followup(question: str, history: list[dict] | None, max_rows: int) -> 
     history = history or []
     sqls = _saved_sqls(history)
     if _pending_limit(history):
-        chosen = _pick_saved_sql(question, sqls)
+        pending = str(history[-1].get("explanation") or "")
+        chosen = _pick_saved_sql(question, sqls) or _settled_sql(pending, sqls)
         if chosen is None:
             return None, f"{_LIMIT_MARK} Say which list you mean, and whether you want the top {max_rows} or every row."
         if wants_all_groups(question) or re.search(r"\b(every row|all rows|every website|every subscriber)\b", question.lower()):
