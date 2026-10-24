@@ -704,6 +704,18 @@ def main() -> None:
         or "limit 50" not in tiktok_users.lower()
     ):
         raise SystemExit(f"tiktok users reused the per-app user count: {tiktok_users}")
+    against = resolve_followup(
+        "show me the top 10 users against TikTok",
+        [{"question": "show me the number of unique users against each app", "sql": apps_with_users}],
+    )
+    if (
+        not against
+        or "group by subscriber_id" not in against.lower()
+        or "like '%tiktok%'" not in against.lower()
+        or "group by app_label" in against.lower()
+        or "limit 10" not in against.lower()
+    ):
+        raise SystemExit(f"users against an application stayed on the application list: {against}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "

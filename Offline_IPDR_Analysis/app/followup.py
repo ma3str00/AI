@@ -27,9 +27,7 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     unlimited = _without_row_limit(question, history)
     if unlimited:
         return unlimited
-    counted = _add_user_count(question, history)
-    if counted:
-        return counted
+    # A new list is chosen before a column is added to the list already on screen.
     by_sites = _people_by_website_count(question)
     if by_sites:
         return by_sites
@@ -39,6 +37,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     people = _top_people(question, history)
     if people:
         return people
+    counted = _add_user_count(question, history)
+    if counted:
+        return counted
     if _pending(history) and _answer_keeps(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
     if _pending(history) and _answer_drops(question):
@@ -178,7 +179,7 @@ def _people_by_website_count(question: str) -> str | None:
         return None
     if not re.search(r"\b(count|number|most|highest|maximum|unique|distinct)\b", folded):
         return None
-    if named_subscriber(question):
+    if _wants_user_count(folded) or named_subscriber(question):
         return None
     limit = _limit_in(question) or 10
     return (
@@ -723,9 +724,12 @@ def _present_measures(question: str, sql: str) -> str | None:
 
 
 def _wants_user_count(question: str) -> bool:
-    """A user count beside each application, not a ranking of subscribers."""
+    """A user count beside the current rows. 'Users against TikTok' is a new ranking."""
     return bool(
-        re.search(r"\b(unique users|number of users|user count|users against|users per|users for each)\b", question)
+        re.search(
+            r"\b(unique users|number of users|user count|users per|users for each|users against each)\b",
+            question,
+        )
         or ("user" in question and re.search(r"\b(each app|per app|against each|by app)\b", question))
     )
 
