@@ -303,8 +303,13 @@ def mentioned_areas(question: str) -> list[str]:
 
 
 def area_predicate(area: str) -> str:
-    text = area.lower().replace("'", "").strip()
-    return f"LOWER(loc) LIKE '%{text}%'"
+    """Match the neighbourhood words in order, with anything between them.
+
+    'DHA Lahore' is stored as 'DHA Phase 5 Lahore' and 'DHA, Lahore', so the
+    predicate is LIKE '%dha%lahore%', not LIKE '%dha lahore%'.
+    """
+    words = [word for word in re.split(r"\s+", area.lower().replace("'", "").strip()) if word]
+    return "LOWER(loc) LIKE '%" + "%".join(words) + "%'"
 
 
 def without_areas(question: str) -> str:

@@ -874,6 +874,16 @@ def main() -> None:
     zoom = resolve_followup("show me the top 10 zoom users in the area of gulberg in Lahore", [])
     if not zoom or "like '%zoom%'" not in zoom.lower() or "app_label) like '%gulberg%'" in zoom.lower():
         raise SystemExit(f"Gulberg replaced the application: {zoom}")
+    dha = resolve_followup("show me the top 10 instagram users in the area of dha lahore", [])
+    folded_dha = (dha or "").lower()
+    if (
+        not dha
+        or "like '%instagram%'" not in folded_dha
+        or "lower(loc) like '%dha%lahore%'" not in folded_dha
+        or "like '%dha lahore%'" in folded_dha
+        or "limit 10" not in folded_dha
+    ):
+        raise SystemExit(f"DHA Lahore required the words to be adjacent: {dha}")
     same_city = resolve_followup(
         "now show me the top 10 whatsapp Nayatel users from the same city",
         [{"question": "show me the top 10 whatsapp users from Faisalabad", "sql": (
