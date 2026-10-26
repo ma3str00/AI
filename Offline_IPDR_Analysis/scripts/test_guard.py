@@ -907,6 +907,38 @@ def main() -> None:
         or "limit 20" not in folded_jazz
     ):
         raise SystemExit(f"the same result was not switched to Jazz: {same_jazz}")
+    hyderabad = (
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%instagram%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (LOWER(loc) LIKE '%hyderabad%' OR LOWER(loc) LIKE '%hyd%') "
+        "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%pmcl%') "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 20"
+    )
+    ufone = resolve_followup(
+        "now show me for ufone",
+        [{"question": "now show me the same but on Jazz only", "sql": hyderabad}],
+    )
+    folded_ufone = (ufone or "").lower()
+    if (
+        not ufone
+        or "like '%instagram%'" not in folded_ufone
+        or "like '%hyderabad%'" not in folded_ufone
+        or "like '%ufone%'" not in folded_ufone
+        or "like '%ptml%'" not in folded_ufone
+        or "lower(loc) like '%ufone%'" in folded_ufone
+        or "like '%jazz%'" in folded_ufone
+        or "like '%pmcl%'" in folded_ufone
+        or "order by flows desc" not in folded_ufone
+        or "limit 20" not in folded_ufone
+    ):
+        raise SystemExit(f"for Ufone did not keep the Instagram Hyderabad ranking: {ufone}")
+    fresh_ufone = resolve_followup("show me the top 20 ufone users", [{"question": "instagram", "sql": hyderabad}])
+    if fresh_ufone and "like '%instagram%'" in fresh_ufone.lower():
+        raise SystemExit(f"a new Ufone ranking kept Instagram: {fresh_ufone}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "

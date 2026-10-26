@@ -268,17 +268,24 @@ def _asks_same_result(question: str) -> bool:
 
 
 def _same_request_other_isp(question: str, history: list[dict]) -> str | None:
-    """'The same but on Jazz' keeps the ranking and replaces the client ASN filter."""
-    if not _asks_same_result(question) or _named_app_label(question):
+    """Keep the ranking and replace the client ASN filter with the named ISP.
+
+    'The same but on Jazz' and the shorter 'now show me for Ufone' are the same change.
+    A fresh ranking such as 'top 20 Ufone users' is not.
+    """
+    if _named_app_label(question) or mentions(question, "website") or mentions(question, "their_apps"):
+        return None
+    if any(place.kind == "city" for place in named_in(question)):
         return None
     isps = mentioned_isps(question)
-    if not isps:
+    if len(isps) != 1:
         return None
     folded = question.lower()
-    for isp in isps:
-        for alias in sorted(isp.aliases, key=len, reverse=True):
-            folded = re.sub(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", folded)
+    for alias in sorted(isps[0].aliases, key=len, reverse=True):
+        folded = re.sub(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", folded)
     if _subject_filter(folded):
+        return None
+    if not _asks_same_result(question) and re.search(r"\b(top|highest|maximum|most)\b", folded):
         return None
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
