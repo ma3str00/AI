@@ -422,8 +422,8 @@ def _followup_notice(question: str, sql: str = "") -> str:
         where = f" Only addresses containing {city.group(1)} are included." if city else ""
         return (
             "This ranks identified subscribers and lists each subscriber's address."
-            + (" The ISP is the client ASN name." if "client_asn" in compact and re.search(r"\bisp\b", folded) else "")
-            + (" It also lists the client ASN name." if "client_asn" in compact and not re.search(r"\bisp\b", folded) else "")
+            + (" The ISP is the client ASN name." if "client_asn" in compact and re.search(r"\bisps?\b", folded) else "")
+            + (" It also lists the client ASN name." if "client_asn" in compact and not re.search(r"\bisps?\b", folded) else "")
             + where
             + " loc and geo are the cell or the fixed-line premises. "
             "client_location and server_location come from an IP database and are not the subscriber's address."

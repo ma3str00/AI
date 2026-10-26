@@ -821,6 +821,12 @@ def main() -> None:
         or "limit 10" not in isp.lower()
     ):
         raise SystemExit(f"the ISP was not added to the Karachi ranking: {karachi} {isp}")
+    isps = resolve_followup(
+        "also show the corresponding ISPs",
+        [{"question": "show me the top 10 whatsapp users from Rawalpindi", "sql": karachi}],
+    )
+    if not isps or "as client_asn" not in isps.lower() or "loc like '%karachi%'" not in isps.lower():
+        raise SystemExit(f"the plural ISP was not added: {isps}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "

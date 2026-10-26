@@ -439,6 +439,7 @@ _DISPLAY_COLUMNS = (
     ("imei", "imei"),
     ("imsi", "imsi"),
     ("isp", "client_asn"),
+    ("isps", "client_asn"),
 )
 
 
@@ -448,7 +449,7 @@ def _display_columns(text: str) -> list[str]:
     for phrase, column in _DISPLAY_COLUMNS:
         if column not in columns and re.search(rf"\b{re.escape(phrase)}\b", folded):
             columns.append(column)
-    if "client_asn" not in columns and "server_asn" not in columns and re.search(r"\basn\b", folded):
+    if "client_asn" not in columns and "server_asn" not in columns and re.search(r"\basns?\b", folded):
         columns.append("client_asn")
     return columns
 
