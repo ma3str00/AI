@@ -778,6 +778,18 @@ def main() -> None:
         or "order by flows desc" not in their_addresses.lower()
     ):
         raise SystemExit(f"addresses of these users used the IP database: {their_addresses}")
+    both = resolve_followup("show me top 20 users. Also list the respective ASN and address.", [])
+    if (
+        not both
+        or "like '%respective%'" in both.lower()
+        or "group by subscriber_id" not in both.lower()
+        or " as client_asn" not in both.lower()
+        or " as loc" not in both.lower()
+        or " as geo" not in both.lower()
+        or "client_location" in both.lower()
+        or "limit 20" not in both.lower()
+    ):
+        raise SystemExit(f"asn and address were not columns on the user ranking: {both}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "

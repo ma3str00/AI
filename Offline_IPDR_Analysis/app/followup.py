@@ -349,10 +349,9 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         where.insert(0, subject)
     columns = ["subscriber_id"]
     for column in _display_columns(question):
-        columns.append(
-            f"GROUP_CONCAT(DISTINCT CASE WHEN IFNULL({column}, '') <> '' THEN {column} END "
-            f"ORDER BY {column} SEPARATOR ', ') AS {column}"
-        )
+        columns.append(_address_expression(column))
+    if _asks_for_place(question):
+        columns.extend(_address_expression(column) for column in ("loc", "geo"))
     columns.extend(
         [
             "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes",
@@ -374,7 +373,8 @@ _NOT_AN_APP = {
     "bytes", "flows", "flow", "download", "upload", "mobile", "fixed", "line", "data",
     "what", "about", "give", "want", "please", "only", "just", "same", "done", "used",
     "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
-    "along", "with",
+    "along", "with", "also", "list", "listed", "respective", "corresponding", "related",
+    "address", "addresses", "location", "locations", "whereabouts", "asn",
 }
 
 
@@ -394,6 +394,8 @@ def _display_columns(text: str) -> list[str]:
     for phrase, column in _DISPLAY_COLUMNS:
         if column not in columns and re.search(rf"\b{re.escape(phrase)}\b", folded):
             columns.append(column)
+    if "client_asn" not in columns and "server_asn" not in columns and re.search(r"\basn\b", folded):
+        columns.append("client_asn")
     return columns
 
 
