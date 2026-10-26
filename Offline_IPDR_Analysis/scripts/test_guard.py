@@ -884,6 +884,28 @@ def main() -> None:
         or "limit 10" not in folded_dha
     ):
         raise SystemExit(f"DHA Lahore required the words to be adjacent: {dha}")
+    for phrase, needle in (
+        ("show me the top 10 users by flow count in lake city lahore", "like '%lake%city%lahore%'"),
+        ("show me the top 10 users by flow count in gulberg lahore", "like '%gulberg%lahore%'"),
+    ):
+        placed = resolve_followup(phrase, [])
+        folded_placed = (placed or "").lower()
+        if (
+            not placed
+            or needle not in folded_placed
+            or "app_label" in folded_placed
+            or "order by flows desc" not in folded_placed
+            or "limit 10" not in folded_placed
+        ):
+            raise SystemExit(f"the neighbourhood was used as an application: {phrase} -> {placed}")
+    gulberg_app = resolve_followup("show me the top 10 twitter users in gulberg lahore", [])
+    if (
+        not gulberg_app
+        or "like '%twitter%'" not in gulberg_app.lower()
+        or "like '%gulberg%lahore%'" not in gulberg_app.lower()
+        or "like '%gulberg%'" in gulberg_app.lower().split("like '%gulberg%lahore%'")[0]
+    ):
+        raise SystemExit(f"Gulberg Lahore dropped Twitter: {gulberg_app}")
     same_city = resolve_followup(
         "now show me the top 10 whatsapp Nayatel users from the same city",
         [{"question": "show me the top 10 whatsapp users from Faisalabad", "sql": (

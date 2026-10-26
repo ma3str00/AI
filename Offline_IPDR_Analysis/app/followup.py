@@ -13,6 +13,8 @@ from app.places import (
     mentioned_areas,
     mentioned_isps,
     named_in,
+    street_before_city,
+    street_predicate,
     without_areas,
     without_named,
 )
@@ -509,9 +511,12 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
     cities = [item for item in named_in(question) if item.kind == "city"]
     isps = mentioned_isps(question)
-    areas = mentioned_areas(question)
+    street = street_before_city(question)
+    areas = [] if street else mentioned_areas(question)
     place = _from_place(question)
     subject_text = without_areas(without_named(folded))
+    for word in street:
+        subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", " ", subject_text)
     for isp in isps:
         for alias in sorted(isp.aliases, key=len, reverse=True):
             subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", subject_text)
@@ -520,11 +525,13 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     subject = _subject_filter(subject_text)
     previous = _last_sql(history or [])
     saved_city = _saved_loc_predicate(previous) if asks_same_city(question) else None
-    if previous and "group by subscriber_id" in previous.lower() and not subject:
+    if previous and "group by subscriber_id" in previous.lower() and not subject and not street:
         return None
     if subject:
         where.insert(0, subject)
-    if cities:
+    if street:
+        where.append(street_predicate(street))
+    elif cities:
         where.append(column_predicate("loc", cities[-1]))
     elif saved_city:
         where.append(saved_city)
@@ -537,7 +544,7 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
-    if (_asks_for_place(question) or place or cities or saved_city or areas) and not any(column.lower().endswith(" as loc") for column in columns):
+    if (_asks_for_place(question) or place or cities or saved_city or areas or street) and not any(column.lower().endswith(" as loc") for column in columns):
         columns.extend(_address_expression(column) for column in ("loc", "geo"))
     if isps and not any(column.lower().endswith(" as client_asn") for column in columns):
         columns.append(_address_expression("client_asn"))

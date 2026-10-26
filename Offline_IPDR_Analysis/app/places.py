@@ -302,6 +302,47 @@ def mentioned_areas(question: str) -> list[str]:
     return found
 
 
+_STREET_STOP = {
+    "the", "a", "an", "of", "area", "locality", "neighborhood", "neighbourhood", "vicinity",
+}
+
+
+def street_before_city(question: str) -> list[str]:
+    """Words of a neighbourhood that sit between 'in' and a city.
+
+    'in lake city lahore' is the address, not an application. The stored cell
+    often has other text between those words, so the match is lake, then city,
+    then lahore.
+    """
+    folded = re.sub(r"\s+", " ", question.lower().replace(".", " ").replace(",", " ")).strip()
+    occupied = [False] * len(folded)
+    best: list[str] = []
+    best_at = -1
+    for alias, place in _ALIAS_INDEX:
+        if place.kind != "city":
+            continue
+        pattern = rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])"
+        for match in re.finditer(pattern, folded):
+            if any(occupied[match.start():match.end()]):
+                continue
+            for index in range(match.start(), match.end()):
+                occupied[index] = True
+            preps = list(re.finditer(r"\b(?:from|in|near|within|at)\s+", folded[: match.start()]))
+            if not preps:
+                continue
+            middle = folded[preps[-1].end(): match.start()].strip()
+            words = [word for word in middle.split() if word not in _STREET_STOP]
+            if words and match.start() >= best_at:
+                best = words + [place.name.lower()]
+                best_at = match.start()
+    return best
+
+
+def street_predicate(words: list[str]) -> str:
+    clean = [word.replace("'", "") for word in words if word.replace("'", "")]
+    return "LOWER(loc) LIKE '%" + "%".join(clean) + "%'"
+
+
 def area_predicate(area: str) -> str:
     """Match the neighbourhood words in order, with anything between them.
 
