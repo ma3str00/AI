@@ -22,6 +22,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     other_app = _same_request_other_app(question, history)
     if other_app:
         return other_app
+    other_isp = _same_request_other_isp(question, history)
+    if other_isp:
+        return other_isp
     place = _place_of_one_subscriber(question, history)
     if place:
         return place
@@ -253,6 +256,47 @@ def _same_request_other_app(question: str, history: list[dict]) -> str | None:
     if updated == previous:
         return None
     return re.sub(r"\s+", " ", updated).strip()
+
+
+def _asks_same_result(question: str) -> bool:
+    """'The same but on Jazz' keeps the result. 'The same city' does not."""
+    folded = question.lower()
+    if re.search(r"\bsame\s+(?:thing|result|query|list|ranking)\b", folded):
+        return True
+    without_city = re.sub(r"\bsame\s+city\b", " ", folded)
+    return bool(re.search(r"\bsame\b", without_city))
+
+
+def _same_request_other_isp(question: str, history: list[dict]) -> str | None:
+    """'The same but on Jazz' keeps the ranking and replaces the client ASN filter."""
+    if not _asks_same_result(question) or _named_app_label(question):
+        return None
+    isps = mentioned_isps(question)
+    if not isps:
+        return None
+    folded = question.lower()
+    for isp in isps:
+        for alias in sorted(isp.aliases, key=len, reverse=True):
+            folded = re.sub(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", folded)
+    if _subject_filter(folded):
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    text = _strip_column_group(re.sub(r"\s+", " ", previous).strip(), "client_asn")
+    text = re.sub(
+        r"(?i)\bGROUP BY\b",
+        f"AND {column_predicate('client_asn', isps[-1])} GROUP BY",
+        text,
+        count=1,
+    )
+    if not re.search(r"(?i)\bas client_asn\b", text):
+        text = re.sub(r"(?i)\bFROM\b", ", " + _address_expression("client_asn") + " FROM", text, count=1)
+    limit = _limit_in(question)
+    if limit is not None:
+        text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
+        text = f"{text} LIMIT {int(limit)}"
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _asks_for_place(text: str) -> bool:

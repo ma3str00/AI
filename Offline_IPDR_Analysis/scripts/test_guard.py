@@ -210,6 +210,7 @@ def main() -> None:
     if not found or found.get("sql") != learned_sql:
         raise SystemExit("a marked answer was not reused for the same question")
     from app.followup import resolve_followup
+    from app.places import mentioned_isps
     from app.sql_guard import prepare as guard_prepare
 
     previous = (
@@ -874,6 +875,38 @@ def main() -> None:
         or "limit 10" not in folded_same
     ):
         raise SystemExit(f"the same city and Nayatel were dropped: {same_city}")
+    for phrase in ("on Jazz", "but on Jazz", "for Jazz only", "of Jazz"):
+        if not any(place.name == "Jazz" for place in mentioned_isps(phrase)):
+            raise SystemExit(f"Jazz was not read as an ISP in: {phrase}")
+    jazz_previous = (
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (LOWER(loc) LIKE '%dera ghazi khan%' OR LOWER(loc) LIKE '%dg khan%' "
+        "OR LOWER(loc) LIKE '%d.g.khan%' OR LOWER(loc) LIKE '%dgk%') "
+        "AND (LOWER(client_asn) LIKE '%telenor%') "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    same_jazz = resolve_followup(
+        "now show me the same but on Jazz",
+        [{"question": "top 20 whatsapp users of the same city but of Telenor only", "sql": jazz_previous}],
+    )
+    folded_jazz = (same_jazz or "").lower()
+    if (
+        not same_jazz
+        or "like '%whatsapp%'" not in folded_jazz
+        or "like '%dera ghazi khan%'" not in folded_jazz
+        or "like '%jazz%'" not in folded_jazz
+        or "like '%mobilink%'" not in folded_jazz
+        or "like '%pmcl%'" not in folded_jazz
+        or "lower(loc) like '%jazz%'" in folded_jazz
+        or "like '%telenor%'" in folded_jazz
+        or "limit 20" not in folded_jazz
+    ):
+        raise SystemExit(f"the same result was not switched to Jazz: {same_jazz}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
