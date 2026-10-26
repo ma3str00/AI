@@ -266,6 +266,64 @@ _ALIAS_INDEX: list[tuple[str, Place]] = sorted(
 )
 
 
+_AREA_WORD = r"(?:(?!in\b|of\b|from\b|near\b|within\b|at\b|by\b|for\b|on\b|with\b|and\b)[a-z][a-z0-9-]{1,30})"
+_AREA_OF = re.compile(
+    rf"(?i)\b(?:in\s+the\s+)?(?:area|locality|neighborhood|neighbourhood|vicinity)\s+of\s+"
+    rf"({_AREA_WORD}(?:\s+{_AREA_WORD}){{0,3}})"
+)
+_NAME_AREA = re.compile(
+    rf"(?i)\b({_AREA_WORD}(?:\s+{_AREA_WORD}){{0,2}})\s+"
+    rf"(?:area|locality|neighborhood|neighbourhood)\b"
+)
+_AREA_STOP = {
+    "the", "this", "that", "these", "those", "same", "city", "user", "users",
+    "area", "in", "of", "near", "and", "all",
+}
+
+
+def mentioned_areas(question: str) -> list[str]:
+    """A neighbourhood inside a city, as in 'in the area of Gulberg in Lahore'."""
+    folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))
+    city_names = {alias for alias, place in _ALIAS_INDEX if place.kind == "city"}
+    found: list[str] = []
+
+    def add(raw: str) -> None:
+        name = re.sub(r"\s+", " ", raw).strip(" -")
+        words = name.split()
+        if not name or name in city_names or any(word in _AREA_STOP for word in words):
+            return
+        if name not in found:
+            found.append(name)
+
+    for match in _AREA_OF.finditer(folded):
+        add(match.group(1))
+    for match in _NAME_AREA.finditer(folded):
+        add(match.group(1))
+    return found
+
+
+def area_predicate(area: str) -> str:
+    text = area.lower().replace("'", "").strip()
+    return f"LOWER(loc) LIKE '%{text}%'"
+
+
+def without_areas(question: str) -> str:
+    """Remove a named neighbourhood so it is not guessed as an application."""
+    text = question
+    for area in mentioned_areas(question):
+        text = re.sub(
+            rf"(?i)\b(?:in\s+the\s+)?(?:area|locality|neighborhood|neighbourhood|vicinity)\s+of\s+{re.escape(area)}\b",
+            " ",
+            text,
+        )
+        text = re.sub(
+            rf"(?i)\b{re.escape(area)}\s+(?:area|locality|neighborhood|neighbourhood)\b",
+            " ",
+            text,
+        )
+    return text
+
+
 def mentioned_isps(question: str) -> list[Place]:
     """An ISP named anywhere, as in 'WhatsApp Nayatel users'."""
     folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))

@@ -6,7 +6,16 @@ import re
 
 from app.app_map import CATEGORY_PHRASES
 from app.glossary import mentions
-from app.places import asks_same_city, column_predicate, mentioned_isps, named_in, without_named
+from app.places import (
+    asks_same_city,
+    area_predicate,
+    column_predicate,
+    mentioned_areas,
+    mentioned_isps,
+    named_in,
+    without_areas,
+    without_named,
+)
 from app.schema import MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
 
@@ -356,13 +365,17 @@ def _apply_place_filters(text: str, question: str) -> str:
     """Keep a subscriber ranking and set the city and ISP named in the question."""
     cities = [place for place in named_in(question) if place.kind == "city"]
     isps = [place for place in named_in(question) if place.kind == "isp"]
+    areas = mentioned_areas(question)
     unknown = _from_place(question)
-    if not cities and not isps and not unknown:
+    if not cities and not isps and not unknown and not areas:
         return text
-    if cities or unknown:
+    if cities or unknown or areas:
         text = _strip_column_group(text, "loc")
-        predicate = column_predicate("loc", cities[-1]) if cities else f"LOWER(loc) LIKE '%{unknown}%'"
-        text = re.sub(r"(?i)\bGROUP BY\b", f"AND {predicate} GROUP BY", text, count=1)
+        if cities or unknown:
+            predicate = column_predicate("loc", cities[-1]) if cities else f"LOWER(loc) LIKE '%{unknown}%'"
+            text = re.sub(r"(?i)\bGROUP BY\b", f"AND {predicate} GROUP BY", text, count=1)
+        for area in areas:
+            text = re.sub(r"(?i)\bGROUP BY\b", f"AND {area_predicate(area)} GROUP BY", text, count=1)
         if not re.search(r"(?i)\bas loc\b", text):
             text = re.sub(
                 r"(?i)\bFROM\b",
@@ -411,9 +424,9 @@ def _strip_column_group(sql: str, column: str) -> str:
 
 def _users_from_place(question: str, history: list[dict]) -> str | None:
     """Keep the subscriber ranking and apply a named city or ISP."""
-    if _subject_filter(without_named(question).lower()):
+    if _subject_filter(without_areas(without_named(question)).lower()):
         return None
-    if not named_in(question) and _from_place(question) is None:
+    if not named_in(question) and _from_place(question) is None and not mentioned_areas(question):
         return None
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
@@ -496,8 +509,9 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
     cities = [item for item in named_in(question) if item.kind == "city"]
     isps = mentioned_isps(question)
+    areas = mentioned_areas(question)
     place = _from_place(question)
-    subject_text = without_named(folded)
+    subject_text = without_areas(without_named(folded))
     for isp in isps:
         for alias in sorted(isp.aliases, key=len, reverse=True):
             subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", subject_text)
@@ -516,12 +530,14 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         where.append(saved_city)
     elif place:
         where.append(f"LOWER(loc) LIKE '%{place}%'")
+    for area in areas:
+        where.append(area_predicate(area))
     if isps:
         where.append(column_predicate("client_asn", isps[-1]))
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
-    if (_asks_for_place(question) or place or cities or saved_city) and not any(column.lower().endswith(" as loc") for column in columns):
+    if (_asks_for_place(question) or place or cities or saved_city or areas) and not any(column.lower().endswith(" as loc") for column in columns):
         columns.extend(_address_expression(column) for column in ("loc", "geo"))
     if isps and not any(column.lower().endswith(" as client_asn") for column in columns):
         columns.append(_address_expression("client_asn"))
@@ -549,6 +565,7 @@ _NOT_AN_APP = {
     "along", "with", "also", "list", "listed", "respective", "corresponding", "related",
     "address", "addresses", "location", "locations", "whereabouts", "asn",
     "instead", "showing", "rather", "sorted", "ordering", "city", "cities",
+    "area", "locality", "neighborhood", "neighbourhood", "vicinity",
 }
 
 

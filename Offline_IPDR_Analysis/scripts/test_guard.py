@@ -856,6 +856,24 @@ def main() -> None:
     di_khan = resolve_followup("show me the top 5 users from DI Khan", [])
     if not di_khan or "like '%dera ismail khan%'" not in di_khan.lower() or "limit 5" not in di_khan.lower():
         raise SystemExit(f"DI Khan was not read as Dera Ismail Khan: {di_khan}")
+    gulberg = resolve_followup(
+        "show me the top 10 jazz twitter users in the area of gulberg in Lahore",
+        [],
+    )
+    folded_gulberg = (gulberg or "").lower()
+    if (
+        not gulberg
+        or "like '%twitter%'" not in folded_gulberg
+        or "like '%lahore%'" not in folded_gulberg
+        or "like '%jazz%'" not in folded_gulberg
+        or "lower(loc) like '%gulberg%'" not in folded_gulberg
+        or "like '%gulberg%'" in folded_gulberg.split("lower(loc) like '%gulberg%'")[0]
+        or "limit 10" not in folded_gulberg
+    ):
+        raise SystemExit(f"Gulberg was not kept inside Lahore: {gulberg}")
+    zoom = resolve_followup("show me the top 10 zoom users in the area of gulberg in Lahore", [])
+    if not zoom or "like '%zoom%'" not in zoom.lower() or "app_label) like '%gulberg%'" in zoom.lower():
+        raise SystemExit(f"Gulberg replaced the application: {zoom}")
     same_city = resolve_followup(
         "now show me the top 10 whatsapp Nayatel users from the same city",
         [{"question": "show me the top 10 whatsapp users from Faisalabad", "sql": (
