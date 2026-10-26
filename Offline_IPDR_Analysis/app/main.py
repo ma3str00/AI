@@ -438,6 +438,13 @@ def _followup_notice(question: str, sql: str = "") -> str:
             + " loc and geo are the cell or the fixed-line premises. "
             "client_location and server_location come from an IP database and are not the subscriber's address."
         )
+    if "group by subscriber_id" in compact and re.search(r"lower\(requested_server\)\s*=\s*'([^']+)'", compact):
+        host = re.search(r"lower\(requested_server\)\s*=\s*'([^']+)'", compact).group(1)
+        return (
+            f"This ranks identified subscribers who requested {host}. "
+            "A website is the TLS server name in requested_server. "
+            "An id containing an underscore is an IP and port and is left out."
+        )
     if "group by subscriber_id" in compact and re.search(r"\b(users?|subscribers?)\b", folded):
         if "client_asn" in compact:
             return (

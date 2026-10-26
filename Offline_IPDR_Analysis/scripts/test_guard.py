@@ -693,6 +693,20 @@ def main() -> None:
         or "limit 10" not in folded_blocked
     ):
         raise SystemExit(f"blocked websites were ranked by traffic: {blocked_sites}")
+    site_users = resolve_followup(
+        "show me the top 10 users who tried to access static-nss.xhcdn.com",
+        [{"question": "show me the top 10 websites that got blocked the most", "sql": blocked_sites}],
+    )
+    folded_site_users = (site_users or "").lower()
+    if (
+        not site_users
+        or "group by subscriber_id" not in folded_site_users
+        or "lower(requested_server) = 'static-nss.xhcdn.com'" not in folded_site_users
+        or "app_label" in folded_site_users
+        or "like '%access%'" in folded_site_users
+        or "limit 10" not in folded_site_users
+    ):
+        raise SystemExit(f"the website was searched as an application: {site_users}")
     if not mentions("top websites by visits", "hit") or not mentions("which domains", "website"):
         raise SystemExit("the glossary missed a known word")
     if mentions("top users with maximum activity", "their_apps"):

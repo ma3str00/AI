@@ -228,6 +228,22 @@ def _people_by_website_count(question: str) -> str | None:
     )
 
 
+_HOSTNAME = re.compile(
+    r"(?<![a-z0-9@])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?![a-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def _named_servers(question: str) -> list[str]:
+    """A website named in the question, such as static-nss.xhcdn.com."""
+    found: list[str] = []
+    for match in _HOSTNAME.finditer(question.lower()):
+        host = match.group(0).strip(".")
+        if host not in found:
+            found.append(host)
+    return found
+
+
 def _means_hits(text: str) -> bool:
     return mentions(text, "hit")
 
@@ -521,8 +537,11 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     isps = mentioned_isps(question)
     street = street_before_city(question)
     areas = [] if street else mentioned_areas(question)
+    servers = _named_servers(question)
     place = _from_place(question)
     subject_text = without_areas(without_named(folded))
+    for host in servers:
+        subject_text = re.sub(re.escape(host), " ", subject_text, flags=re.IGNORECASE)
     for word in street:
         subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", " ", subject_text)
     for isp in isps:
@@ -533,7 +552,7 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     subject = _subject_filter(subject_text)
     previous = _last_sql(history or [])
     saved_city = _saved_loc_predicate(previous) if asks_same_city(question) else None
-    if previous and "group by subscriber_id" in previous.lower() and not subject and not street:
+    if previous and "group by subscriber_id" in previous.lower() and not subject and not street and not servers:
         return None
     if subject:
         where.insert(0, subject)
@@ -549,6 +568,8 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         where.append(area_predicate(area))
     if isps:
         where.append(column_predicate("client_asn", isps[-1]))
+    for host in servers:
+        where.append(f"LOWER(requested_server) = '{host.replace(chr(39), '')}'")
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
@@ -581,6 +602,7 @@ _NOT_AN_APP = {
     "address", "addresses", "location", "locations", "whereabouts", "asn",
     "instead", "showing", "rather", "sorted", "ordering", "city", "cities",
     "area", "locality", "neighborhood", "neighbourhood", "vicinity",
+    "tried", "try", "access", "accessed", "accessing", "visit", "visited", "visiting",
 }
 
 
