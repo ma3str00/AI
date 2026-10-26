@@ -24,6 +24,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     place = _place_of_one_subscriber(question, history)
     if place:
         return place
+    places = _addresses_of_current_users(question, history)
+    if places:
+        return places
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -269,6 +272,33 @@ def _place_of_one_subscriber(question: str, history: list[dict]) -> str | None:
         f"WHERE subscriber_id = '{subscriber}' AND (IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '') "
         "GROUP BY loc, geo ORDER BY flows DESC LIMIT 20"
     )
+
+
+def _address_expression(column: str) -> str:
+    return (
+        f"GROUP_CONCAT(DISTINCT CASE WHEN IFNULL({column}, '') <> '' THEN {column} END "
+        f"ORDER BY {column} SEPARATOR ', ') AS {column}"
+    )
+
+
+def _addresses_of_current_users(question: str, history: list[dict]) -> str | None:
+    """Add loc and geo to the subscriber list on screen. Not the IP-database place."""
+    if not _asks_for_place(question) or named_subscriber(question):
+        return None
+    if not re.search(r"\b(these|those|their)\s+(users?|subscribers?|people|address|addresses)\b", question.lower()):
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    additions = [
+        _address_expression(column)
+        for column in ("loc", "geo")
+        if not re.search(rf"(?i)\bas {column}\b", text)
+    ]
+    if not additions:
+        return text
+    return re.sub(r"(?i)\bFROM\b", ", " + ", ".join(additions) + " FROM", text, count=1)
 
 
 def _asks_for_websites(text: str) -> bool:

@@ -763,6 +763,21 @@ def main() -> None:
     shown_place = prepare(place, 200, allow_full_scan=False)
     if "030944736121" not in shown_place:
         raise SystemExit(f"one subscriber still required a time filter: {shown_place}")
+    their_addresses = resolve_followup(
+        "show me the addresses of these users",
+        [{"question": "show me the top 20 users with highest hit count along with the client asn", "sql": with_asn}],
+    )
+    if (
+        not their_addresses
+        or "group by subscriber_id" not in their_addresses.lower()
+        or " as loc" not in their_addresses.lower()
+        or " as geo" not in their_addresses.lower()
+        or "client_location" in their_addresses.lower()
+        or "server_location" in their_addresses.lower()
+        or "client_asn" not in their_addresses.lower()
+        or "order by flows desc" not in their_addresses.lower()
+    ):
+        raise SystemExit(f"addresses of these users used the IP database: {their_addresses}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
