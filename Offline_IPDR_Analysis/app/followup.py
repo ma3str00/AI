@@ -18,7 +18,7 @@ from app.places import (
     without_areas,
     without_named,
 )
-from app.schema import MOBILE_SQL
+from app.schema import ALLOWED_SQL, BLOCKED_SQL, MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
 
 _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this week")
@@ -190,12 +190,20 @@ def _top_websites(question: str) -> str | None:
     if not re.search(r"\b(top|highest|maximum|most)\b", folded):
         return None
     limit = _limit_in(question) or 10
-    order = "flows" if _means_hits(folded) else "total_bytes"
+    blocked = mentions(question, "blocked")
+    allowed = mentions(question, "allowed")
+    by_volume = bool(re.search(r"\b(bytes|traffic|volume|download|upload)\b", folded))
+    order = "flows" if _means_hits(folded) or ((blocked or allowed) and not by_volume) else "total_bytes"
+    where = ["IFNULL(requested_server, '') <> ''"]
+    if blocked:
+        where.append(BLOCKED_SQL)
+    elif allowed:
+        where.append(ALLOWED_SQL)
     return (
         "SELECT requested_server, COUNT(*) AS flows, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        "FROM ntc_ssl_logs WHERE IFNULL(requested_server, '') <> '' "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY requested_server ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 

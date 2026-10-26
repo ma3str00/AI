@@ -413,6 +413,16 @@ def _followup_notice(question: str, sql: str = "") -> str:
         return "This ranks identified subscribers by how many different websites they requested."
     if "group by requested_server" in compact and re.search(r"\b(hits?|visits?|requests?)\b", folded):
         return "This ranks websites by the number of hits. A hit is one flow."
+    if "group by requested_server" in compact and "block_type" in compact:
+        if "block_type = 0" in compact:
+            return (
+                "This ranks websites by how many flows were allowed. "
+                "A website is the TLS server name in requested_server. block_type 0 means allowed."
+            )
+        return (
+            "This ranks websites by how many flows were blocked. "
+            "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
+        )
     if "group by app_label" in compact and "subscriber_id = " in compact:
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):

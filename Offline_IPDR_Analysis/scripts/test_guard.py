@@ -682,6 +682,17 @@ def main() -> None:
         raise SystemExit(f"the top websites were not restored: {restored}")
     from app.glossary import mentions
 
+    blocked_sites = resolve_followup("show me the top 10 websites that got blocked the most", [])
+    folded_blocked = (blocked_sites or "").lower()
+    if (
+        not blocked_sites
+        or "group by requested_server" not in folded_blocked
+        or "block_type <> 0" not in folded_blocked
+        or "order by flows desc" not in folded_blocked
+        or "order by total_bytes" in folded_blocked
+        or "limit 10" not in folded_blocked
+    ):
+        raise SystemExit(f"blocked websites were ranked by traffic: {blocked_sites}")
     if not mentions("top websites by visits", "hit") or not mentions("which domains", "website"):
         raise SystemExit("the glossary missed a known word")
     if mentions("top users with maximum activity", "their_apps"):
