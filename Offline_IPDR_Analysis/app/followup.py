@@ -30,6 +30,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     from_place = _users_from_place(question, history)
     if from_place:
         return from_place
+    shown = _add_shown_columns(question, history)
+    if shown:
+        return shown
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -428,12 +431,14 @@ _NOT_AN_APP = {
 
 
 _DISPLAY_COLUMNS = (
+    ("internet service provider", "client_asn"),
     ("client asn", "client_asn"),
     ("server asn", "server_asn"),
     ("client ip", "client_ip"),
     ("server ip", "server_ip"),
     ("imei", "imei"),
     ("imsi", "imsi"),
+    ("isp", "client_asn"),
 )
 
 
@@ -446,6 +451,27 @@ def _display_columns(text: str) -> list[str]:
     if "client_asn" not in columns and "server_asn" not in columns and re.search(r"\basn\b", folded):
         columns.append("client_asn")
     return columns
+
+
+def _add_shown_columns(question: str, history: list[dict]) -> str | None:
+    """'Also show the ISP' adds that column to the subscriber ranking already on screen."""
+    wanted = list(_display_columns(question))
+    if _asks_for_place(question):
+        wanted.extend(column for column in ("loc", "geo") if column not in wanted)
+    if not wanted:
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    additions = [
+        _address_expression(column)
+        for column in wanted
+        if not re.search(rf"(?i)\bas {column}\b", text)
+    ]
+    if not additions:
+        return None
+    return re.sub(r"(?i)\bFROM\b", ", " + ", ".join(additions) + " FROM", text, count=1)
 
 
 def _subject_filter(folded: str) -> str | None:

@@ -805,6 +805,22 @@ def main() -> None:
         or "client_location" in lahore.lower()
     ):
         raise SystemExit(f"Lahore was not matched inside the address: {lahore}")
+    karachi = resolve_followup("show me the top 10 whatsapp users from Karachi", [])
+    isp = resolve_followup(
+        "also show the corresponding ISP",
+        [{"question": "show me the top 10 whatsapp users from Karachi", "sql": karachi}],
+    )
+    if (
+        not karachi
+        or "like '%whatsapp%'" not in karachi.lower()
+        or "loc like '%karachi%'" not in karachi.lower()
+        or not isp
+        or "as client_asn" not in isp.lower()
+        or "like '%whatsapp%'" not in isp.lower()
+        or "loc like '%karachi%'" not in isp.lower()
+        or "limit 10" not in isp.lower()
+    ):
+        raise SystemExit(f"the ISP was not added to the Karachi ranking: {karachi} {isp}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
