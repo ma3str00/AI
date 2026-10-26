@@ -796,7 +796,7 @@ def main() -> None:
     )
     if (
         not lahore
-        or "loc like '%lahore%'" not in lahore.lower()
+        or "like '%lahore%'" not in lahore.lower()
         or "loc = '" in lahore.lower()
         or "app_label" in lahore.lower()
         or "limit 10" not in lahore.lower()
@@ -813,11 +813,11 @@ def main() -> None:
     if (
         not karachi
         or "like '%whatsapp%'" not in karachi.lower()
-        or "loc like '%karachi%'" not in karachi.lower()
+        or "like '%karachi%'" not in karachi.lower()
         or not isp
         or "as client_asn" not in isp.lower()
         or "like '%whatsapp%'" not in isp.lower()
-        or "loc like '%karachi%'" not in isp.lower()
+        or "like '%karachi%'" not in isp.lower()
         or "limit 10" not in isp.lower()
     ):
         raise SystemExit(f"the ISP was not added to the Karachi ranking: {karachi} {isp}")
@@ -825,8 +825,36 @@ def main() -> None:
         "also show the corresponding ISPs",
         [{"question": "show me the top 10 whatsapp users from Rawalpindi", "sql": karachi}],
     )
-    if not isps or "as client_asn" not in isps.lower() or "loc like '%karachi%'" not in isps.lower():
+    if not isps or "as client_asn" not in isps.lower() or "like '%karachi%'" not in isps.lower():
         raise SystemExit(f"the plural ISP was not added: {isps}")
+    nayatel = resolve_followup(
+        "show me the top 10 whatsapp users in Rawalpindi from Nayatel",
+        [{"question": "show me the top 10 whatsapp users from Rawalpindi", "sql": karachi}],
+    )
+    folded_nayatel = (nayatel or "").lower()
+    if (
+        not nayatel
+        or "like '%whatsapp%'" not in folded_nayatel
+        or "like '%rawalpindi%'" not in folded_nayatel
+        or "like '%nayatel%'" not in folded_nayatel
+        or "loc) like '%nayatel%'" in folded_nayatel
+        or "limit 10" not in folded_nayatel
+    ):
+        raise SystemExit(f"Nayatel was treated as a city: {nayatel}")
+    rwp = resolve_followup("show me the top 10 users from RWP", [])
+    if not rwp or "like '%rawalpindi%'" not in rwp.lower() or "like '%rwp%'" not in rwp.lower():
+        raise SystemExit(f"RWP was not read as Rawalpindi: {rwp}")
+    ptcl = resolve_followup("show me the top 10 users from PTCL", [])
+    if (
+        not ptcl
+        or "like '%pakistan telecommunication%'" not in ptcl.lower()
+        or "like '%ptcl%'" not in ptcl.lower()
+        or "lower(loc) like '%ptcl%'" in ptcl.lower()
+    ):
+        raise SystemExit(f"PTCL was not read as the ISP: {ptcl}")
+    di_khan = resolve_followup("show me the top 5 users from DI Khan", [])
+    if not di_khan or "like '%dera ismail khan%'" not in di_khan.lower() or "limit 5" not in di_khan.lower():
+        raise SystemExit(f"DI Khan was not read as Dera Ismail Khan: {di_khan}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "

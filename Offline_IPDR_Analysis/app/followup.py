@@ -6,6 +6,7 @@ import re
 
 from app.app_map import CATEGORY_PHRASES
 from app.glossary import mentions
+from app.places import column_predicate, named_in, without_named
 from app.schema import MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
 
@@ -288,7 +289,9 @@ def _address_expression(column: str) -> str:
 
 
 def _from_place(question: str) -> str | None:
-    """The place in 'users from Lahore'. It is matched inside the street address."""
+    """An unknown place word after from or in. Known cities and ISPs are handled separately."""
+    if named_in(question):
+        return None
     match = re.search(r"\b(?:from|near|within)\s+([A-Za-z][A-Za-z-]{2,40})\b", question)
     if not match:
         return None
@@ -298,28 +301,73 @@ def _from_place(question: str) -> str | None:
     return place
 
 
+def _apply_place_filters(text: str, question: str) -> str:
+    """Keep a subscriber ranking and set the city and ISP named in the question."""
+    cities = [place for place in named_in(question) if place.kind == "city"]
+    isps = [place for place in named_in(question) if place.kind == "isp"]
+    unknown = _from_place(question)
+    if not cities and not isps and not unknown:
+        return text
+    if cities or unknown:
+        text = _strip_column_group(text, "loc")
+        predicate = column_predicate("loc", cities[-1]) if cities else f"LOWER(loc) LIKE '%{unknown}%'"
+        text = re.sub(r"(?i)\bGROUP BY\b", f"AND {predicate} GROUP BY", text, count=1)
+        if not re.search(r"(?i)\bas loc\b", text):
+            text = re.sub(
+                r"(?i)\bFROM\b",
+                ", " + _address_expression("loc") + ", " + _address_expression("geo") + " FROM",
+                text,
+                count=1,
+            )
+    if isps:
+        text = _strip_column_group(text, "client_asn")
+        text = re.sub(
+            r"(?i)\bGROUP BY\b",
+            f"AND {column_predicate('client_asn', isps[-1])} GROUP BY",
+            text,
+            count=1,
+        )
+        if not re.search(r"(?i)\bas client_asn\b", text):
+            text = re.sub(r"(?i)\bFROM\b", ", " + _address_expression("client_asn") + " FROM", text, count=1)
+    return text
+
+
+def _strip_column_group(sql: str, column: str) -> str:
+    pattern = re.compile(rf"(?i)\s+AND\s+\(LOWER\({re.escape(column)}\)\s+LIKE\b")
+    while True:
+        match = pattern.search(sql)
+        if not match:
+            break
+        open_at = sql.find("(", match.start())
+        depth = 0
+        end = None
+        for index in range(open_at, len(sql)):
+            if sql[index] == "(":
+                depth += 1
+            elif sql[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        if end is None:
+            break
+        sql = sql[: match.start()] + sql[end:]
+    sql = re.sub(rf"(?i)\s+AND\s+{re.escape(column)}\s+LIKE\s+'%[^']+'", "", sql)
+    sql = re.sub(rf"(?i)\s+AND\s+LOWER\({re.escape(column)}\)\s+LIKE\s+'%[^']+'", "", sql)
+    sql = re.sub(rf"(?i)\s+AND\s+{re.escape(column)}\s*=\s*'[^']+'", "", sql)
+    return sql
+
+
 def _users_from_place(question: str, history: list[dict]) -> str | None:
-    """Keep the subscriber ranking and keep only addresses that contain the named place."""
-    place = _from_place(question)
-    folded = question.lower()
-    if not place or not re.search(r"\b(top|highest|maximum|most)\b", folded):
+    """Keep the subscriber ranking and apply a named city or ISP."""
+    if _subject_filter(without_named(question).lower()):
         return None
-    if not re.search(r"\b(users?|subscribers?)\b", folded):
+    if not named_in(question) and _from_place(question) is None:
         return None
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
         return None
-    text = re.sub(r"\s+", " ", previous).strip()
-    text = re.sub(r"(?i)\s+AND\s+loc\s+LIKE\s+'%[^']+'", "", text)
-    text = re.sub(r"(?i)\s+AND\s+loc\s*=\s*'[^']+'", "", text)
-    if not re.search(r"(?i)\bas loc\b", text):
-        text = re.sub(
-            r"(?i)\bFROM\b",
-            ", " + _address_expression("loc") + ", " + _address_expression("geo") + " FROM",
-            text,
-            count=1,
-        )
-    text = re.sub(r"(?i)\bGROUP BY\b", f"AND loc LIKE '%{place}%' GROUP BY", text, count=1)
+    text = _apply_place_filters(re.sub(r"\s+", " ", previous).strip(), question)
     limit = _limit_in(question)
     if limit is not None:
         text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
@@ -384,26 +432,34 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         return None
     if subscriber_kind([question]) in {"mobile", "fixed"}:
         return None
-    previous = _last_sql(history or [])
-    if previous and "group by subscriber_id" in previous.lower():
-        return None
     limit = _limit_in(question) or 20
     order = "flows" if _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded) else "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
+    cities = [item for item in named_in(question) if item.kind == "city"]
+    isps = [item for item in named_in(question) if item.kind == "isp"]
     place = _from_place(question)
-    subject_text = folded
+    subject_text = without_named(folded)
     if place:
-        subject_text = re.sub(rf"(?i)\b(?:from|near|within)\s+{re.escape(place)}\b", " ", folded)
+        subject_text = re.sub(rf"(?i)\b(?:from|near|within)\s+{re.escape(place)}\b", " ", subject_text)
     subject = _subject_filter(subject_text)
+    previous = _last_sql(history or [])
+    if previous and "group by subscriber_id" in previous.lower() and not subject:
+        return None
     if subject:
         where.insert(0, subject)
-    if place:
-        where.append(f"loc LIKE '%{place}%'")
+    if cities:
+        where.append(column_predicate("loc", cities[-1]))
+    elif place:
+        where.append(f"LOWER(loc) LIKE '%{place}%'")
+    if isps:
+        where.append(column_predicate("client_asn", isps[-1]))
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
-    if _asks_for_place(question) or place:
+    if (_asks_for_place(question) or place or cities) and not any(column.lower().endswith(" as loc") for column in columns):
         columns.extend(_address_expression(column) for column in ("loc", "geo"))
+    if isps and not any(column.lower().endswith(" as client_asn") for column in columns):
+        columns.append(_address_expression("client_asn"))
     columns.extend(
         [
             "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes",
@@ -427,6 +483,7 @@ _NOT_AN_APP = {
     "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
     "along", "with", "also", "list", "listed", "respective", "corresponding", "related",
     "address", "addresses", "location", "locations", "whereabouts", "asn",
+    "instead", "showing", "rather", "sorted", "ordering",
 }
 
 
@@ -440,6 +497,10 @@ _DISPLAY_COLUMNS = (
     ("imsi", "imsi"),
     ("isp", "client_asn"),
     ("isps", "client_asn"),
+    ("provider", "client_asn"),
+    ("providers", "client_asn"),
+    ("operator", "client_asn"),
+    ("operators", "client_asn"),
 )
 
 
@@ -450,6 +511,13 @@ def _display_columns(text: str) -> list[str]:
         if column not in columns and re.search(rf"\b{re.escape(phrase)}\b", folded):
             columns.append(column)
     if "client_asn" not in columns and "server_asn" not in columns and re.search(r"\basns?\b", folded):
+        columns.append("client_asn")
+    if (
+        "client_asn" not in columns
+        and "server_asn" not in columns
+        and "network storage" not in folded
+        and re.search(r"\bnetworks?\b", folded)
+    ):
         columns.append("client_asn")
     return columns
 
