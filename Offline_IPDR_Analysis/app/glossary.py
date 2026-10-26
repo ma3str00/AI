@@ -157,7 +157,7 @@ MEANINGS: tuple[Meaning, ...] = (
     Meaning(
         "real_place",
         "geo and loc are the cell or the fixed-line premises. mcc 410 is Pakistan.",
-        ("cell location", "where they were", "street address", "premises"),
+        ("cell location", "where they were", "street address", "premises", "address", "location"),
     ),
     Meaning(
         "when",

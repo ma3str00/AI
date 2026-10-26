@@ -21,6 +21,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     other_app = _same_request_other_app(question, history)
     if other_app:
         return other_app
+    place = _place_of_one_subscriber(question, history)
+    if place:
+        return place
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -240,6 +243,32 @@ def _same_request_other_app(question: str, history: list[dict]) -> str | None:
     if updated == previous:
         return None
     return re.sub(r"\s+", " ", updated).strip()
+
+
+def _asks_for_place(text: str) -> bool:
+    """The subscriber's premises. An IP address is a different column."""
+    folded = text.lower()
+    if re.search(r"\bip address\b", folded) or mentions(text, "ip_place"):
+        return False
+    if mentions(text, "real_place"):
+        return True
+    return bool(re.search(r"\b(address|addresses|location|locations|whereabouts)\b", folded))
+
+
+def _place_of_one_subscriber(question: str, history: list[dict]) -> str | None:
+    """loc and geo are the cell or fixed-line address, not the IP-database place."""
+    if not _asks_for_place(question):
+        return None
+    subscriber = named_subscriber(question)
+    if not subscriber and (_points_at_known_user(question) or _recent_unanswered(history, _asks_for_place)):
+        subscriber = _subscriber_from_history(history)
+    if not subscriber:
+        return None
+    return (
+        "SELECT loc, geo, COUNT(*) AS flows FROM ntc_ssl_logs "
+        f"WHERE subscriber_id = '{subscriber}' AND (IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '') "
+        "GROUP BY loc, geo ORDER BY flows DESC LIMIT 20"
+    )
 
 
 def _asks_for_websites(text: str) -> bool:

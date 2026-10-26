@@ -112,7 +112,15 @@ def prepare(sql: str, max_rows: int, allow_full_scan: bool = False, allow_all_gr
     where = expr.args.get("where")
     columns = {col.name.lower() for col in where.find_all(exp.Column)} if where is not None else set()
     has_time = bool(columns & TIME_COLUMNS or columns & POINT_COLUMNS)
-    if not has_time:
+    has_one_subscriber = any(
+        isinstance(eq, exp.EQ)
+        and isinstance(eq.left, exp.Column)
+        and eq.left.name.lower() == "subscriber_id"
+        and isinstance(eq.right, exp.Literal)
+        and eq.right.is_string
+        for eq in expr.find_all(exp.EQ)
+    )
+    if not has_time and not has_one_subscriber:
         if not (allow_full_scan and _is_aggregate(expr)):
             raise GuardError(
                 "Filter on start_time, end_time, recv_time, id, or log_id. "

@@ -135,8 +135,9 @@ def ask(body: Question):
     resolved = choice_sql or resolve_followup(question, history)
     if resolved:
         resolved = repair_sql(question, resolved, history)
+        one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))
         replayed = _replay_saved(
-            {"sql": resolved, "full_scan": conversation_full_scan(question, history)},
+            {"sql": resolved, "full_scan": conversation_full_scan(question, history) and not one_subscriber},
             config,
             database,
             _followup_notice(question, resolved),
@@ -144,7 +145,12 @@ def ask(body: Question):
         )
         if replayed is not None:
             if replayed.get("row_count") == 0 and "subscriber_id = " in resolved.lower():
-                replayed["explanation"] = "No applications were found for that subscriber."
+                if "group by loc" in resolved.lower():
+                    replayed["explanation"] = (
+                        "No street address was stored for that subscriber. loc is the cell or fixed-line address."
+                    )
+                else:
+                    replayed["explanation"] = "No applications were found for that subscriber."
             return replayed
     clarification = needs_clarification(question, history)
     if clarification:
@@ -390,6 +396,11 @@ def _lists_every_app(sql: str) -> bool:
 def _followup_notice(question: str, sql: str = "") -> str:
     folded = question.lower()
     compact = sql.lower()
+    if "group by loc" in compact and "subscriber_id = " in compact:
+        return (
+            "This lists the street addresses stored for that subscriber. "
+            "loc and geo are the cell or the fixed-line premises, not the IP-database location."
+        )
     if "group by requested_server" in compact and "subscriber_id = " in compact:
         app = re.search(r"lower\(app_label\)\s*=\s*'([^']+)'", compact)
         if app:

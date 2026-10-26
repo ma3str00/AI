@@ -746,6 +746,23 @@ def main() -> None:
     prepared_asn = prepare(with_asn, 200, allow_full_scan=True)
     if "client_asn" not in prepared_asn.lower() or "like '%client%'" in prepared_asn.lower():
         raise SystemExit(f"the guard dropped the client asn column: {prepared_asn}")
+    place = resolve_followup("show me the address of 030944736121", [])
+    if (
+        not place
+        or "subscriber_id = '030944736121'" not in place
+        or "group by loc, geo" not in place.lower()
+        or "client_location" in place.lower()
+    ):
+        raise SystemExit(f"a subscriber address was not read from loc: {place}")
+    confirmed = resolve_followup(
+        "yes, I want to see the location / address of this user",
+        [{"question": "show me the address of 030944736121", "sql": "", "explanation": "Do you want to see the address?"}],
+    )
+    if not confirmed or "subscriber_id = '030944736121'" not in confirmed or "group by loc, geo" not in confirmed.lower():
+        raise SystemExit(f"confirming the address did not keep the subscriber: {confirmed}")
+    shown_place = prepare(place, 200, allow_full_scan=False)
+    if "030944736121" not in shown_place:
+        raise SystemExit(f"one subscriber still required a time filter: {shown_place}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
