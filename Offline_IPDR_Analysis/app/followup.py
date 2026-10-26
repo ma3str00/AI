@@ -6,7 +6,7 @@ import re
 
 from app.app_map import CATEGORY_PHRASES
 from app.glossary import mentions
-from app.places import column_predicate, named_in, without_named
+from app.places import asks_same_city, column_predicate, mentioned_isps, named_in, without_named
 from app.schema import MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
 
@@ -419,6 +419,14 @@ def _same_request_other_person(question: str, history: list[dict]) -> str | None
     return re.sub(r"\s+", " ", updated).strip()
 
 
+def _saved_loc_predicate(sql: str) -> str | None:
+    match = re.search(
+        r"(?i)\(\s*LOWER\(loc\)\s+LIKE\s+'%[^']+%'(?:\s+OR\s+LOWER\(loc\)\s+LIKE\s+'%[^']+%')*\s*\)",
+        sql or "",
+    )
+    return match.group(0) if match else None
+
+
 def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     """A ranking of identified subscribers. Unidentified IP_port ids are not users."""
     folded = question.lower()
@@ -436,19 +444,25 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     order = "flows" if _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded) else "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
     cities = [item for item in named_in(question) if item.kind == "city"]
-    isps = [item for item in named_in(question) if item.kind == "isp"]
+    isps = mentioned_isps(question)
     place = _from_place(question)
     subject_text = without_named(folded)
+    for isp in isps:
+        for alias in sorted(isp.aliases, key=len, reverse=True):
+            subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", subject_text)
     if place:
         subject_text = re.sub(rf"(?i)\b(?:from|near|within)\s+{re.escape(place)}\b", " ", subject_text)
     subject = _subject_filter(subject_text)
     previous = _last_sql(history or [])
+    saved_city = _saved_loc_predicate(previous) if asks_same_city(question) else None
     if previous and "group by subscriber_id" in previous.lower() and not subject:
         return None
     if subject:
         where.insert(0, subject)
     if cities:
         where.append(column_predicate("loc", cities[-1]))
+    elif saved_city:
+        where.append(saved_city)
     elif place:
         where.append(f"LOWER(loc) LIKE '%{place}%'")
     if isps:
@@ -456,7 +470,7 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
-    if (_asks_for_place(question) or place or cities) and not any(column.lower().endswith(" as loc") for column in columns):
+    if (_asks_for_place(question) or place or cities or saved_city) and not any(column.lower().endswith(" as loc") for column in columns):
         columns.extend(_address_expression(column) for column in ("loc", "geo"))
     if isps and not any(column.lower().endswith(" as client_asn") for column in columns):
         columns.append(_address_expression("client_asn"))
@@ -483,7 +497,7 @@ _NOT_AN_APP = {
     "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
     "along", "with", "also", "list", "listed", "respective", "corresponding", "related",
     "address", "addresses", "location", "locations", "whereabouts", "asn",
-    "instead", "showing", "rather", "sorted", "ordering",
+    "instead", "showing", "rather", "sorted", "ordering", "city", "cities",
 }
 
 

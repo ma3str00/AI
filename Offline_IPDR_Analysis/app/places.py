@@ -266,6 +266,24 @@ _ALIAS_INDEX: list[tuple[str, Place]] = sorted(
 )
 
 
+def mentioned_isps(question: str) -> list[Place]:
+    """An ISP named anywhere, as in 'WhatsApp Nayatel users'."""
+    folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))
+    found: list[Place] = []
+    seen: set[str] = set()
+    for alias, place in _ALIAS_INDEX:
+        if place.kind != "isp" or place.name in seen:
+            continue
+        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", folded):
+            found.append(place)
+            seen.add(place.name)
+    return found
+
+
+def asks_same_city(question: str) -> bool:
+    return bool(re.search(r"\b(?:same|that|this)\s+city\b", question.lower()))
+
+
 def named_in(question: str) -> list[Place]:
     """Cities and ISPs named after from, in, near, within, or at."""
     folded = question.lower().replace(".", " ")

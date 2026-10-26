@@ -855,6 +855,25 @@ def main() -> None:
     di_khan = resolve_followup("show me the top 5 users from DI Khan", [])
     if not di_khan or "like '%dera ismail khan%'" not in di_khan.lower() or "limit 5" not in di_khan.lower():
         raise SystemExit(f"DI Khan was not read as Dera Ismail Khan: {di_khan}")
+    same_city = resolve_followup(
+        "now show me the top 10 whatsapp Nayatel users from the same city",
+        [{"question": "show me the top 10 whatsapp users from Faisalabad", "sql": (
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "WHERE LOWER(app_label) LIKE '%whatsapp%' AND IFNULL(subscriber_id, '') <> '' "
+            "AND LOCATE('_', subscriber_id) = 0 AND (LOWER(loc) LIKE '%faisalabad%' OR LOWER(loc) LIKE '%fsd%' "
+            "OR LOWER(loc) LIKE '%lyallpur%') GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+        )}],
+    )
+    folded_same = (same_city or "").lower()
+    if (
+        not same_city
+        or "like '%whatsapp%'" not in folded_same
+        or "like '%faisalabad%'" not in folded_same
+        or "like '%nayatel%'" not in folded_same
+        or "lower(loc) like '%nayatel%'" in folded_same
+        or "limit 10" not in folded_same
+    ):
+        raise SystemExit(f"the same city and Nayatel were dropped: {same_city}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
