@@ -418,10 +418,13 @@ def _followup_notice(question: str, sql: str = "") -> str:
     if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if "group by subscriber_id" in compact and re.search(r"\bas loc\b", compact):
+        city = re.search(r"loc like '%([^']+)%'", compact)
+        where = f" Only addresses containing {city.group(1)} are included." if city else ""
         return (
-            "This ranks identified subscribers and lists each subscriber's address. "
-            + ("It also lists the client ASN name. " if "client_asn" in compact else "")
-            + "loc and geo are the cell or the fixed-line premises. "
+            "This ranks identified subscribers and lists each subscriber's address."
+            + (" It also lists the client ASN name." if "client_asn" in compact else "")
+            + where
+            + " loc and geo are the cell or the fixed-line premises. "
             "client_location and server_location come from an IP database and are not the subscriber's address."
         )
     if "group by subscriber_id" in compact and re.search(r"\b(users?|subscribers?)\b", folded):

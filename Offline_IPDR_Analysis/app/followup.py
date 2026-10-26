@@ -27,6 +27,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     places = _addresses_of_current_users(question, history)
     if places:
         return places
+    from_place = _users_from_place(question, history)
+    if from_place:
+        return from_place
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -281,6 +284,46 @@ def _address_expression(column: str) -> str:
     )
 
 
+def _from_place(question: str) -> str | None:
+    """The place in 'users from Lahore'. It is matched inside the street address."""
+    match = re.search(r"\b(?:from|near|within)\s+([A-Za-z][A-Za-z-]{2,40})\b", question)
+    if not match:
+        return None
+    place = match.group(1)
+    if place.lower() in _NOT_AN_APP or place.lower() in {"the", "all", "this", "that", "these", "those", "and"}:
+        return None
+    return place
+
+
+def _users_from_place(question: str, history: list[dict]) -> str | None:
+    """Keep the subscriber ranking and keep only addresses that contain the named place."""
+    place = _from_place(question)
+    folded = question.lower()
+    if not place or not re.search(r"\b(top|highest|maximum|most)\b", folded):
+        return None
+    if not re.search(r"\b(users?|subscribers?)\b", folded):
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    text = re.sub(r"(?i)\s+AND\s+loc\s+LIKE\s+'%[^']+'", "", text)
+    text = re.sub(r"(?i)\s+AND\s+loc\s*=\s*'[^']+'", "", text)
+    if not re.search(r"(?i)\bas loc\b", text):
+        text = re.sub(
+            r"(?i)\bFROM\b",
+            ", " + _address_expression("loc") + ", " + _address_expression("geo") + " FROM",
+            text,
+            count=1,
+        )
+    text = re.sub(r"(?i)\bGROUP BY\b", f"AND loc LIKE '%{place}%' GROUP BY", text, count=1)
+    limit = _limit_in(question)
+    if limit is not None:
+        text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
+        text = f"{text} LIMIT {int(limit)}"
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _addresses_of_current_users(question: str, history: list[dict]) -> str | None:
     """Add loc and geo to the subscriber list on screen. Not the IP-database place."""
     if not _asks_for_place(question) or named_subscriber(question):
@@ -344,13 +387,19 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     limit = _limit_in(question) or 20
     order = "flows" if _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded) else "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
-    subject = _subject_filter(folded)
+    place = _from_place(question)
+    subject_text = folded
+    if place:
+        subject_text = re.sub(rf"(?i)\b(?:from|near|within)\s+{re.escape(place)}\b", " ", folded)
+    subject = _subject_filter(subject_text)
     if subject:
         where.insert(0, subject)
+    if place:
+        where.append(f"loc LIKE '%{place}%'")
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
-    if _asks_for_place(question):
+    if _asks_for_place(question) or place:
         columns.extend(_address_expression(column) for column in ("loc", "geo"))
     columns.extend(
         [

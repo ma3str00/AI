@@ -790,6 +790,21 @@ def main() -> None:
         or "limit 20" not in both.lower()
     ):
         raise SystemExit(f"asn and address were not columns on the user ranking: {both}")
+    lahore = resolve_followup(
+        "show me the top 10 users from Lahore",
+        [{"question": "show me top 20 users. Also list the respective ASN and address.", "sql": both}],
+    )
+    if (
+        not lahore
+        or "loc like '%lahore%'" not in lahore.lower()
+        or "loc = '" in lahore.lower()
+        or "app_label" in lahore.lower()
+        or "limit 10" not in lahore.lower()
+        or "limit 20" in lahore.lower()
+        or "client_asn" not in lahore.lower()
+        or "client_location" in lahore.lower()
+    ):
+        raise SystemExit(f"Lahore was not matched inside the address: {lahore}")
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
