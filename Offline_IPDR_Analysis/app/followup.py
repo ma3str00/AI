@@ -57,6 +57,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     named_user = _apply_named_subscriber(question, history)
     if named_user:
         return named_user
+    blank_servers = _include_blank_servers(question, history)
+    if blank_servers:
+        return blank_servers
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -664,6 +667,27 @@ def _addresses_of_current_users(question: str, history: list[dict]) -> str | Non
     return re.sub(r"(?i)\bFROM\b", ", " + ", ".join(additions) + " FROM", text, count=1)
 
 
+def _include_blank_servers(question: str, history: list[dict]) -> str | None:
+    """Keep the current list and also show applications whose website name is empty."""
+    folded = question.lower().replace("_", " ")
+    if not re.search(r"\b(null|empty|blank|missing)\b", folded):
+        return None
+    if not re.search(r"\b(requested server|website|server name|sni)\b", folded):
+        return None
+    previous = _last_sql(history)
+    if not previous or not re.search(r"subscriber_id\s*=\s*'[^']+'", previous, flags=re.IGNORECASE):
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    cleared = re.sub(
+        r"(?i)\s+AND\s+(?:IFNULL|COALESCE)\(\s*requested_server\s*,\s*''\s*\)\s*<>\s*''",
+        "",
+        text,
+    )
+    if cleared == text:
+        return None
+    return re.sub(r"\s+", " ", cleared).strip()
+
+
 def _asks_for_websites(text: str) -> bool:
     return mentions(text, "website")
 
@@ -1040,11 +1064,13 @@ def named_subscriber(question: str) -> str | None:
         r"\bagainst\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\babout\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bfor\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\b([A-Za-z0-9][A-Za-z0-9._-]{2,64})\s+activit(?:y|ies)\b",
     )
+    login_patterns = {patterns[-2], patterns[-1]}
     for pattern in patterns:
         for match in re.finditer(pattern, cleaned):
             token = match.group(1)
-            if _subscriber_token(token):
+            if _subscriber_token(token) or (pattern in login_patterns and _account_name(token)):
                 return token
     return None
 
@@ -1058,10 +1084,23 @@ def _subscriber_token(token: str) -> bool:
 
 
 _NOT_SUBSCRIBER = {
-    "the", "number", "traffic", "volume", "flow", "flows", "total", "bytes",
+    "the", "number", "traffic", "volume", "flow", "flows", "total", "bytes", "usage",
+    "hit", "hits", "count", "counts",
     "application", "applications", "apps", "user", "subscriber", "users",
     "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
 }
+
+
+def _account_name(token: str) -> bool:
+    """A letter-only login, such as blinkp. Applications, cities, and ISPs are not logins."""
+    folded = token.lower()
+    if len(folded) < 6 or not folded.isalpha():
+        return False
+    if known_app_token(folded, set()) == folded:
+        return False
+    if mentioned_cities(folded) or mentioned_isps(folded):
+        return False
+    return True
 
 
 def _time_clause(sql: str) -> str:

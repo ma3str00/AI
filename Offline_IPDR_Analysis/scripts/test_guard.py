@@ -767,6 +767,54 @@ def main() -> None:
         or "group by subscriber_id" in folded_corresponding
     ):
         raise SystemExit(f"corresponding apps dropped the websites: {corresponding}")
+    hostel_sites = (
+        "SELECT requested_server, app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE subscriber_id = 'studentsgirlshostel3' AND IFNULL(requested_server, '') <> '' "
+        "AND IFNULL(app_label, '') <> '' GROUP BY requested_server, app_label ORDER BY total_bytes DESC LIMIT 50"
+    )
+    blank_servers = resolve_followup(
+        "include the apps where the requested_server is null",
+        [{"question": "apps and websites used by studentsgirlshostel3", "sql": hostel_sites}],
+    )
+    folded_blank = (blank_servers or "").lower()
+    if (
+        not blank_servers
+        or "subscriber_id = 'studentsgirlshostel3'" not in blank_servers
+        or "group by requested_server, app_label" not in folded_blank
+        or "requested_server, '') <> ''" in folded_blank
+    ):
+        raise SystemExit(f"null websites stayed excluded: {blank_servers}")
+    same_login = resolve_followup(
+        "show me the same for blinkp",
+        [{"question": "apps and websites used by studentsgirlshostel3", "sql": hostel_sites}],
+    )
+    folded_login = (same_login or "").lower()
+    if (
+        not same_login
+        or "subscriber_id = 'blinkp'" not in same_login
+        or "studentsgirlshostel3" in same_login
+        or "group by requested_server, app_label" not in folded_login
+        or "group by subscriber_id" in folded_login
+    ):
+        raise SystemExit(f"the same for a login rebuilt the ranking: {same_login}")
+    hostel_apps = resolve_followup("studentsgirlshostel3 activities", [])
+    folded_hostel = (hostel_apps or "").lower()
+    if (
+        not hostel_apps
+        or "subscriber_id = 'studentsgirlshostel3'" not in hostel_apps
+        or "group by app_label" not in folded_hostel
+        or "group by subscriber_id" in folded_hostel
+    ):
+        raise SystemExit(f"a login's activities were not listed: {hostel_apps}")
+    nayatel = resolve_followup("show top 10 nayatel users by usage from Peshawar", [])
+    folded_nayatel = (nayatel or "").lower()
+    if (
+        not nayatel
+        or "like '%peshawar%'" not in folded_nayatel
+        or "like '%nayatel%'" not in folded_nayatel
+        or "subscriber_id = " in folded_nayatel
+    ):
+        raise SystemExit(f"Nayatel usage became a subscriber id: {nayatel}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],
