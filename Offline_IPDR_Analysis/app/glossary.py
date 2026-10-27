@@ -56,6 +56,7 @@ MEANINGS: tuple[Meaning, ...] = (
             "activity detail",
             "more details",
             "details about",
+            "details for",
             "the rest",
             "rest of",
             "what else",
