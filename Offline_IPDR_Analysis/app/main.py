@@ -401,6 +401,18 @@ def _followup_notice(question: str, sql: str = "") -> str:
             "This lists the street addresses stored for that subscriber. "
             "loc and geo are the cell or the fixed-line premises, not the IP-database location."
         )
+    if "subscriber_id = " in compact and "block_type <> 0" in compact and "group by app_label" in compact:
+        return (
+            "This lists the applications that subscriber tried to use and that were blocked. "
+            "Any block_type other than 0 means blocked."
+        )
+    if "subscriber_id = " in compact and "block_type = 0" in compact and "group by app_label" in compact:
+        return "This lists the applications that subscriber used and that were allowed. block_type 0 means allowed."
+    if "subscriber_id = " in compact and "block_type <> 0" in compact and "group by requested_server" in compact:
+        return (
+            "This lists the websites that subscriber tried to reach and that were blocked. "
+            "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
+        )
     if "group by requested_server" in compact and "subscriber_id = " in compact:
         app = re.search(r"lower\(app_label\)\s*=\s*'([^']+)'", compact)
         if app:

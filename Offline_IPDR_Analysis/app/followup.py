@@ -48,6 +48,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     shown = _add_shown_columns(question, history)
     if shown:
         return shown
+    blocked_activity = _blocked_activity_of_one(question, history)
+    if blocked_activity:
+        return blocked_activity
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -145,6 +148,53 @@ def use_full_scan(question: str, history: list[dict] | None, missing_time_means_
     if _last_sql(history or []):
         return False
     return missing_time_means_all
+
+
+def _id_anywhere(question: str) -> str | None:
+    """A subscriber id written in the sentence, including 'apps that 0333...ASD'."""
+    named = named_subscriber(question)
+    if named:
+        return named
+    hosts = _named_servers(question)
+    cleaned = question.replace("'", "").replace('"', "").replace("`", "")
+    for token in re.findall(r"\b[A-Za-z0-9][A-Za-z0-9-]{5,64}\b", cleaned):
+        if any(token.lower() in host for host in hosts) or not _subscriber_token(token):
+            continue
+        digits = len(re.findall(r"\d", token))
+        letters = len(re.findall(r"[A-Za-z]", token))
+        if (letters and digits >= 4) or (letters == 0 and digits >= 10):
+            return token
+    return None
+
+
+def _blocked_activity_of_one(question: str, history: list[dict]) -> str | None:
+    """Blocked websites or apps one subscriber tried to reach."""
+    blocked = mentions(question, "blocked")
+    allowed = not blocked and mentions(question, "allowed")
+    if not blocked and not allowed:
+        return None
+    subscriber = _id_anywhere(question)
+    if not subscriber and _points_at_known_user(question):
+        subscriber = _subscriber_from_history(history)
+    if not subscriber:
+        return None
+    if _asks_for_websites(question):
+        column = "requested_server"
+        extra = " AND IFNULL(requested_server, '') <> ''"
+    elif _asks_for_their_apps(question):
+        column = "app_label"
+        extra = " AND IFNULL(app_label, '') <> ''"
+    else:
+        return None
+    status = BLOCKED_SQL if blocked else ALLOWED_SQL
+    measure = "blocked_flows" if blocked else "allowed_flows"
+    limit = _limit_in(question)
+    limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
+    return (
+        f"SELECT {column}, COUNT(*) AS {measure} FROM ntc_ssl_logs "
+        f"WHERE subscriber_id = '{subscriber}' AND {status}{extra} "
+        f"GROUP BY {column} ORDER BY {measure} DESC{limit_sql}"
+    )
 
 
 def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | None:

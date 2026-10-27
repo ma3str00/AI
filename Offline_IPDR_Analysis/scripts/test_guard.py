@@ -725,6 +725,34 @@ def main() -> None:
         or "limit 20" not in folded_blocked_users
     ):
         raise SystemExit(f"blocked flows were searched as an application: {blocked_users}")
+    blocked_apps = resolve_followup(
+        "show me the blocked apps that 03334128404ASD was trying to access",
+        [{"question": "show me the top 20 users who have the most blocked flows", "sql": blocked_users}],
+    )
+    folded_blocked_apps = (blocked_apps or "").lower()
+    if (
+        not blocked_apps
+        or "subscriber_id = '03334128404asd'" not in folded_blocked_apps
+        or "group by app_label" not in folded_blocked_apps
+        or "block_type <> 0" not in folded_blocked_apps
+        or "order by blocked_flows desc" not in folded_blocked_apps
+        or "like '%access%'" in folded_blocked_apps
+        or "like '%blocked%'" in folded_blocked_apps
+    ):
+        raise SystemExit(f"blocked apps for one subscriber were not built: {blocked_apps}")
+    blocked_sites_one = resolve_followup(
+        "show me the blocked websites that 03334128404ASD was trying to access",
+        [{"question": "show me the top 20 users who have the most blocked flows", "sql": blocked_users}],
+    )
+    folded_one_site = (blocked_sites_one or "").lower()
+    if (
+        not blocked_sites_one
+        or "subscriber_id = '03334128404asd'" not in folded_one_site
+        or "group by requested_server" not in folded_one_site
+        or "block_type <> 0" not in folded_one_site
+        or "group by app_label" in folded_one_site
+    ):
+        raise SystemExit(f"blocked websites for one subscriber were not built: {blocked_sites_one}")
     if not mentions("top websites by visits", "hit") or not mentions("which domains", "website"):
         raise SystemExit("the glossary missed a known word")
     if mentions("top users with maximum activity", "their_apps"):
