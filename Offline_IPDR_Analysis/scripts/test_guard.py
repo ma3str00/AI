@@ -815,6 +815,30 @@ def main() -> None:
         or "subscriber_id = " in folded_nayatel
     ):
         raise SystemExit(f"Nayatel usage became a subscriber id: {nayatel}")
+    cafe = resolve_followup(
+        "apps and websites used by farshacafe",
+        [{"question": "show top 10 nayatel users by flow count from Islamabad", "sql": (
+            "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(loc) LIKE '%islamabad%' "
+            "AND LOWER(client_asn) LIKE '%nayatel%' GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
+        )}],
+    )
+    folded_cafe = (cafe or "").lower()
+    if (
+        not cafe
+        or "subscriber_id = 'farshacafe'" not in cafe
+        or "group by requested_server, app_label" not in folded_cafe
+        or "islamabad" in folded_cafe
+        or "nayatel" in folded_cafe
+    ):
+        raise SystemExit(f"apps and websites for a login were not built: {cafe}")
+    cafe_details = resolve_followup("farshacafe details", [])
+    if (
+        not cafe_details
+        or "subscriber_id = 'farshacafe'" not in cafe_details
+        or "group by app_label" not in cafe_details.lower()
+        or "group by subscriber_id" in cafe_details.lower()
+    ):
+        raise SystemExit(f"login details were not listed: {cafe_details}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

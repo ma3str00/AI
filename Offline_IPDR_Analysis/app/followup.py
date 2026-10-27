@@ -1013,7 +1013,7 @@ def _asks_for_their_apps(text: str) -> bool:
     folded = text.lower()
     if re.search(r"\b(applications?|apps)\b", folded):
         return True
-    if re.search(r"\bactivity\s+details?\b", folded) or re.search(r"\bdetails?\s+(?:of|about|for)\b", folded):
+    if re.search(r"\bactivity\s+details?\b", folded) or re.search(r"\bdetails?\b", folded):
         return True
     if re.search(r"\bmore\s+details\b", folded):
         return True
@@ -1065,12 +1065,15 @@ def named_subscriber(question: str) -> str | None:
         r"\babout\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bfor\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\b([A-Za-z0-9][A-Za-z0-9._-]{2,64})\s+activit(?:y|ies)\b",
+        r"\b([A-Za-z][A-Za-z0-9._-]{5,64})\s+details?\b",
     )
-    login_patterns = {patterns[-2], patterns[-1]}
+    folded = cleaned.lower()
+    ranking = bool(re.search(r"\b(top|highest|most)\b", folded) and re.search(r"\busers?\b", folded))
+    one_person = bool(re.search(r"\b(details?|activit(?:y|ies)|websites?|apps?|applications?)\b", folded))
     for pattern in patterns:
         for match in re.finditer(pattern, cleaned):
             token = match.group(1)
-            if _subscriber_token(token) or (pattern in login_patterns and _account_name(token)):
+            if _subscriber_token(token) or (_account_name(token) and not (ranking and not one_person)):
                 return token
     return None
 
@@ -1087,6 +1090,10 @@ _NOT_SUBSCRIBER = {
     "the", "number", "traffic", "volume", "flow", "flows", "total", "bytes", "usage",
     "hit", "hits", "count", "counts",
     "application", "applications", "apps", "user", "subscriber", "users",
+    "against", "about", "along", "where", "through", "without", "between",
+    "before", "during", "around", "within", "please", "details", "detail",
+    "activities", "activity", "including", "include", "specific", "websites",
+    "website", "something", "interested", "looking", "regarding", "information",
     "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
 }
 
@@ -1094,7 +1101,7 @@ _NOT_SUBSCRIBER = {
 def _account_name(token: str) -> bool:
     """A letter-only login, such as blinkp. Applications, cities, and ISPs are not logins."""
     folded = token.lower()
-    if len(folded) < 6 or not folded.isalpha():
+    if folded in _NOT_SUBSCRIBER or len(folded) < 6 or not folded.isalpha():
         return False
     if known_app_token(folded, set()) == folded:
         return False
