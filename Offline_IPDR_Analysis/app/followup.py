@@ -531,7 +531,18 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     if subscriber_kind([question]) in {"mobile", "fixed"}:
         return None
     limit = _limit_in(question) or 20
-    order = "flows" if _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded) else "total_bytes"
+    blocked = mentions(question, "blocked")
+    allowed = not blocked and mentions(question, "allowed")
+    by_volume = bool(re.search(r"\b(bytes|traffic|volume|download|upload)\b", folded))
+    if blocked or allowed:
+        flow_name = "blocked_flows" if blocked else "allowed_flows"
+        order = "total_bytes" if by_volume else flow_name
+    elif _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded):
+        flow_name = "flows"
+        order = "flows"
+    else:
+        flow_name = "flows"
+        order = "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
     cities = [item for item in named_in(question) if item.kind == "city"]
     isps = mentioned_isps(question)
@@ -552,10 +563,22 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     subject = _subject_filter(subject_text)
     previous = _last_sql(history or [])
     saved_city = _saved_loc_predicate(previous) if asks_same_city(question) else None
-    if previous and "group by subscriber_id" in previous.lower() and not subject and not street and not servers:
+    if (
+        previous
+        and "group by subscriber_id" in previous.lower()
+        and not subject
+        and not street
+        and not servers
+        and not blocked
+        and not allowed
+    ):
         return None
     if subject:
         where.insert(0, subject)
+    if blocked:
+        where.append(BLOCKED_SQL)
+    elif allowed:
+        where.append(ALLOWED_SQL)
     if street:
         where.append(street_predicate(street))
     elif cities:
@@ -581,7 +604,7 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         [
             "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes",
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb",
-            "COUNT(*) AS flows",
+            f"COUNT(*) AS {flow_name}",
         ]
     )
     return (
@@ -603,6 +626,7 @@ _NOT_AN_APP = {
     "instead", "showing", "rather", "sorted", "ordering", "city", "cities",
     "area", "locality", "neighborhood", "neighbourhood", "vicinity",
     "tried", "try", "access", "accessed", "accessing", "visit", "visited", "visiting",
+    "blocked", "denied", "rejected", "allowed", "permitted",
 }
 
 

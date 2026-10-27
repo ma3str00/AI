@@ -707,6 +707,24 @@ def main() -> None:
         or "limit 10" not in folded_site_users
     ):
         raise SystemExit(f"the website was searched as an application: {site_users}")
+    blocked_users = resolve_followup(
+        "show me the top 20 users who have the most blocked flows",
+        [{"question": "top 10 whatsapp users", "sql": (
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "WHERE LOWER(app_label) LIKE '%whatsapp%' GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+        )}],
+    )
+    folded_blocked_users = (blocked_users or "").lower()
+    if (
+        not blocked_users
+        or "group by subscriber_id" not in folded_blocked_users
+        or "block_type <> 0" not in folded_blocked_users
+        or "app_label" in folded_blocked_users
+        or "like '%blocked%'" in folded_blocked_users
+        or "order by blocked_flows desc" not in folded_blocked_users
+        or "limit 20" not in folded_blocked_users
+    ):
+        raise SystemExit(f"blocked flows were searched as an application: {blocked_users}")
     if not mentions("top websites by visits", "hit") or not mentions("which domains", "website"):
         raise SystemExit("the glossary missed a known word")
     if mentions("top users with maximum activity", "their_apps"):

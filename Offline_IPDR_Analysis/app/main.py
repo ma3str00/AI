@@ -445,6 +445,18 @@ def _followup_notice(question: str, sql: str = "") -> str:
             "A website is the TLS server name in requested_server. "
             "An id containing an underscore is an IP and port and is left out."
         )
+    if "group by subscriber_id" in compact and "block_type <> 0" in compact:
+        return (
+            "This ranks identified subscribers by how many of their flows were blocked. "
+            "Any block_type other than 0 means blocked. "
+            "An id containing an underscore is an IP and port and is left out."
+        )
+    if "group by subscriber_id" in compact and "block_type = 0" in compact:
+        return (
+            "This ranks identified subscribers by how many of their flows were allowed. "
+            "block_type 0 means allowed. "
+            "An id containing an underscore is an IP and port and is left out."
+        )
     if "group by subscriber_id" in compact and re.search(r"\b(users?|subscribers?)\b", folded):
         if "client_asn" in compact:
             return (
