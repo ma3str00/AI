@@ -370,6 +370,20 @@ def without_areas(question: str) -> str:
     return text
 
 
+def mentioned_cities(question: str) -> list[Place]:
+    """A city named anywhere, as in 'Multan PTCL WhatsApp users'."""
+    folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))
+    found: list[Place] = []
+    seen: set[str] = set()
+    for alias, place in _ALIAS_INDEX:
+        if place.kind != "city" or place.name in seen:
+            continue
+        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", folded):
+            found.append(place)
+            seen.add(place.name)
+    return found
+
+
 def mentioned_isps(question: str) -> list[Place]:
     """An ISP named anywhere, as in 'WhatsApp Nayatel users'."""
     folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))

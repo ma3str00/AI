@@ -745,6 +745,34 @@ def main() -> None:
     known = resolve_followup("show me the top 10 whatsapp users", [])
     if not known or "like '%whatsapp%'" not in known.lower():
         raise SystemExit(f"a mapped application was ignored: {known}")
+    multan = resolve_followup("show me the top 20 multan ptcl whatsapp users", [])
+    folded_multan = (multan or "").lower()
+    if (
+        not multan
+        or "like '%whatsapp%'" not in folded_multan
+        or "like '%multan%'" not in folded_multan
+        or "like '%pakistan telecommunication%'" not in folded_multan
+        or "like '%ptcl%'" not in folded_multan
+        or "app_label) like '%multan%'" in folded_multan
+        or "lower(loc) like '%ptcl%'" in folded_multan
+        or "limit 20" not in folded_multan
+    ):
+        raise SystemExit(f"Multan was dropped from the PTCL WhatsApp ranking: {multan}")
+    same_instagram = resolve_followup(
+        "show me the same for instagram",
+        [{"question": "show me the top 20 multan ptcl whatsapp users", "sql": multan}],
+    )
+    folded_instagram = (same_instagram or "").lower()
+    if (
+        not same_instagram
+        or "like '%instagram%'" not in folded_instagram
+        or "like '%whatsapp%'" in folded_instagram
+        or "like '%multan%'" not in folded_instagram
+        or "like '%ptcl%'" not in folded_instagram
+        or "as loc" not in folded_instagram
+        or "limit 20" not in folded_instagram
+    ):
+        raise SystemExit(f"the same for Instagram did not keep Multan and PTCL: {same_instagram}")
     blocked_apps = resolve_followup(
         "show me the blocked apps that 03334128404ASD was trying to access",
         [{"question": "show me the top 20 users who have the most blocked flows", "sql": blocked_users}],

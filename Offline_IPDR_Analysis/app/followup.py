@@ -11,6 +11,7 @@ from app.places import (
     area_predicate,
     column_predicate,
     mentioned_areas,
+    mentioned_cities,
     mentioned_isps,
     named_in,
     street_before_city,
@@ -375,11 +376,20 @@ def _named_app_label(text: str) -> str | None:
     return label
 
 
+def _same_app_stem(question: str) -> str | None:
+    """'The same for Instagram' names the application without saying 'app type'."""
+    folded = re.sub(r"\bsame\s+city\b", " ", question.lower())
+    for place in (*mentioned_cities(question), *mentioned_isps(question)):
+        for alias in sorted(place.aliases, key=len, reverse=True):
+            folded = re.sub(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", folded)
+    return known_app_token(folded, _NOT_AN_APP)
+
+
 def _same_request_other_app(question: str, history: list[dict]) -> str | None:
-    """'The same for app type SSL' keeps the previous result and changes the application."""
-    if not re.search(r"\bsame\b", question.lower()):
-        return None
-    label = _named_app_label(question)
+    """'The same for Instagram' keeps the previous result and changes the application."""
+    label = _named_app_label(question) if re.search(r"\bsame\b", question.lower()) else None
+    if not label and _asks_same_result(question):
+        label = _same_app_stem(question)
     if not label:
         return None
     previous = _last_sql(history)
@@ -654,9 +664,9 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         flow_name = "flows"
         order = "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
-    cities = [item for item in named_in(question) if item.kind == "city"]
-    isps = mentioned_isps(question)
     street = street_before_city(question)
+    cities = [] if street else mentioned_cities(question)
+    isps = mentioned_isps(question)
     areas = [] if street else mentioned_areas(question)
     servers = _named_servers(question)
     place = _from_place(question)
@@ -665,6 +675,9 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         subject_text = re.sub(re.escape(host), " ", subject_text, flags=re.IGNORECASE)
     for word in street:
         subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", " ", subject_text)
+    for city in cities:
+        for alias in sorted(city.aliases, key=len, reverse=True):
+            subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", subject_text)
     for isp in isps:
         for alias in sorted(isp.aliases, key=len, reverse=True):
             subject_text = re.sub(rf"(?i)(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", subject_text)
