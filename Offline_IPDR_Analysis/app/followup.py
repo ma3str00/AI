@@ -268,17 +268,22 @@ def _apply_named_subscriber(question: str, history: list[dict]) -> str | None:
 
 def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     """TLS server names requested by one subscriber. A website is requested_server."""
+    previous = _last_sql(history)
     subscriber = named_subscriber(question)
+    if not subscriber and _asks_for_websites(question):
+        subscriber = _id_anywhere(question)
     if not subscriber and _points_at_known_user(question):
         subscriber = _subscriber_from_history(history)
+    if not subscriber and _asks_for_websites(question) and _adds_to_current(question):
+        subscriber = _subscriber_in_sql(previous or "")
     if not subscriber:
         return None
-    supplying_name = bool(named_subscriber(question)) or "referring to" in question.lower()
+    supplying_name = bool(named_subscriber(question) or _id_anywhere(question)) or "referring to" in question.lower()
     if not _asks_for_websites(question) and not (supplying_name and _recent_unanswered(history, _asks_for_websites)):
         return None
-    where = [f"subscriber_id = '{subscriber}'", "IFNULL(requested_server, '') <> ''"]
     app_label = _named_app_label(question)
-    with_app = _wants_site_and_app(question)
+    with_app = _wants_site_and_app(question) or _adds_sites_to_apps(question, previous)
+    where = [f"subscriber_id = '{subscriber}'", "IFNULL(requested_server, '') <> ''"]
     if app_label:
         where.insert(1, f"LOWER(app_label) = '{app_label}'")
     elif with_app:
@@ -289,7 +294,11 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
     texts = [question, *[str(item.get("question") or "") for item in history[-6:]]]
     limit = _limit_in(question)
     limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
-    if limit is None and not any(_wants_every_listed_site(text) for text in texts):
+    if (
+        limit is None
+        and not any(_wants_every_listed_site(text) for text in texts)
+        and not (with_app and _wants_every_listed_app(question))
+    ):
         limit_sql = " LIMIT 50"
     columns = "requested_server, app_label" if with_app else "requested_server"
     grouped = "requested_server, app_label" if with_app else "requested_server"
@@ -299,6 +308,22 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY {grouped} ORDER BY total_bytes DESC{limit_sql}"
+    )
+
+
+def _adds_to_current(question: str) -> bool:
+    """'Also' and 'including' add to the result on screen."""
+    return bool(re.search(r"\b(also|along|including|include|corresponding|respective)\b", question.lower()))
+
+
+def _adds_sites_to_apps(question: str, previous: str | None) -> bool:
+    """'Also show the websites' keeps the applications already listed for that subscriber."""
+    folded = (previous or "").lower()
+    return bool(
+        _adds_to_current(question)
+        and _asks_for_websites(question)
+        and "group by app_label" in folded
+        and "requested_server" not in folded
     )
 
 
@@ -911,6 +936,12 @@ def lists_one_subscriber_apps(question: str, history: list[dict] | None) -> bool
 
 def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     """Every application used by one subscriber, including 'this user' and 'the rest of their activities'."""
+    previous = _last_sql(history)
+    if _adds_apps_to_sites(question, previous):
+        return _websites_of_one_subscriber(
+            f"also show the websites and the corresponding apps for { _subscriber_in_sql(previous or '') }",
+            history,
+        )
     subscriber = named_subscriber(question)
     if not subscriber and _asks_for_their_apps(question):
         subscriber = _id_anywhere(question)
@@ -935,6 +966,18 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY total_bytes DESC{limit_sql}"
+    )
+
+
+def _adds_apps_to_sites(question: str, previous: str | None) -> bool:
+    """'Also show the corresponding apps' keeps the websites already listed."""
+    folded = (previous or "").lower()
+    return bool(
+        _adds_to_current(question)
+        and (_asks_for_their_apps(question) or re.search(r"\bapps?\b", question.lower()))
+        and not _asks_for_websites(question)
+        and "group by requested_server" in folded
+        and "subscriber_id = " in folded
     )
 
 

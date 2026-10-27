@@ -708,6 +708,53 @@ def main() -> None:
         or "limit" in folded_for
     ):
         raise SystemExit(f"details for an id repeated the ranking: {details_for}")
+    one_apps = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE subscriber_id = '923325034073' GROUP BY app_label ORDER BY total_bytes DESC"
+    )
+    also_sites = resolve_followup(
+        "also show the websites",
+        [{"question": "details for 923325034073", "sql": one_apps}],
+    )
+    folded_sites = (also_sites or "").lower()
+    if (
+        not also_sites
+        or "subscriber_id = '923325034073'" not in also_sites
+        or "group by requested_server, app_label" not in folded_sites
+        or "group by subscriber_id" in folded_sites
+    ):
+        raise SystemExit(f"also show the websites left the application list: {also_sites}")
+    including = resolve_followup(
+        "details for a 923325034073 including websites",
+        [{"question": "show me the top 30 mobile users by hit count from Peshawar", "sql": (
+            "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(loc) LIKE '%peshawar%' GROUP BY subscriber_id LIMIT 30"
+        )}],
+    )
+    folded_including = (including or "").lower()
+    if (
+        not including
+        or "subscriber_id = '923325034073'" not in including
+        or "group by requested_server, app_label" not in folded_including
+        or "peshawar" in folded_including
+    ):
+        raise SystemExit(f"details including websites stayed on applications: {including}")
+    one_sites = (
+        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE subscriber_id = '923325034073' AND IFNULL(requested_server, '') <> '' "
+        "GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
+    )
+    corresponding = resolve_followup(
+        "also show the corresponding apps",
+        [{"question": "show the websites accessed by 923325034073", "sql": one_sites}],
+    )
+    folded_corresponding = (corresponding or "").lower()
+    if (
+        not corresponding
+        or "subscriber_id = '923325034073'" not in corresponding
+        or "group by requested_server, app_label" not in folded_corresponding
+        or "group by subscriber_id" in folded_corresponding
+    ):
+        raise SystemExit(f"corresponding apps dropped the websites: {corresponding}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],
