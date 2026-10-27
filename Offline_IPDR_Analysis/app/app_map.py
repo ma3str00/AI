@@ -39,6 +39,27 @@ _NOT_APP_WORDS = {
 class AppMap:
     def __init__(self, rows: list[tuple[str, str]]):
         self.rows = rows
+        self.label_tokens: set[str] = set()
+        for label, _category in rows:
+            for part in re.split(r"[^a-z0-9]+", label.lower()):
+                if len(part) >= 4 and part not in _NOT_APP_WORDS:
+                    self.label_tokens.add(part)
+
+    def known_app_token(self, text: str, skip: set[str] | None = None) -> str | None:
+        """The longest word in the question that is an actual app_label.
+
+        A word is not an application just because it is left over. Gulshan is a
+        place, and it is not in the mapping, so it does not become a filter.
+        """
+        ignored = skip or set()
+        tokens = [
+            token
+            for token in re.findall(r"[a-z0-9]{4,}", text.lower())
+            if token not in ignored and token not in _NOT_APP_WORDS and token in self.label_tokens
+        ]
+        if not tokens:
+            return None
+        return max(tokens, key=len)
 
     @classmethod
     def load(cls, path: Path) -> "AppMap":
@@ -108,6 +129,31 @@ class AppMap:
             if cats:
                 lines.append("Those labels are mapped to categories: " + ", ".join(cats) + ".")
         return "\n".join(lines)
+
+
+_active: AppMap | None = None
+
+
+def activate_app_map(mapping: AppMap) -> None:
+    """The running app and the follow-up rules use this loaded mapping."""
+    global _active
+    _active = mapping
+
+
+def app_map_loaded() -> bool:
+    return _active is not None and bool(_active.label_tokens)
+
+
+def known_app_token(text: str, skip: set[str] | None = None) -> str | None:
+    if _active is None:
+        return None
+    return _active.known_app_token(text, skip)
+
+
+def label_token_known(token: str) -> bool:
+    if _active is None:
+        return False
+    return token.lower() in _active.label_tokens
 
 
 def _shared_stem(matched: list[tuple[str, str]], tokens: set[str]) -> str:

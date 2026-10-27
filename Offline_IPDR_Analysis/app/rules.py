@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from app.app_map import app_map_loaded, label_token_known
 from app.followup import subscriber_kind
 from app.schema import DEAD_COLUMNS, IDENTIFIED_SQL, MOBILE_SQL
 
@@ -13,6 +14,7 @@ _CELL = re.escape(re.sub(r"\s+", " ", MOBILE_SQL))
 def repair_sql(question: str, sql: str, history: list[dict] | None) -> str:
     """Apply the dictionary when the correction is mechanical."""
     text = re.sub(r"\s+", " ", sql).strip()
+    text = _drop_unknown_app(text)
     text = re.sub(
         r"\s+AND\s+LOWER\(app_label\)\s+LIKE\s+'%(?:mobile|fixed(?:line)?)%'",
         "",
@@ -35,6 +37,31 @@ def repair_sql(question: str, sql: str, history: list[dict] | None) -> str:
     if _user_ranking(text) and not _excludes_unidentified(text):
         text = re.sub(r"\bGROUP BY\b", f"AND {IDENTIFIED_SQL} GROUP BY", text, count=1, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _drop_unknown_app(sql: str) -> str:
+    """A LIKE stem that is not in the app mapping is not an application."""
+    if not app_map_loaded():
+        return sql
+
+    def keep(match: re.Match[str], prefix: str) -> str:
+        if label_token_known(match.group(1)):
+            return match.group(0)
+        return prefix
+
+    text = re.sub(
+        r"\s+AND\s+LOWER\(app_label\)\s+LIKE\s+'%([^']+)%'",
+        lambda match: keep(match, ""),
+        sql,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"LOWER\(app_label\)\s+LIKE\s+'%([^']+)%'\s+AND\s+",
+        lambda match: keep(match, ""),
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
 
 
 def dictionary_problem(question: str, sql: str) -> str | None:

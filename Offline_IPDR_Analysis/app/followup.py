@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.app_map import CATEGORY_PHRASES
+from app.app_map import CATEGORY_PHRASES, known_app_token
 from app.glossary import mentions
 from app.places import (
     asks_same_city,
@@ -742,10 +742,9 @@ def _subject_filter(folded: str) -> str | None:
     for phrase, category in CATEGORY_PHRASES:
         if re.search(rf"\b{re.escape(phrase)}\b", folded):
             return f"LOWER(app_category) = '{category}'"
-    tokens = [token for token in re.findall(r"[a-z0-9]{4,}", folded) if token not in _NOT_AN_APP]
-    if not tokens:
+    stem = known_app_token(folded, _NOT_AN_APP)
+    if not stem:
         return None
-    stem = max(tokens, key=len)
     return f"LOWER(app_label) LIKE '%{stem}%'"
 
 

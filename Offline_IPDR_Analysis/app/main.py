@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.answer_check import check_sql, needs_clarification
-from app.app_map import AppMap
+from app.app_map import AppMap, activate_app_map
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
@@ -71,6 +71,7 @@ def startup() -> None:
     _state["config"] = config
     _state["learn_lock"] = threading.Lock()
     _reload_index()
+    activate_app_map(mapping)
     _state["mapping"] = mapping
     _state["mapping_error"] = mapping_error
     _state["db"] = Database(config)

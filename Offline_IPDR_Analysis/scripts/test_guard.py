@@ -15,6 +15,9 @@ from app.config import Config
 
 
 def main() -> None:
+    from app.app_map import AppMap, activate_app_map
+
+    activate_app_map(AppMap.load(ROOT / "data" / "app_category_to_app_label_mapping.csv"))
     path = ROOT / "data" / "training_examples.jsonl"
     examples = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     if len(examples) < 300:
@@ -736,6 +739,12 @@ def main() -> None:
         or "limit 30" not in folded_gulshan
     ):
         raise SystemExit(f"Gulshan Karachi was searched as an application: {gulshan}")
+    unknown = resolve_followup("show me the top 10 gulshan users", [])
+    if not unknown or "app_label" in unknown.lower() or "like '%gulshan%'" in unknown.lower():
+        raise SystemExit(f"an unknown word was used as an application: {unknown}")
+    known = resolve_followup("show me the top 10 whatsapp users", [])
+    if not known or "like '%whatsapp%'" not in known.lower():
+        raise SystemExit(f"a mapped application was ignored: {known}")
     blocked_apps = resolve_followup(
         "show me the blocked apps that 03334128404ASD was trying to access",
         [{"question": "show me the top 20 users who have the most blocked flows", "sql": blocked_users}],
