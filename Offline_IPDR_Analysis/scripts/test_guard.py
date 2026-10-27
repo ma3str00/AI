@@ -773,6 +773,34 @@ def main() -> None:
         or "limit 20" not in folded_instagram
     ):
         raise SystemExit(f"the same for Instagram did not keep Multan and PTCL: {same_instagram}")
+    punjab = resolve_followup(
+        "show me the top 10 fixedline users by flow count from punjab",
+        [{"question": "keep the same app but operator should be jazz", "sql": (
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "WHERE LOWER(app_label) LIKE '%instagram%' AND (LOWER(loc) LIKE '%sahiwal%') "
+            "AND (LOWER(client_asn) LIKE '%jazz%') GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+        )}],
+    )
+    folded_punjab = (punjab or "").lower()
+    if (
+        not punjab
+        or "not (nullif(mcc" not in folded_punjab
+        or "like '%punjab%'" not in folded_punjab
+        or "like '%lahore%'" not in folded_punjab
+        or "like '%karachi%'" in folded_punjab
+        or "instagram" in folded_punjab
+        or "jazz" in folded_punjab
+        or "app_label" in folded_punjab
+        or "order by flows desc" not in folded_punjab
+        or "limit 10" not in folded_punjab
+    ):
+        raise SystemExit(f"Punjab fixed-line users kept the previous filters: {punjab}")
+    mobile_only = resolve_followup(
+        "now give me the top 10 mobile users",
+        [{"question": "youtube users", "sql": "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%youtube%' GROUP BY subscriber_id"}],
+    )
+    if mobile_only is not None:
+        raise SystemExit(f"mobile users were rebuilt instead of keeping the previous app: {mobile_only}")
     blocked_apps = resolve_followup(
         "show me the blocked apps that 03334128404ASD was trying to access",
         [{"question": "show me the top 20 users who have the most blocked flows", "sql": blocked_users}],

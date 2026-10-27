@@ -13,6 +13,8 @@ from app.places import (
     mentioned_areas,
     mentioned_cities,
     mentioned_isps,
+    mentioned_provinces,
+    province_predicate,
     named_in,
     street_before_city,
     street_predicate,
@@ -570,6 +572,8 @@ def _strip_column_group(sql: str, column: str) -> str:
 
 def _users_from_place(question: str, history: list[dict]) -> str | None:
     """Keep the subscriber ranking and apply a named city or ISP."""
+    if _mentions_fixed(question) or _mentions_mobile(question):
+        return None
     if _subject_filter(without_areas(without_named(question)).lower()):
         return None
     if not named_in(question) and _from_place(question) is None and not mentioned_areas(question):
@@ -648,7 +652,9 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         return None
     if named_subscriber(question) or _rejects_connection(question):
         return None
-    if subscriber_kind([question]) in {"mobile", "fixed"}:
+    kind = subscriber_kind([question])
+    provinces = mentioned_provinces(question)
+    if kind in {"mobile", "fixed"} and not provinces and not mentioned_cities(question) and street_before_city(question) is None and _from_place(question) is None:
         return None
     limit = _limit_in(question) or 20
     blocked = mentions(question, "blocked")
@@ -694,15 +700,22 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         and not servers
         and not blocked
         and not allowed
+        and not provinces
     ):
         return None
     if subject:
         where.insert(0, subject)
+    if kind == "fixed":
+        where.append(f"NOT {MOBILE_SQL}")
+    elif kind == "mobile":
+        where.append(MOBILE_SQL)
     if blocked:
         where.append(BLOCKED_SQL)
     elif allowed:
         where.append(ALLOWED_SQL)
-    if street:
+    if provinces:
+        where.append(province_predicate(provinces[-1]))
+    elif street:
         where.append(street_predicate(street))
     elif cities:
         where.append(column_predicate("loc", cities[-1]))
@@ -719,7 +732,7 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     columns = ["subscriber_id"]
     for column in _display_columns(question):
         columns.append(_address_expression(column))
-    if (_asks_for_place(question) or place or cities or saved_city or areas or street) and not any(column.lower().endswith(" as loc") for column in columns):
+    if (_asks_for_place(question) or place or cities or saved_city or areas or street or provinces) and not any(column.lower().endswith(" as loc") for column in columns):
         columns.extend(_address_expression(column) for column in ("loc", "geo"))
     if isps and not any(column.lower().endswith(" as client_asn") for column in columns):
         columns.append(_address_expression("client_asn"))

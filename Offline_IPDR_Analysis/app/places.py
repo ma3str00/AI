@@ -370,6 +370,95 @@ def without_areas(question: str) -> str:
     return text
 
 
+@dataclass(frozen=True)
+class Province:
+    name: str
+    aliases: tuple[str, ...]
+    cities: tuple[str, ...]
+
+
+def _province(name: str, aliases: tuple[str, ...], *cities: str) -> Province:
+    return Province(name, (name.lower(),) + tuple(alias.lower() for alias in aliases), cities)
+
+
+PROVINCES: tuple[Province, ...] = (
+    _province(
+        "Punjab",
+        (),
+        "Rawalpindi", "Lahore", "Faisalabad", "Multan", "Gujranwala", "Sialkot", "Bahawalpur",
+        "Gujrat", "Dera Ghazi Khan", "Rahim Yar Khan", "Toba Tek Singh", "Mandi Bahauddin",
+        "Nankana Sahib", "Attock", "Jhelum", "Chakwal", "Talagang", "Murree", "Sargodha",
+        "Bhakkar", "Khushab", "Mianwali", "Jhang", "Chiniot", "Hafizabad", "Wazirabad",
+        "Narowal", "Kasur", "Sheikhupura", "Sahiwal", "Okara", "Pakpattan", "Vehari",
+        "Lodhran", "Khanewal", "Rajanpur", "Layyah", "Muzaffargarh", "Kot Addu", "Taunsa",
+        "Bahawalnagar", "Wah Cantt", "Taxila", "Gujar Khan", "Kahuta",
+    ),
+    _province(
+        "Sindh",
+        ("sind",),
+        "Karachi", "Hyderabad", "Shaheed Benazirabad", "Kambar Shahdadkot", "Mirpur Khas",
+        "Tando Allahyar", "Tando Muhammad Khan", "Naushahro Feroze", "Sukkur", "Ghotki",
+        "Khairpur", "Jacobabad", "Kashmore", "Shikarpur", "Larkana", "Sanghar", "Dadu",
+        "Jamshoro", "Matiari", "Badin", "Thatta", "Sujawal", "Umerkot", "Tharparkar",
+        "Korangi", "Malir", "Keamari",
+    ),
+    _province(
+        "Khyber Pakhtunkhwa",
+        ("kpk", "kp", "nwfp"),
+        "Peshawar", "Abbottabad", "Dera Ismail Khan", "North Waziristan", "South Waziristan",
+        "Mardan", "Swabi", "Charsadda", "Nowshera", "Kohat", "Hangu", "Karak", "Bannu",
+        "Lakki Marwat", "Tank", "Swat", "Shangla", "Buner", "Malakand", "Upper Dir",
+        "Lower Dir", "Upper Chitral", "Lower Chitral", "Bajaur", "Upper Kohistan",
+        "Lower Kohistan", "Kolai Palas", "Mansehra", "Torghar", "Batagram", "Haripur",
+        "Khyber", "Mohmand", "Orakzai", "Kurram",
+    ),
+    _province(
+        "Balochistan",
+        ("baluchistan",),
+        "Quetta", "Pishin", "Killa Abdullah", "Chaman", "Chagai", "Nushki", "Kharan",
+        "Washuk", "Loralai", "Duki", "Barkhan", "Musakhel", "Killa Saifullah", "Zhob",
+        "Sherani", "Sibi", "Harnai", "Ziarat", "Kohlu", "Dera Bugti", "Jaffarabad",
+        "Nasirabad", "Kachhi", "Jhal Magsi", "Sohbatpur", "Kalat", "Surab", "Mastung",
+        "Khuzdar", "Awaran", "Lasbela", "Kech", "Gwadar", "Panjgur",
+    ),
+    _province(
+        "Gilgit-Baltistan",
+        ("gilgit baltistan", "gb"),
+        "Gilgit", "Hunza", "Nagar", "Ghizer", "Skardu", "Kharmang", "Shigar", "Ghanche",
+        "Astore", "Diamer",
+    ),
+    _province(
+        "Azad Kashmir",
+        ("ajk", "azad jammu and kashmir"),
+        "Muzaffarabad", "Hattian Bala", "Neelum", "Mirpur", "Bhimber", "Kotli", "Poonch",
+        "Bagh", "Haveli", "Sudhanoti",
+    ),
+    _province("Islamabad Capital Territory", ("ict",), "Islamabad"),
+)
+
+
+def mentioned_provinces(question: str) -> list[Province]:
+    """A province named anywhere, as in 'fixed-line users from Punjab'."""
+    folded = re.sub(r"\s+", " ", question.lower().replace(".", " ").replace("-", " "))
+    found: list[Province] = []
+    for province in PROVINCES:
+        for alias in sorted(province.aliases, key=len, reverse=True):
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", folded):
+                found.append(province)
+                break
+    return found
+
+
+def province_predicate(province: Province) -> str:
+    """Match the province name or any of its district headquarters in the street address."""
+    needles: list[str] = []
+    for needle in (province.name, *province.aliases, *province.cities):
+        text = needle.lower().replace("'", "").strip()
+        if text and text not in needles:
+            needles.append(text)
+    return "(" + " OR ".join(f"LOWER(loc) LIKE '%{needle}%'" for needle in needles) + ")"
+
+
 def mentioned_cities(question: str) -> list[Place]:
     """A city named anywhere, as in 'Multan PTCL WhatsApp users'."""
     folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))
