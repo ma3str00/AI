@@ -670,6 +670,26 @@ def main() -> None:
         or "limit" in folded_against
     ):
         raise SystemExit(f"activity details against an id repeated the ranking: {against}")
+    more = resolve_followup(
+        "show me more details about 3499227512",
+        [{"question": "show me the top 30 fixedline users by hit count from kpk", "sql": (
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "WHERE NOT (NULLIF(mcc, '') IS NULL) AND (LOWER(loc) LIKE '%peshawar%') "
+            "AND LOWER(client_asn) LIKE '%pakistan telecommunication%' "
+            "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 30"
+        )}],
+    )
+    folded_more = (more or "").lower()
+    if (
+        not more
+        or "group by app_label" not in folded_more
+        or "subscriber_id = '3499227512'" not in more
+        or "group by subscriber_id" in folded_more
+        or "peshawar" in folded_more
+        or "telecommunication" in folded_more
+        or "limit" in folded_more
+    ):
+        raise SystemExit(f"more details about an id repeated the ranking: {more}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

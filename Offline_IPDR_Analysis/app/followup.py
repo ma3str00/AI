@@ -944,7 +944,9 @@ def _asks_for_their_apps(text: str) -> bool:
     folded = text.lower()
     if re.search(r"\b(applications?|apps)\b", folded):
         return True
-    if re.search(r"\bactivity\s+details?\b", folded) or re.search(r"\bdetails?\s+of\b", folded):
+    if re.search(r"\bactivity\s+details?\b", folded) or re.search(r"\bdetails?\s+(?:of|about)\b", folded):
+        return True
+    if re.search(r"\bmore\s+details\b", folded):
         return True
     return False
 
@@ -991,6 +993,7 @@ def named_subscriber(question: str) -> str | None:
         r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bof\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bagainst\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\babout\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
     )
     for pattern in patterns:
         for match in re.finditer(pattern, cleaned):
