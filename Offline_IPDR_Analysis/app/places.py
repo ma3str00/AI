@@ -258,7 +258,7 @@ ISPS: tuple[Place, ...] = (
 )
 
 
-_PREPOSITION = r"(?:from|in|near|within|at)"
+_PREPOSITION = r"(?:from|in|near|within|at|of)"
 _ALIAS_INDEX: list[tuple[str, Place]] = sorted(
     ((alias, place) for place in (*CITIES, *ISPS) for alias in place.aliases),
     key=lambda item: len(item[0]),
@@ -327,7 +327,7 @@ def street_before_city(question: str) -> list[str]:
                 continue
             for index in range(match.start(), match.end()):
                 occupied[index] = True
-            preps = list(re.finditer(r"\b(?:from|in|near|within|at)\s+", folded[: match.start()]))
+            preps = list(re.finditer(rf"\b{_PREPOSITION}\s+", folded[: match.start()]))
             if not preps:
                 continue
             middle = folded[preps[-1].end(): match.start()].strip()

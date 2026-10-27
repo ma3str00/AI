@@ -725,6 +725,17 @@ def main() -> None:
         or "limit 20" not in folded_blocked_users
     ):
         raise SystemExit(f"blocked flows were searched as an application: {blocked_users}")
+    gulshan = resolve_followup("show me the top 30 users of gulshan karachi with the most blocked flows", [])
+    folded_gulshan = (gulshan or "").lower()
+    if (
+        not gulshan
+        or "like '%gulshan%karachi%'" not in folded_gulshan
+        or "block_type <> 0" not in folded_gulshan
+        or "app_label" in folded_gulshan
+        or "order by blocked_flows desc" not in folded_gulshan
+        or "limit 30" not in folded_gulshan
+    ):
+        raise SystemExit(f"Gulshan Karachi was searched as an application: {gulshan}")
     blocked_apps = resolve_followup(
         "show me the blocked apps that 03334128404ASD was trying to access",
         [{"question": "show me the top 20 users who have the most blocked flows", "sql": blocked_users}],
