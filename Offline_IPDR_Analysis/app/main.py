@@ -146,12 +146,7 @@ def ask(body: Question):
         )
         if replayed is not None:
             if replayed.get("row_count") == 0 and "subscriber_id = " in resolved.lower():
-                if "group by loc" in resolved.lower():
-                    replayed["explanation"] = (
-                        "No street address was stored for that subscriber. loc is the cell or fixed-line address."
-                    )
-                else:
-                    replayed["explanation"] = "No applications were found for that subscriber."
+                replayed["explanation"] = _empty_subscriber_result(resolved)
             return replayed
     clarification = needs_clarification(question, history)
     if clarification:
@@ -394,6 +389,22 @@ def _lists_every_app(sql: str) -> bool:
     return "group by app_label" in folded or "group by requested_server" in folded or "group by subscriber_id" in folded
 
 
+def _empty_subscriber_result(sql: str) -> str:
+    folded = sql.lower()
+    blocked = "block_type <> 0" in folded
+    if "group by loc" in folded:
+        return "No street address was stored for that subscriber. loc is the cell or fixed-line address."
+    if blocked and "requested_server" in folded and "app_label" in folded:
+        return "No blocked websites or applications were found for that subscriber."
+    if blocked and "group by requested_server" in folded:
+        return "No blocked websites were found for that subscriber."
+    if blocked and "group by app_label" in folded:
+        return "No blocked applications were found for that subscriber."
+    if "group by requested_server" in folded:
+        return "No websites were found for that subscriber."
+    return "No applications were found for that subscriber."
+
+
 def _followup_notice(question: str, sql: str = "") -> str:
     folded = question.lower()
     compact = sql.lower()
@@ -475,8 +486,9 @@ def _followup_notice(question: str, sql: str = "") -> str:
     if "group by subscriber_id" in compact and "block_type <> 0" in compact:
         return (
             "This ranks identified subscribers by how many of their flows were blocked. "
-            "Any block_type other than 0 means blocked. "
-            "An id containing an underscore is an IP and port and is left out."
+            + ("The block_type column lists the block codes for each subscriber. " if "as block_type" in compact else "")
+            + "Any block_type other than 0 means blocked. "
+            + "An id containing an underscore is an IP and port and is left out."
         )
     if "group by subscriber_id" in compact and "block_type = 0" in compact:
         return (

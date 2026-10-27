@@ -213,7 +213,7 @@ def _blocked_activity_of_one(question: str, history: list[dict]) -> str | None:
     if not blocked and not allowed:
         return None
     websites = _asks_for_websites(question)
-    apps = _asks_for_their_apps(question)
+    apps = _asks_for_their_apps(question) or bool(re.search(r"\bapp\b", question.lower()))
     if not websites and not apps:
         return None
     subscriber = _id_anywhere(question)
@@ -227,10 +227,16 @@ def _blocked_activity_of_one(question: str, history: list[dict]) -> str | None:
     columns = []
     if websites:
         columns.append("requested_server")
-        extra.append("IFNULL(requested_server, '') <> ''")
     if apps:
         columns.append("app_label")
-        extra.append("IFNULL(app_label, '') <> ''")
+    either = websites and apps and bool(re.search(r"\bor\b", question.lower()))
+    if either:
+        extra.append("(IFNULL(requested_server, '') <> '' OR IFNULL(app_label, '') <> '')")
+    else:
+        if websites:
+            extra.append("IFNULL(requested_server, '') <> ''")
+        if apps:
+            extra.append("IFNULL(app_label, '') <> ''")
     status = BLOCKED_SQL if blocked else ALLOWED_SQL
     measure = "blocked_flows" if blocked else "allowed_flows"
     limit = _limit_in(question)
@@ -502,6 +508,13 @@ def _place_of_one_subscriber(question: str, history: list[dict]) -> str | None:
         f"WHERE subscriber_id = '{subscriber}' AND (IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '') "
         "GROUP BY loc, geo ORDER BY flows DESC LIMIT 20"
     )
+
+
+def _shown_expression(column: str) -> str:
+    """One value per subscriber. block_type 0 must stay visible."""
+    if column == "block_type":
+        return "GROUP_CONCAT(DISTINCT block_type ORDER BY block_type SEPARATOR ', ') AS block_type"
+    return _address_expression(column)
 
 
 def _address_expression(column: str) -> str:
@@ -804,6 +817,8 @@ def _display_columns(text: str) -> list[str]:
     for phrase, column in _DISPLAY_COLUMNS:
         if column not in columns and re.search(rf"\b{re.escape(phrase)}\b", folded):
             columns.append(column)
+    if "block_type" not in columns and re.search(r"\bblock\s*type\b", folded.replace("_", " ")):
+        columns.append("block_type")
     if "client_asn" not in columns and "server_asn" not in columns and re.search(r"\basns?\b", folded):
         columns.append("client_asn")
     if (
@@ -828,7 +843,7 @@ def _add_shown_columns(question: str, history: list[dict]) -> str | None:
         return None
     text = re.sub(r"\s+", " ", previous).strip()
     additions = [
-        _address_expression(column)
+        _shown_expression(column)
         for column in wanted
         if not re.search(rf"(?i)\bas {column}\b", text)
     ]

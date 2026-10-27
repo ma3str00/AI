@@ -860,6 +860,42 @@ def main() -> None:
         or "group by app_label" in folded_one_site
     ):
         raise SystemExit(f"blocked websites for one subscriber were not built: {blocked_sites_one}")
+    either = resolve_followup(
+        "did 03146883G access any blocked website or app ?",
+        [{"question": "show me the websites visited by 03146883G of app type http", "sql": (
+            "SELECT requested_server FROM ntc_ssl_logs WHERE subscriber_id = '03146883G' "
+            "AND LOWER(app_label) = 'http' GROUP BY requested_server"
+        )}],
+    )
+    folded_either = (either or "").lower()
+    if (
+        not either
+        or "subscriber_id = '03146883g'" not in folded_either
+        or "group by requested_server, app_label" not in folded_either
+        or "block_type <> 0" not in folded_either
+        or "or ifnull(app_label, '') <> ''" not in folded_either
+        or "like '%access%'" in folded_either
+        or "like '%blocked%'" in folded_either
+    ):
+        raise SystemExit(f"blocked website or app searched websites only: {either}")
+    printed = resolve_followup(
+        "also print the block type column",
+        [{"question": "show me top 20 users from kpk that tried to access blocked content the most", "sql": (
+            "SELECT subscriber_id, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+            "WHERE (block_type IS NOT NULL AND block_type <> 0) AND (LOWER(loc) LIKE '%peshawar%') "
+            "GROUP BY subscriber_id ORDER BY blocked_flows DESC LIMIT 20"
+        )}],
+    )
+    folded_printed = (printed or "").lower()
+    if (
+        not printed
+        or "as block_type" not in folded_printed
+        or "group by subscriber_id" not in folded_printed
+        or "block_type <> 0" not in folded_printed
+        or "like '%peshawar%'" not in folded_printed
+        or "limit 20" not in folded_printed
+    ):
+        raise SystemExit(f"block type was not added to the ranking: {printed}")
     both = resolve_followup(
         "which blocked websites and apps accessed by 923421012400",
         [],
