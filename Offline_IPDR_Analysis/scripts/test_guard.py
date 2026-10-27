@@ -639,6 +639,25 @@ def main() -> None:
         or "limit" in details.lower()
     ):
         raise SystemExit(f"activity details repeated the subscriber total: {details}")
+    punjab_ranking = (
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE NOT (NULLIF(mcc, '') IS NULL) AND (LOWER(loc) LIKE '%punjab%' OR LOWER(loc) LIKE '%lahore%') "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
+    )
+    against = resolve_followup(
+        "show me the activity details against 3499227512",
+        [{"question": "show me the top 10 fixedline users by flow count from punjab", "sql": punjab_ranking}],
+    )
+    folded_against = (against or "").lower()
+    if (
+        not against
+        or "group by app_label" not in folded_against
+        or "subscriber_id = '3499227512'" not in against
+        or "group by subscriber_id" in folded_against
+        or "punjab" in folded_against
+        or "limit" in folded_against
+    ):
+        raise SystemExit(f"activity details against an id repeated the ranking: {against}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

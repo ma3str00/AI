@@ -882,11 +882,13 @@ def lists_one_subscriber_apps(question: str, history: list[dict] | None) -> bool
 def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     """Every application used by one subscriber, including 'this user' and 'the rest of their activities'."""
     subscriber = named_subscriber(question)
+    if not subscriber and _asks_for_their_apps(question):
+        subscriber = _id_anywhere(question)
     if not subscriber and _points_at_known_user(question):
         subscriber = _subscriber_from_history(history)
     if not subscriber:
         return None
-    supplying_name = bool(named_subscriber(question)) or "referring to" in question.lower()
+    supplying_name = bool(named_subscriber(question) or _id_anywhere(question)) or "referring to" in question.lower()
     if not _asks_for_their_apps(question) and not (supplying_name and _recent_unanswered(history, _asks_for_their_apps)):
         return None
     where = [f"subscriber_id = '{subscriber}'"]
@@ -958,6 +960,7 @@ def named_subscriber(question: str) -> str | None:
         r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bof\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\bagainst\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
     )
     for pattern in patterns:
         for match in re.finditer(pattern, cleaned):
