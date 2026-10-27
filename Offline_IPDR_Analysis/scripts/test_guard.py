@@ -616,6 +616,18 @@ def main() -> None:
         or "group by subscriber_id" in folded_label
     ):
         raise SystemExit(f"websites and app_label dropped the application: {with_label}")
+    named_flows = resolve_followup(
+        "show me all the flows of 923325034073. Include the website and app names",
+        [],
+    )
+    folded_flows = (named_flows or "").lower()
+    if (
+        not named_flows
+        or "subscriber_id = '923325034073'" not in named_flows
+        or "group by requested_server, app_label" not in folded_flows
+        or "limit" in folded_flows
+    ):
+        raise SystemExit(f"flows did not include the website and application: {named_flows}")
     facebook_sites = (
         "SELECT requested_server, COUNT(*) AS flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
         "FROM ntc_ssl_logs WHERE subscriber_id = '03339169479abhd' AND LOWER(app_label) = 'facebook' "

@@ -334,6 +334,8 @@ def _wants_site_and_app(question: str) -> bool:
     folded = question.lower().replace("_", " ")
     if re.search(r"\bapp\s+label\b", folded):
         return True
+    if re.search(r"\b(?:app|application)\s+names?\b", folded):
+        return True
     return _asks_for_their_apps(question)
 
 
