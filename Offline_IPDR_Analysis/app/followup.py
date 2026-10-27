@@ -51,6 +51,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     blocked_activity = _blocked_activity_of_one(question, history)
     if blocked_activity:
         return blocked_activity
+    named_user = _apply_named_subscriber(question, history)
+    if named_user:
+        return named_user
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -167,34 +170,91 @@ def _id_anywhere(question: str) -> str | None:
     return None
 
 
+def _subscriber_in_sql(sql: str) -> str | None:
+    match = re.search(r"subscriber_id\s*=\s*'([^']+)'", sql or "", flags=re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def _set_subscriber(sql: str, subscriber: str) -> str:
+    if re.search(r"subscriber_id\s*=\s*'[^']+'", sql, flags=re.IGNORECASE):
+        text = re.sub(
+            r"subscriber_id\s*=\s*'[^']+'",
+            f"subscriber_id = '{subscriber}'",
+            sql,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    elif re.search(r"\bWHERE\b", sql, flags=re.IGNORECASE):
+        text = re.sub(
+            r"\bWHERE\b",
+            f"WHERE subscriber_id = '{subscriber}' AND",
+            sql,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    else:
+        text = re.sub(
+            r"\bGROUP BY\b",
+            f"WHERE subscriber_id = '{subscriber}' GROUP BY",
+            sql,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _blocked_activity_of_one(question: str, history: list[dict]) -> str | None:
-    """Blocked websites or apps one subscriber tried to reach."""
+    """Blocked websites, apps, or both, for one subscriber."""
     blocked = mentions(question, "blocked")
     allowed = not blocked and mentions(question, "allowed")
     if not blocked and not allowed:
+        return None
+    websites = _asks_for_websites(question)
+    apps = _asks_for_their_apps(question)
+    if not websites and not apps:
         return None
     subscriber = _id_anywhere(question)
     if not subscriber and _points_at_known_user(question):
         subscriber = _subscriber_from_history(history)
     if not subscriber:
+        subscriber = _subscriber_in_sql(_last_sql(history))
+    if not subscriber:
         return None
-    if _asks_for_websites(question):
-        column = "requested_server"
-        extra = " AND IFNULL(requested_server, '') <> ''"
-    elif _asks_for_their_apps(question):
-        column = "app_label"
-        extra = " AND IFNULL(app_label, '') <> ''"
-    else:
-        return None
+    extra = []
+    columns = []
+    if websites:
+        columns.append("requested_server")
+        extra.append("IFNULL(requested_server, '') <> ''")
+    if apps:
+        columns.append("app_label")
+        extra.append("IFNULL(app_label, '') <> ''")
     status = BLOCKED_SQL if blocked else ALLOWED_SQL
     measure = "blocked_flows" if blocked else "allowed_flows"
     limit = _limit_in(question)
     limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
+    where = [f"subscriber_id = '{subscriber}'", status, *extra]
+    grouped = ", ".join(columns)
     return (
-        f"SELECT {column}, COUNT(*) AS {measure} FROM ntc_ssl_logs "
-        f"WHERE subscriber_id = '{subscriber}' AND {status}{extra} "
-        f"GROUP BY {column} ORDER BY {measure} DESC{limit_sql}"
+        f"SELECT {grouped}, COUNT(*) AS {measure} FROM ntc_ssl_logs "
+        f"WHERE {' AND '.join(where)} "
+        f"GROUP BY {grouped} ORDER BY {measure} DESC{limit_sql}"
     )
+
+
+def _apply_named_subscriber(question: str, history: list[dict]) -> str | None:
+    """'I meant for user <id>' puts that subscriber on the query already on screen."""
+    folded = question.lower()
+    if not re.search(r"\b(?:meant|mean|meaning)\b", folded) and not re.search(r"\bfor\s+(?:the\s+)?user\b", folded):
+        return None
+    if re.search(r"\b(top|highest|most)\b", folded) and re.search(r"\busers?\b", folded):
+        return None
+    if _asks_for_websites(question) or _asks_for_their_apps(question) or mentions(question, "blocked"):
+        return None
+    subscriber = named_subscriber(question) or _id_anywhere(question)
+    previous = _last_sql(history)
+    if not subscriber or not previous:
+        return None
+    return _set_subscriber(previous, subscriber)
 
 
 def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | None:

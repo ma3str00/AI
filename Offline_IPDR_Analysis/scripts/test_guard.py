@@ -773,6 +773,50 @@ def main() -> None:
         or "group by app_label" in folded_one_site
     ):
         raise SystemExit(f"blocked websites for one subscriber were not built: {blocked_sites_one}")
+    both = resolve_followup(
+        "which blocked websites and apps accessed by 923421012400",
+        [],
+    )
+    folded_both = (both or "").lower()
+    if (
+        not both
+        or "subscriber_id = '923421012400'" not in folded_both
+        or "group by requested_server, app_label" not in folded_both
+        or "block_type <> 0" not in folded_both
+        or "requested_server," not in folded_both
+    ):
+        raise SystemExit(f"blocked websites and apps were not listed together: {both}")
+    with_apps = resolve_followup(
+        "show me the blocked websites along with the corresponding apps",
+        [{"question": "which blocked websites and apps accessed by 923421012400", "sql": (
+            "SELECT requested_server, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+            "WHERE subscriber_id = '923421012400' AND (block_type IS NOT NULL AND block_type <> 0) "
+            "GROUP BY requested_server ORDER BY blocked_flows DESC"
+        )}],
+    )
+    folded_with_apps = (with_apps or "").lower()
+    if (
+        not with_apps
+        or "subscriber_id = '923421012400'" not in folded_with_apps
+        or "group by requested_server, app_label" not in folded_with_apps
+    ):
+        raise SystemExit(f"the corresponding apps dropped the subscriber: {with_apps}")
+    meant = resolve_followup(
+        "I meant for user 923421012400",
+        [{"question": "show me the blocked websites along with the corresponding apps", "sql": (
+            "SELECT requested_server, app_label, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+            "WHERE (block_type IS NOT NULL AND block_type <> 0) "
+            "GROUP BY requested_server, app_label ORDER BY blocked_flows DESC LIMIT 200"
+        )}],
+    )
+    folded_meant = (meant or "").lower()
+    if (
+        not meant
+        or "subscriber_id = '923421012400'" not in folded_meant
+        or "group by requested_server, app_label" not in folded_meant
+        or "block_type <> 0" not in folded_meant
+    ):
+        raise SystemExit(f"the named user was not applied to the blocked list: {meant}")
     if not mentions("top websites by visits", "hit") or not mentions("which domains", "website"):
         raise SystemExit("the glossary missed a known word")
     if mentions("top users with maximum activity", "their_apps"):
