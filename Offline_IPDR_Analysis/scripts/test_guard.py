@@ -839,6 +839,31 @@ def main() -> None:
         or "group by subscriber_id" in cafe_details.lower()
     ):
         raise SystemExit(f"login details were not listed: {cafe_details}")
+    cnn_users = resolve_followup("now show me all the users who tried to access the cnn website", [])
+    folded_cnn = (cnn_users or "").lower()
+    if (
+        not cnn_users
+        or "like 'cnn.%'" not in folded_cnn
+        or "like '%.cnn.%'" not in folded_cnn
+        or "like '%.cnn'" not in folded_cnn
+        or "like '%cnn%'" in folded_cnn
+        or "group by subscriber_id" not in folded_cnn
+        or "locate('_', subscriber_id) = 0" not in folded_cnn
+    ):
+        raise SystemExit(f"cnn website was a substring search: {cnn_users}")
+    bbc_users = resolve_followup(
+        "show me the same for bbc",
+        [{"question": "now show me all the users who tried to access the cnn website", "sql": cnn_users}],
+    )
+    folded_bbc = (bbc_users or "").lower()
+    if (
+        not bbc_users
+        or "like 'bbc.%'" not in folded_bbc
+        or "like '%.bbc.%'" not in folded_bbc
+        or "cnn" in folded_bbc
+        or "group by subscriber_id" not in folded_bbc
+    ):
+        raise SystemExit(f"the same for bbc did not replace the website label: {bbc_users}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

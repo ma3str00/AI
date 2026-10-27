@@ -36,6 +36,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     other_app = _same_request_other_app(question, history)
     if other_app:
         return other_app
+    other_site = _same_request_other_site(question, history)
+    if other_site:
+        return other_site
     other_isp = _same_request_other_isp(question, history)
     if other_isp:
         return other_isp
@@ -76,6 +79,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     ranked_sites = _top_websites(question)
     if ranked_sites:
         return ranked_sites
+    site_users = _users_of_website(question)
+    if site_users:
+        return site_users
     people = _top_people(question, history)
     if people:
         return people
@@ -396,6 +402,83 @@ _HOSTNAME = re.compile(
     r"(?<![a-z0-9@])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}(?![a-z0-9])",
     re.IGNORECASE,
 )
+
+
+def _site_label_predicate(label: str) -> str:
+    """cnn.com, www.cnn.com, and edition.cnn.net. Not a name that merely contains cnn."""
+    safe = re.sub(r"[^a-z0-9-]", "", label.lower())
+    return (
+        f"(LOWER(requested_server) LIKE '{safe}.%' "
+        f"OR LOWER(requested_server) LIKE '%.{safe}.%' "
+        f"OR LOWER(requested_server) LIKE '%.{safe}')"
+    )
+
+
+def _website_brand(question: str) -> str | None:
+    """'The cnn website' names the DNS label. A full hostname stays an exact server."""
+    if _named_servers(question):
+        return None
+    match = re.search(r"\b(?:the\s+)?([a-z0-9]{2,24})\s+websites?\b", question.lower())
+    if not match:
+        return None
+    brand = match.group(1)
+    if brand in _NOT_AN_APP or brand in {"website", "websites", "site", "sites", "the", "all"}:
+        return None
+    if mentioned_cities(brand) or mentioned_isps(brand):
+        return None
+    return brand
+
+
+def _users_of_website(question: str) -> str | None:
+    """Identified subscribers who requested a named website, matched as a DNS label."""
+    folded = question.lower()
+    if not re.search(r"\b(users?|subscribers?)\b", folded) or named_subscriber(question):
+        return None
+    brand = _website_brand(question)
+    if not brand:
+        return None
+    order = "flows" if _means_hits(folded) or re.search(r"\b(flows?|flow count)\b", folded) else "total_bytes"
+    limit = _limit_in(question)
+    limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
+    return (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"AND {_site_label_predicate(brand)} "
+        f"GROUP BY subscriber_id ORDER BY {order} DESC{limit_sql}"
+    )
+
+
+def _same_request_other_site(question: str, history: list[dict]) -> str | None:
+    """'The same for bbc' keeps the subscriber ranking and changes the website label."""
+    if not _asks_same_result(question):
+        return None
+    previous = _last_sql(history)
+    if not previous or "requested_server" not in previous.lower():
+        return None
+    match = re.search(r"\bfor\s+(?:the\s+)?([a-z0-9]{2,24})\b", question.lower())
+    if not match or match.group(1) in _NOT_AN_APP:
+        return None
+    brand = match.group(1)
+    if known_app_token(brand, _NOT_AN_APP) == brand:
+        return None
+    predicate = _site_label_predicate(brand)
+    updated = re.sub(
+        r"(?i)\(\s*LOWER\(requested_server\)\s+LIKE\s+'[^']+'\s+OR\s+LOWER\(requested_server\)\s+LIKE\s+'[^']+'\s+OR\s+LOWER\(requested_server\)\s+LIKE\s+'[^']+'\s*\)",
+        predicate,
+        previous,
+        count=1,
+    )
+    if updated == previous:
+        updated = re.sub(
+            r"(?i)LOWER\(requested_server\)\s+LIKE\s+'%[^']+%'",
+            predicate,
+            previous,
+            count=1,
+        )
+    if updated == previous:
+        return None
+    return re.sub(r"\s+", " ", updated).strip()
 
 
 def _named_servers(question: str) -> list[str]:
