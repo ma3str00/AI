@@ -604,6 +604,18 @@ def main() -> None:
         or "lower(app_label) = 'http'" not in http_sites.lower()
     ):
         raise SystemExit(f"websites for one application were not filtered: {http_sites}")
+    with_label = resolve_followup(
+        "show me the websites accessed by 0333319067AQ and app_label",
+        [{"question": "show me the activities of 0333319067AQ", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE subscriber_id = '0333319067AQ' GROUP BY app_label"}],
+    )
+    folded_label = (with_label or "").lower()
+    if (
+        not with_label
+        or "group by requested_server, app_label" not in folded_label
+        or "subscriber_id = '0333319067AQ'" not in with_label
+        or "group by subscriber_id" in folded_label
+    ):
+        raise SystemExit(f"websites and app_label dropped the application: {with_label}")
     facebook_sites = (
         "SELECT requested_server, COUNT(*) AS flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
         "FROM ntc_ssl_logs WHERE subscriber_id = '03339169479abhd' AND LOWER(app_label) = 'facebook' "

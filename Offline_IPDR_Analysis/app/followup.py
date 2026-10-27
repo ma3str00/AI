@@ -272,8 +272,11 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
         return None
     where = [f"subscriber_id = '{subscriber}'", "IFNULL(requested_server, '') <> ''"]
     app_label = _named_app_label(question)
+    with_app = _wants_site_and_app(question)
     if app_label:
         where.insert(1, f"LOWER(app_label) = '{app_label}'")
+    elif with_app:
+        where.append("IFNULL(app_label, '') <> ''")
     time_clause = _time_clause(_last_sql(history))
     if time_clause:
         where.append(time_clause)
@@ -282,13 +285,25 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
     limit_sql = f" LIMIT {int(limit)}" if limit is not None else ""
     if limit is None and not any(_wants_every_listed_site(text) for text in texts):
         limit_sql = " LIMIT 50"
+    columns = "requested_server, app_label" if with_app else "requested_server"
+    grouped = "requested_server, app_label" if with_app else "requested_server"
     return (
-        "SELECT requested_server, COUNT(*) AS flows, "
+        f"SELECT {columns}, COUNT(*) AS flows, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
-        f"GROUP BY requested_server ORDER BY total_bytes DESC{limit_sql}"
+        f"GROUP BY {grouped} ORDER BY total_bytes DESC{limit_sql}"
     )
+
+
+def _wants_site_and_app(question: str) -> bool:
+    """Websites together with the application, as in 'websites and app_label'."""
+    if _named_app_label(question) or not _asks_for_websites(question):
+        return False
+    folded = question.lower().replace("_", " ")
+    if re.search(r"\bapp\s+label\b", folded):
+        return True
+    return _asks_for_their_apps(question)
 
 
 def _top_websites(question: str) -> str | None:

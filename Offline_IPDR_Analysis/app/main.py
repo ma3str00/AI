@@ -423,6 +423,11 @@ def _followup_notice(question: str, sql: str = "") -> str:
             "This lists the websites that subscriber tried to reach and that were blocked. "
             "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
         )
+    if "subscriber_id = " in compact and "group by requested_server, app_label" in compact:
+        return (
+            "This lists each website that subscriber requested and the application it belongs to. "
+            "A website is the TLS server name in requested_server."
+        )
     if "group by requested_server" in compact and "subscriber_id = " in compact:
         app = re.search(r"lower\(app_label\)\s*=\s*'([^']+)'", compact)
         if app:
