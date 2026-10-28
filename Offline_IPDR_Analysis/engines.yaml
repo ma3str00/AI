@@ -3,5 +3,5 @@
 - id: kaggle
   label: Kaggle 14B
   kind: ollama
-  base_url: "https://racing-federal-boxing-helpful.trycloudflare.com"
+  base_url: "https://posts-ink-direct-eat.trycloudflare.com"
   model: "qwen2.5-coder-14b:latest"
