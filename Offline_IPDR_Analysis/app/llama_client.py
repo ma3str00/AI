@@ -51,12 +51,16 @@ class LlamaServer:
 
     def _loaded_model(self) -> str | None:
         try:
-            response = httpx.get(f"{self.base_url}/v1/models", timeout=8)
+            response = httpx.get(f"{self.base_url}/v1/models", timeout=5)
         except httpx.HTTPError:
             return None if self.kind == "ollama" else ""
         if response.status_code != 200:
             return None if self.kind == "ollama" else ""
-        data = response.json().get("data") or []
+        try:
+            payload = response.json()
+        except ValueError:
+            return None if self.kind == "ollama" else ""
+        data = payload.get("data") or [] if isinstance(payload, dict) else []
         if not data:
             return ""
         return str(data[0].get("id") or "")

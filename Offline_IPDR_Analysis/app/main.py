@@ -103,7 +103,10 @@ def health():
     engines = []
     for engine in config.engines:
         server: LlamaServer = _state["engines"][engine.id]
-        model_ok, model_detail = server.healthy()
+        try:
+            model_ok, model_detail = server.healthy()
+        except Exception as exc:
+            model_ok, model_detail = False, str(exc)
         engines.append({
             "id": engine.id,
             "label": engine.label,

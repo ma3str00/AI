@@ -49,7 +49,7 @@
   button:disabled { opacity: 0.6; cursor: wait; }
   select {
     background: var(--panel); color: var(--ink); border: 1px solid var(--line);
-    border-radius: 8px; padding: 10px 12px; font: inherit;
+    border-radius: 8px; padding: 10px 12px; font: inherit; min-width: 11rem;
   }
   .starters { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
   .starters button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); font-size: 13px; padding: 6px 10px; }
@@ -85,7 +85,10 @@
     <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
     <div class="row">
       <label for="engine">AI engine</label>
-      <select id="engine" name="engine"></select>
+      <select id="engine" name="engine">
+        <option value="local" data-kind="llama.cpp">Local 7B</option>
+        <option value="kaggle" data-kind="ollama">Kaggle 14B</option>
+      </select>
       <button type="submit" id="ask">Ask</button>
       <button type="button" class="secondary" id="reset">New conversation</button>
       <span id="busy" class="hidden">Working. A local question often takes half a minute to two minutes.</span>
@@ -114,9 +117,10 @@ async function loadHealth() {
   try {
     const response = await fetch("/api/health");
     const data = await response.json();
+    const llama = data.llama || {};
     status.append(
       pill(data.mysql.ok ? "MySQL " + data.mysql.host : "MySQL down", data.mysql.ok ? "ok" : "bad"),
-      pill(data.llama.ok ? data.llama.label + " · " + data.llama.model : "local model not ready", data.llama.ok ? "ok" : "bad"),
+      pill(llama.ok ? (llama.label || "Local") + " · " + (llama.model || "") : "local model not ready", llama.ok ? "ok" : "bad"),
       pill(data.examples + " examples"),
       pill((data.learned || 0) + " learned"),
       pill(data.missing_time === "all" ? "learned: no time range uses whole table" : "no time range: asks until marked"),
@@ -124,9 +128,11 @@ async function loadHealth() {
       pill(data.time.note)
     );
     if (!data.mysql.ok) status.append(pill(data.mysql.detail, "bad"));
-    if (!data.llama.ok) status.append(pill(data.llama.detail, "bad"));
-    fillEngines(data.engines || []);
-    for (const engine of data.engines || []) {
+    if (llama.ok === false) status.append(pill(llama.detail, "bad"));
+    const engines = Array.isArray(data.engines) ? data.engines : [];
+    fillEngines(engines);
+    if (!engines.length) status.append(pill("Engine list is missing. Restart ipdr-assistant, then reload.", "bad"));
+    for (const engine of engines) {
       if (engine.id !== "local" && !engine.ok) status.append(pill(engine.label + " is not reachable", "bad"));
     }
     if (data.mapping_error) status.append(pill(data.mapping_error, "bad"));
@@ -153,6 +159,7 @@ async function loadStarters() {
 }
 
 function fillEngines(engines) {
+  if (!engines.length) return;
   const menu = document.getElementById("engine");
   const selected = menu.value;
   menu.replaceChildren();
