@@ -44,7 +44,7 @@ _state: dict = {}
 
 class Turn(BaseModel):
     question: str = Field(default="", max_length=4000)
-    sql: str | None = Field(default=None, max_length=8000)
+    sql: str | None = Field(default=None, max_length=100000)
     explanation: str | None = Field(default=None, max_length=2000)
 
 
@@ -56,7 +56,7 @@ class Question(BaseModel):
 
 class LearnRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
-    sql: str = Field(min_length=1, max_length=8000)
+    sql: str = Field(min_length=1, max_length=100000)
     questions: list[str] = Field(default_factory=list, max_length=8)
 
 

@@ -212,7 +212,7 @@ def main() -> None:
     found = saved_sql(bank, "Give me the top 5 WhatsApp users by traffic volume.")
     if not found or found.get("sql") != learned_sql:
         raise SystemExit("a marked answer was not reused for the same question")
-    from app.followup import resolve_followup
+    from app.followup import limit_followup, resolve_followup
     from app.places import mentioned_isps
     from app.sql_guard import prepare as guard_prepare
 
@@ -913,6 +913,21 @@ def main() -> None:
     ):
         raise SystemExit(f"city usage was read from the IP database: {city_usage}")
     prepare(city_usage, 200, allow_full_scan=True)
+    top_cities = limit_followup(
+        "show me the top 5",
+        [{"question": "which city has the maximum whatsapp usage?", "sql": city_usage, "explanation": ""}],
+        200,
+    )[0]
+    folded_top = (top_cities or "").lower()
+    if (
+        not top_cities
+        or "like '%whatsapp%'" not in folded_top
+        or "group by city" not in folded_top
+        or "limit 5" not in folded_top
+        or "limit 1" in folded_top
+    ):
+        raise SystemExit(f"top 5 did not keep the city ranking: {top_cities}")
+    prepare(top_cities, 200, allow_full_scan=True)
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

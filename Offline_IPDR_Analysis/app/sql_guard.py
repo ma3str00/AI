@@ -78,7 +78,7 @@ def prepare(sql: str, max_rows: int, allow_full_scan: bool = False, allow_all_gr
     text = _strip(sql)
     try:
         statements = [item for item in sqlglot.parse(text, read="mysql") if item is not None]
-    except sqlglot.errors.ParseError as exc:
+    except sqlglot.errors.SqlglotError as exc:
         raise GuardError(f"SQL could not be parsed: {exc}") from exc
     if len(statements) != 1:
         raise GuardError("Only one SELECT statement is allowed.")

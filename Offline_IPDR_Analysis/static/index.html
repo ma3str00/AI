@@ -311,7 +311,7 @@ form.addEventListener("submit", async (event) => {
   if (!text) return;
     const prior = history.slice(-12).map((turn) => ({
       question: turn.question,
-      sql: (turn.sql || "").slice(0, 4000),
+      sql: (turn.sql || "").slice(0, 100000),
       explanation: (turn.explanation || "").slice(0, 500)
     }));
   addUserBubble(text);
@@ -329,7 +329,14 @@ form.addEventListener("submit", async (event) => {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({question: text, history: prior, engine: menu.value || "local"})
     });
-    const data = await response.json();
+    const raw = await response.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (error) {
+      addAnswerBubble(text, {error: raw.slice(0, 500) || String(error), explanation: ""});
+      return;
+    }
     if (!response.ok) {
       addAnswerBubble(text, {error: detailText(data.detail), explanation: ""});
     } else {
