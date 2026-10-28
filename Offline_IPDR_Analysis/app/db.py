@@ -90,7 +90,10 @@ class Database:
             cursorclass=DictCursor,
             autocommit=True,
             connect_timeout=10,
-            read_timeout=int(self.config.max_execution_ms / 1000) + 15,
+            # A full scan may run for full_scan_execution_ms. The socket has to
+            # stay open at least that long, or MySQL is still working when the
+            # client reports "Lost connection".
+            read_timeout=int(self.config.full_scan_execution_ms / 1000) + 30,
             write_timeout=30,
         )
         self._apply_session(self._conn)

@@ -465,13 +465,10 @@ def _cities_by_usage(question: str) -> str | None:
     measures = "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows"
     if order == "users":
         measures = "COUNT(DISTINCT subscriber_id) AS users, " + measures
-    inner = (
-        f"SELECT {city_from_loc()} AS city, subscriber_id, c2s_byte_num, s2c_byte_num "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)}"
-    )
     return (
-        f"SELECT city, {measures} FROM ({inner}) AS ranked "
-        f"WHERE city IS NOT NULL GROUP BY city ORDER BY {order} DESC LIMIT {int(limit)}"
+        f"SELECT {city_from_loc()} AS city, {measures} "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY city HAVING city IS NOT NULL ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
 

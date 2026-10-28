@@ -459,26 +459,57 @@ def province_predicate(province: Province) -> str:
     return "(" + " OR ".join(f"LOWER(loc) LIKE '%{needle}%'" for needle in needles) + ")"
 
 
+# Most traffic is in these cities, so their names are tested before the long tail.
+_COMMON_CITIES = (
+    "Karachi", "Lahore", "Islamabad", "Rawalpindi", "Faisalabad", "Multan",
+    "Peshawar", "Quetta", "Hyderabad", "Gujranwala", "Sialkot", "Bahawalpur",
+)
+
+
+def _city_needles(place: Place) -> list[str]:
+    needles: list[str] = []
+    for needle in (place.name, *place.aliases):
+        text = needle.lower().replace("'", "").strip()
+        if len(text) < 4 or text in needles:
+            continue
+        needles.append(text)
+    return needles
+
+
 def city_from_loc() -> str:
     """CASE expression that reads a city name out of loc.
 
-    Three-letter codes such as isb are left out. They match unrelated text
-    inside a street address. A longer name is tested first, so Mirpur Khas
-    is not counted as Mirpur.
+    Three-letter codes such as isb are left out. A longer name is tested
+    before a shorter one it contains, so Mirpur Khas is not counted as Mirpur.
+    Common cities come before the rest, so a Lahore row does not walk the
+    whole list.
     """
-    ranked: list[tuple[int, str, list[str]]] = []
-    for place in CITIES:
-        needles: list[str] = []
-        for needle in (place.name, *place.aliases):
-            text = needle.lower().replace("'", "").strip()
-            if len(text) < 4 or text in needles:
-                continue
-            needles.append(text)
-        if needles:
-            ranked.append((max(len(item) for item in needles), place.name.replace("'", ""), needles))
-    ranked.sort(key=lambda item: item[0], reverse=True)
+    items = [(place.name.replace("'", ""), _city_needles(place)) for place in CITIES]
+    items = [item for item in items if item[1]]
+
+    def contains_shorter(longer: tuple[str, list[str]], shorter: tuple[str, list[str]]) -> bool:
+        for left in longer[1]:
+            for right in shorter[1]:
+                if left != right and right in left:
+                    return True
+        return False
+
+    common_rank = {name: index for index, name in enumerate(_COMMON_CITIES)}
+    remaining = items
+    ordered: list[tuple[str, list[str]]] = []
+    while remaining:
+        ready = [
+            item
+            for item in remaining
+            if not any(contains_shorter(other, item) for other in remaining if other is not item)
+        ]
+        if not ready:
+            ready = remaining[:1]
+        ready.sort(key=lambda item: (common_rank.get(item[0], len(_COMMON_CITIES)), -max(len(needle) for needle in item[1])))
+        ordered.append(ready[0])
+        remaining = [item for item in remaining if item is not ready[0]]
     lines = []
-    for _, name, needles in ranked:
+    for name, needles in ordered:
         test = " OR ".join(f"LOWER(loc) LIKE '%{needle}%'" for needle in needles)
         lines.append(f"WHEN {test} THEN '{name}'")
     return "CASE " + " ".join(lines) + " ELSE NULL END"

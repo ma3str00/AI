@@ -907,6 +907,9 @@ def main() -> None:
         or "group by city" not in folded_city
         or "order by total_bytes desc" not in folded_city
         or "limit 1" not in folded_city
+        or ") as ranked" in folded_city
+        or folded_city.find("then 'lahore'") > folded_city.find("then 'shaheed benazirabad'")
+        or folded_city.find("then 'mirpur khas'") > folded_city.find("then 'mirpur' when")
     ):
         raise SystemExit(f"city usage was read from the IP database: {city_usage}")
     prepare(city_usage, 200, allow_full_scan=True)
