@@ -501,6 +501,14 @@ def _followup_notice(question: str, sql: str = "") -> str:
             + " loc and geo are the cell or the fixed-line premises. "
             "client_location and server_location come from an IP database and are not the subscriber's address."
         )
+    if "group by city" in compact and "client_location" not in compact:
+        app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
+        subject = f"{app.group(1)} traffic" if app else "traffic"
+        return (
+            f"This ranks cities by {subject}. "
+            "The city is read from loc, the cell or fixed-line address. "
+            "client_location is an IP-database place and is not the subscriber's city."
+        )
     site_label = re.search(r"like '([a-z0-9-]+)\.%'", compact)
     if (
         "group by subscriber_id" in compact

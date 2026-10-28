@@ -459,6 +459,31 @@ def province_predicate(province: Province) -> str:
     return "(" + " OR ".join(f"LOWER(loc) LIKE '%{needle}%'" for needle in needles) + ")"
 
 
+def city_from_loc() -> str:
+    """CASE expression that reads a city name out of loc.
+
+    Three-letter codes such as isb are left out. They match unrelated text
+    inside a street address. A longer name is tested first, so Mirpur Khas
+    is not counted as Mirpur.
+    """
+    ranked: list[tuple[int, str, list[str]]] = []
+    for place in CITIES:
+        needles: list[str] = []
+        for needle in (place.name, *place.aliases):
+            text = needle.lower().replace("'", "").strip()
+            if len(text) < 4 or text in needles:
+                continue
+            needles.append(text)
+        if needles:
+            ranked.append((max(len(item) for item in needles), place.name.replace("'", ""), needles))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    lines = []
+    for _, name, needles in ranked:
+        test = " OR ".join(f"LOWER(loc) LIKE '%{needle}%'" for needle in needles)
+        lines.append(f"WHEN {test} THEN '{name}'")
+    return "CASE " + " ".join(lines) + " ELSE NULL END"
+
+
 def mentioned_cities(question: str) -> list[Place]:
     """A city named anywhere, as in 'Multan PTCL WhatsApp users'."""
     folded = re.sub(r"\s+", " ", question.lower().replace(".", " "))

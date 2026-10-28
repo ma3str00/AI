@@ -11,6 +11,7 @@ from app.places import (
     area_predicate,
     column_predicate,
     mentioned_areas,
+    city_from_loc,
     mentioned_cities,
     mentioned_isps,
     mentioned_provinces,
@@ -85,6 +86,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     site_users = _users_of_website(question)
     if site_users:
         return site_users
+    by_city = _cities_by_usage(question)
+    if by_city:
+        return by_city
     people = _top_people(question, history)
     if people:
         return people
@@ -430,6 +434,45 @@ def _website_brand(question: str) -> str | None:
     if mentioned_cities(brand) or mentioned_isps(brand):
         return None
     return brand
+
+
+def _cities_by_usage(question: str) -> str | None:
+    """'Which city has the maximum WhatsApp usage?' ranks loc, not client_location."""
+    folded = question.lower()
+    if asks_same_city(question):
+        return None
+    ranks_cities = bool(
+        re.search(r"\b(?:which|what)\s+cit(?:y|ies)\b", folded)
+        or re.search(r"\b(?:top|highest|maximum|most)\s+\d*\s*cit(?:y|ies)\b", folded)
+    )
+    if not ranks_cities:
+        return None
+    if mentioned_cities(question) or mentioned_provinces(question) or named_subscriber(question):
+        return None
+    limit = _limit_in(question)
+    if limit is None:
+        limit = 1 if re.search(r"\b(which|what|highest|maximum)\b", folded) else 10
+    if re.search(r"\busers?\b|\bsubscribers?\b", folded):
+        order = "users"
+    elif _means_hits(folded) or re.search(r"\bflows?\b|\bflow count\b", folded):
+        order = "flows"
+    else:
+        order = "total_bytes"
+    where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0", "IFNULL(loc, '') <> ''"]
+    stem = known_app_token(question, _NOT_AN_APP)
+    if stem:
+        where.append(f"LOWER(app_label) LIKE '%{stem}%'")
+    measures = "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows"
+    if order == "users":
+        measures = "COUNT(DISTINCT subscriber_id) AS users, " + measures
+    inner = (
+        f"SELECT {city_from_loc()} AS city, subscriber_id, c2s_byte_num, s2c_byte_num "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)}"
+    )
+    return (
+        f"SELECT city, {measures} FROM ({inner}) AS ranked "
+        f"WHERE city IS NOT NULL GROUP BY city ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
 
 
 def _users_of_website(question: str) -> str | None:

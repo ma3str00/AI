@@ -896,6 +896,20 @@ def main() -> None:
         or "like 'bbc.%'" in folded_isp
     ):
         raise SystemExit(f"ISP name was not added to that subscriber's websites: {with_isp}")
+    city_usage = resolve_followup("which city has the maximum whatsapp usage?", [])
+    folded_city = (city_usage or "").lower()
+    if (
+        not city_usage
+        or "client_location" in folded_city
+        or "lower(loc) like '%lahore%'" not in folded_city
+        or "lower(loc) like '%islamabad%'" not in folded_city
+        or "like '%whatsapp%'" not in folded_city
+        or "group by city" not in folded_city
+        or "order by total_bytes desc" not in folded_city
+        or "limit 1" not in folded_city
+    ):
+        raise SystemExit(f"city usage was read from the IP database: {city_usage}")
+    prepare(city_usage, 200, allow_full_scan=True)
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],
