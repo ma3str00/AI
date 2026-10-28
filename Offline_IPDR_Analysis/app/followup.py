@@ -63,6 +63,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     blank_servers = _include_blank_servers(question, history)
     if blank_servers:
         return blank_servers
+    exact_sites = _hostnames_on_current_ranking(question, history)
+    if exact_sites:
+        return exact_sites
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
@@ -422,7 +425,7 @@ def _website_brand(question: str) -> str | None:
     if not match:
         return None
     brand = match.group(1)
-    if brand in _NOT_AN_APP or brand in {"website", "websites", "site", "sites", "the", "all"}:
+    if brand in _NOT_AN_APP or brand in {"website", "websites", "site", "sites", "the", "all", "exact", "actual", "specific"}:
         return None
     if mentioned_cities(brand) or mentioned_isps(brand):
         return None
@@ -748,6 +751,26 @@ def _addresses_of_current_users(question: str, history: list[dict]) -> str | Non
     if not additions:
         return text
     return re.sub(r"(?i)\bFROM\b", ", " + ", ".join(additions) + " FROM", text, count=1)
+
+
+def _hostnames_on_current_ranking(question: str, history: list[dict]) -> str | None:
+    """'Also display the exact website' adds the hostname to the subscriber ranking on screen."""
+    folded = question.lower()
+    if not _asks_for_websites(folded) and not re.search(r"\b(requested server|hostname|host name|server name)\b", folded):
+        return None
+    if not re.search(r"\b(exact|actual|specific)\b", folded):
+        return None
+    if named_subscriber(question):
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    if re.search(r"(?i)\bgroup\s+by\s+requested_server\b", previous):
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    if re.search(r"(?i)\bas requested_server\b", text):
+        return text
+    return re.sub(r"(?i)\bFROM\b", ", " + _address_expression("requested_server") + " FROM", text, count=1)
 
 
 def _include_blank_servers(question: str, history: list[dict]) -> str | None:
@@ -1177,6 +1200,7 @@ _NOT_SUBSCRIBER = {
     "before", "during", "around", "within", "please", "details", "detail",
     "activities", "activity", "including", "include", "specific", "websites",
     "website", "something", "interested", "looking", "regarding", "information",
+    "access", "accessed", "accessing", "visit", "visited", "visiting", "tried", "try",
     "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
 }
 

@@ -864,6 +864,21 @@ def main() -> None:
         or "group by subscriber_id" not in folded_bbc
     ):
         raise SystemExit(f"the same for bbc did not replace the website label: {bbc_users}")
+    bbc_top = resolve_followup("show me the top 20 users who accessed bbc website", [])
+    exact_sites = resolve_followup(
+        "also display the exact website that user accessed",
+        [{"question": "show me the top 20 users who accessed bbc website", "sql": bbc_top}],
+    )
+    folded_exact = (exact_sites or "").lower()
+    if (
+        not exact_sites
+        or "subscriber_id = 'accessed'" in folded_exact
+        or "like 'bbc.%'" not in folded_exact
+        or "group by subscriber_id" not in folded_exact
+        or "as requested_server" not in folded_exact
+        or "limit 20" not in folded_exact
+    ):
+        raise SystemExit(f"exact website replaced the bbc ranking with a fake subscriber: {exact_sites}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

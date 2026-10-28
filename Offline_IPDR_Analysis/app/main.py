@@ -508,11 +508,13 @@ def _followup_notice(question: str, sql: str = "") -> str:
         and f"like '%.{site_label.group(1)}.%'" in compact
     ):
         label = site_label.group(1)
+        exact = " The requested_server column lists the exact hostname for each subscriber." if "as requested_server" in compact else ""
         return (
             f"This ranks identified subscribers who requested a {label} website. "
             f"The name matches {label}.com, www.{label}.com, and {label}.net. "
-            "A website is the TLS server name in requested_server. "
-            "An id containing an underscore is an IP and port and is left out."
+            "A website is the TLS server name in requested_server."
+            + exact
+            + " An id containing an underscore is an IP and port and is left out."
         )
     if "group by subscriber_id" in compact and re.search(r"lower\(requested_server\)\s*=\s*'([^']+)'", compact):
         host = re.search(r"lower\(requested_server\)\s*=\s*'([^']+)'", compact).group(1)
