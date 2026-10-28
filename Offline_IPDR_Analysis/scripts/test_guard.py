@@ -941,6 +941,16 @@ def main() -> None:
         or "client_location" in folded_listed
     ):
         raise SystemExit(f"top 5 cities dropped WhatsApp: {listed}")
+    several = resolve_followup("which cities have the highest facebook usage?", [])
+    folded_several = (several or "").lower()
+    if (
+        not several
+        or "like '%facebook%'" not in folded_several
+        or "group by city" not in folded_several
+        or "limit 10" not in folded_several
+        or "client_location" in folded_several
+    ):
+        raise SystemExit(f"plural cities returned one row: {several}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

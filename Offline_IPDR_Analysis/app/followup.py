@@ -451,7 +451,8 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
         return None
     limit = _limit_in(question)
     if limit is None:
-        limit = 1 if re.search(r"\b(which|what|highest|maximum)\b", folded) else 10
+        # "Which city" is one row. "Which cities" is the top of the ranking.
+        limit = 10 if re.search(r"\bcities\b", folded) else 1
     if re.search(r"\busers?\b|\bsubscribers?\b", folded):
         order = "users"
     elif _means_hits(folded) or re.search(r"\bflows?\b|\bflow count\b", folded):
