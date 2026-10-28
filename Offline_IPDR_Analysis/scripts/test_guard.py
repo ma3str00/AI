@@ -928,6 +928,19 @@ def main() -> None:
     ):
         raise SystemExit(f"top 5 did not keep the city ranking: {top_cities}")
     prepare(top_cities, 200, allow_full_scan=True)
+    listed = resolve_followup(
+        "list down the top 5 cities",
+        [{"question": "which city has the maximum whatsapp usage?", "sql": city_usage}],
+    )
+    folded_listed = (listed or "").lower()
+    if (
+        not listed
+        or "like '%whatsapp%'" not in folded_listed
+        or "group by city" not in folded_listed
+        or "limit 5" not in folded_listed
+        or "client_location" in folded_listed
+    ):
+        raise SystemExit(f"top 5 cities dropped WhatsApp: {listed}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],
