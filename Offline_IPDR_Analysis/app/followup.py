@@ -989,16 +989,22 @@ def _display_columns(text: str) -> list[str]:
 
 
 def _add_shown_columns(question: str, history: list[dict]) -> str | None:
-    """'Also show the ISP' adds that column to the subscriber ranking already on screen."""
+    """'Also show the ISP' adds that column to the subscriber result already on screen."""
     wanted = list(_display_columns(question))
     if _asks_for_place(question):
         wanted.extend(column for column in ("loc", "geo") if column not in wanted)
     if not wanted:
         return None
     previous = _last_sql(history)
-    if not previous or "group by subscriber_id" not in previous.lower():
+    if not previous:
+        return None
+    one_person = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", previous, flags=re.IGNORECASE))
+    if "group by subscriber_id" not in previous.lower() and not one_person:
         return None
     text = re.sub(r"\s+", " ", previous).strip()
+    named = named_subscriber(question)
+    if named and _subscriber_in_sql(text) != named:
+        text = _set_subscriber(text, named)
     additions = [
         _shown_expression(column)
         for column in wanted

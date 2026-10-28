@@ -90,6 +90,11 @@ class LlamaServer:
             raise LlamaError(f"Cannot reach llama-server at {self.base_url}. {exc}") from exc
         if response.status_code != 200:
             detail = response.text[:500]
+            if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():
+                raise LlamaError(
+                    "The Kaggle tunnel is down, so Ollama never received this question. "
+                    "Restart ollama and the Cloudflare tunnel on the notebook, or choose Local 7B."
+                )
             if json_mode and response.status_code == 400:
                 raise LlamaError(f"response_format was rejected: {detail}")
             raise LlamaError(f"llama-server returned HTTP {response.status_code}: {detail}")

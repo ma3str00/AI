@@ -879,6 +879,23 @@ def main() -> None:
         or "limit 20" not in folded_exact
     ):
         raise SystemExit(f"exact website replaced the bbc ranking with a fake subscriber: {exact_sites}")
+    one_sites = resolve_followup(
+        "what other websites were accessed by mrkashif1",
+        [{"question": "show me the exact websites accessed by these users", "sql": bbc_top}],
+    )
+    with_isp = resolve_followup(
+        "also show the ISP name of mrkashif1",
+        [{"question": "what other websites were accessed by mrkashif1", "sql": one_sites}],
+    )
+    folded_isp = (with_isp or "").lower()
+    if (
+        not with_isp
+        or "subscriber_id = 'mrkashif1'" not in folded_isp
+        or "group by requested_server" not in folded_isp
+        or "as client_asn" not in folded_isp
+        or "like 'bbc.%'" in folded_isp
+    ):
+        raise SystemExit(f"ISP name was not added to that subscriber's websites: {with_isp}")
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],
