@@ -8,6 +8,7 @@ mysql:
   database: "ipdr"
 
 # llama-server.service already listens on 11434.
+# The page also lists every server in engines.yaml. kind is llama.cpp or ollama.
 llama:
   base_url: "http://127.0.0.1:11434"
   model: "qwen2.5-coder-3b-instruct-q4_k_m.gguf"

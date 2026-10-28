@@ -10,6 +10,15 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 @dataclass(frozen=True)
+class Engine:
+    id: str
+    label: str
+    kind: str
+    base_url: str
+    model: str
+
+
+@dataclass(frozen=True)
 class Config:
     mysql_host: str
     mysql_port: int
@@ -32,6 +41,7 @@ class Config:
     mapping_csv: Path
     examples_jsonl: Path
     learned_jsonl: Path
+    engines: tuple[Engine, ...] = ()
 
     @property
     def session_time_zone(self) -> str:
@@ -74,6 +84,21 @@ def load_config() -> Config:
     stored_as = timing.get("stored_as", "utc_epoch")
     if stored_as not in {"utc_epoch", "local_epoch"}:
         raise ValueError("time.stored_as must be utc_epoch or local_epoch")
+    local = Engine(
+        "local",
+        "Local 7B",
+        "llama.cpp",
+        str(llama.get("base_url", "http://127.0.0.1:11434")),
+        str(llama.get("model", "qwen2.5-coder-3b-instruct-q4_k_m.gguf")),
+    )
+    engines = [local]
+    seen = {"local"}
+    for item in list(raw.get("engines") or []) + _engine_file(path.parent):
+        engine = _engine(item)
+        if engine.id in seen:
+            continue
+        engines.append(engine)
+        seen.add(engine.id)
     return Config(
         mysql_host=str(mysql.get("host", "127.0.0.1")),
         mysql_port=int(mysql.get("port", 3306)),
@@ -96,4 +121,32 @@ def load_config() -> Config:
         mapping_csv=resolve(str(paths.get("mapping_csv", "data/app_category_to_app_label_mapping.csv"))),
         examples_jsonl=resolve(str(paths.get("examples_jsonl", "data/training_examples.jsonl"))),
         learned_jsonl=resolve(str(paths.get("learned_jsonl", "data/learned_examples.jsonl"))),
+        engines=tuple(engines),
     )
+
+
+def _engine(item: dict) -> Engine:
+    kind = str(item.get("kind", "llama.cpp")).strip().lower()
+    if kind not in {"llama.cpp", "ollama"}:
+        raise ValueError("An AI engine kind must be llama.cpp or ollama.")
+    engine_id = str(item.get("id") or "").strip()
+    if not engine_id:
+        raise ValueError("An AI engine needs an id.")
+    return Engine(
+        engine_id,
+        str(item.get("label") or engine_id),
+        kind,
+        str(item.get("base_url") or "").rstrip("/"),
+        str(item.get("model") or ""),
+    )
+
+
+def _engine_file(config_dir: Path) -> list[dict]:
+    file_path = config_dir / "engines.yaml"
+    if not file_path.exists():
+        return []
+    with file_path.open(encoding="utf-8") as handle:
+        loaded = yaml.safe_load(handle) or []
+    if not isinstance(loaded, list):
+        raise ValueError("engines.yaml must be a list of engines.")
+    return loaded

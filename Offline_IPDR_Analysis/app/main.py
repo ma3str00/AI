@@ -51,6 +51,7 @@ class Turn(BaseModel):
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     history: list[Turn] = Field(default_factory=list, max_length=24)
+    engine: str = ""
 
 
 class LearnRequest(BaseModel):
@@ -75,13 +76,18 @@ def startup() -> None:
     _state["mapping"] = mapping
     _state["mapping_error"] = mapping_error
     _state["db"] = Database(config)
-    _state["llama"] = LlamaServer(
-        config.llama_base_url,
-        config.llama_model,
-        config.llama_timeout,
-        config.llama_sql_max_tokens,
-        config.llama_explain_max_tokens,
-    )
+    _state["engines"] = {
+        engine.id: LlamaServer(
+            engine.base_url,
+            engine.model,
+            config.llama_timeout,
+            config.llama_sql_max_tokens,
+            config.llama_explain_max_tokens,
+            engine.kind,
+        )
+        for engine in config.engines
+    }
+    _state["llama"] = _state["engines"]["local"]
 
 
 @app.get("/")
@@ -93,12 +99,25 @@ def page():
 def health():
     config: Config = _state["config"]
     database: Database = _state["db"]
-    llama: LlamaServer = _state["llama"]
     mysql_ok, mysql_detail = database.ping()
-    model_ok, model_detail = llama.healthy()
+    engines = []
+    for engine in config.engines:
+        server: LlamaServer = _state["engines"][engine.id]
+        model_ok, model_detail = server.healthy()
+        engines.append({
+            "id": engine.id,
+            "label": engine.label,
+            "kind": engine.kind,
+            "ok": model_ok,
+            "detail": model_detail,
+            "model": engine.model,
+            "base_url": engine.base_url,
+        })
+    local = next(item for item in engines if item["id"] == "local")
     return {
         "mysql": {"ok": mysql_ok, "detail": mysql_detail, "host": config.mysql_host, "database": config.mysql_database},
-        "llama": {"ok": model_ok, "detail": model_detail, "model": config.llama_model, "base_url": config.llama_base_url},
+        "llama": local,
+        "engines": engines,
         "examples": len(_state["index"].examples),
         "learned": _state.get("learned_count", 0),
         "missing_time": "all" if missing_time_means_all() else "ask",
@@ -122,7 +141,10 @@ def ask(body: Question):
     index: ExampleIndex = _state["index"]
     mapping: AppMap = _state["mapping"]
     database: Database = _state["db"]
-    llama: LlamaServer = _state["llama"]
+    engine_id = (body.engine or "local").strip() or "local"
+    llama: LlamaServer | None = _state["engines"].get(engine_id)
+    if llama is None:
+        raise HTTPException(status_code=400, detail="Choose an AI engine from the list.")
 
     history = _history_payload(body.history)
     saved = saved_sql(_state["index"].examples, question)

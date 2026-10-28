@@ -10,7 +10,7 @@ class LlamaError(Exception):
 
 
 class LlamaServer:
-    def __init__(self, base_url: str, model: str, timeout: float, sql_max_tokens: int, explain_max_tokens: int):
+    def __init__(self, base_url: str, model: str, timeout: float, sql_max_tokens: int, explain_max_tokens: int, kind: str = "llama.cpp"):
         root = base_url.rstrip("/")
         if root.endswith("/v1"):
             root = root[:-3]
@@ -19,6 +19,7 @@ class LlamaServer:
         self.timeout = timeout
         self.sql_max_tokens = sql_max_tokens
         self.explain_max_tokens = explain_max_tokens
+        self.kind = kind
 
     def chat(self, messages: list[dict], *, json_mode: bool, temperature: float) -> str:
         max_tokens = self.sql_max_tokens if json_mode else self.explain_max_tokens
@@ -30,8 +31,15 @@ class LlamaServer:
             raise
 
     def healthy(self) -> tuple[bool, str]:
+        if self.kind == "ollama":
+            loaded = self._loaded_model()
+            if loaded is None:
+                return False, f"Ollama is not reachable at {self.base_url}"
+            if loaded and self.model and self.model not in loaded:
+                return True, f"running, loaded model is {loaded}"
+            return True, loaded or "ok"
         try:
-            response = httpx.get(f"{self.base_url}/health", timeout=5)
+            response = httpx.get(f"{self.base_url}/health", timeout=8)
         except httpx.HTTPError as exc:
             return False, f"llama-server is not reachable at {self.base_url}. {exc}"
         if response.status_code != 200:
@@ -41,13 +49,13 @@ class LlamaServer:
             return True, f"running, loaded model is {loaded}"
         return True, loaded or "ok"
 
-    def _loaded_model(self) -> str:
+    def _loaded_model(self) -> str | None:
         try:
-            response = httpx.get(f"{self.base_url}/v1/models", timeout=5)
+            response = httpx.get(f"{self.base_url}/v1/models", timeout=8)
         except httpx.HTTPError:
-            return ""
+            return None if self.kind == "ollama" else ""
         if response.status_code != 200:
-            return ""
+            return None if self.kind == "ollama" else ""
         data = response.json().get("data") or []
         if not data:
             return ""
@@ -59,12 +67,13 @@ class LlamaServer:
             "messages": messages,
             "temperature": temperature,
             "top_p": 1,
-            "top_k": 1 if temperature == 0 else 40,
-            "repeat_penalty": 1.0,
             "stream": False,
             "max_tokens": max_tokens,
-            "cache_prompt": True,
         }
+        if self.kind != "ollama":
+            payload["top_k"] = 1 if temperature == 0 else 40
+            payload["repeat_penalty"] = 1.0
+            payload["cache_prompt"] = True
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         try:
