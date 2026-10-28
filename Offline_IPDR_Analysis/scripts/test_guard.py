@@ -951,6 +951,20 @@ def main() -> None:
         or "client_location" in folded_several
     ):
         raise SystemExit(f"plural cities returned one row: {several}")
+    nayatel_cities = resolve_followup("show me all the cities where nayatel is present", [])
+    folded_nayatel = (nayatel_cities or "").lower()
+    if (
+        not nayatel_cities
+        or "group by subscriber_id" in folded_nayatel
+        or "group by city" not in folded_nayatel
+        or "like '%nayatel%'" not in folded_nayatel
+        or "client_asn" not in folded_nayatel
+        or "client_location" in folded_nayatel
+        or "limit 200" not in folded_nayatel
+        or "order by city" not in folded_nayatel
+    ):
+        raise SystemExit(f"Nayatel cities were listed as subscribers: {nayatel_cities}")
+    prepare(nayatel_cities, 200, allow_full_scan=True)
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],

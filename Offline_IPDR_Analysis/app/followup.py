@@ -445,24 +445,36 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
         re.search(r"\b(?:which|what)\s+cit(?:y|ies)\b", folded)
         or re.search(r"\b(?:top|highest|maximum|most)\s+\d*\s*cit(?:y|ies)\b", folded)
     )
-    if not ranks_cities:
+    isps = mentioned_isps(question)
+    lists_cities = bool(
+        re.search(r"\bcities\b", folded)
+        and isps
+        and not re.search(r"\b(users?|subscribers?)\b", folded)
+    )
+    if not ranks_cities and not lists_cities:
         return None
     if mentioned_cities(question) or mentioned_provinces(question) or named_subscriber(question):
         return None
     limit = _limit_in(question)
-    if limit is None:
+    if limit is None and re.search(r"\b(all|every)\b", folded) and re.search(r"\bcities\b", folded):
+        limit = 200
+    elif limit is None:
         # "Which city" is one row. "Which cities" is the top of the ranking.
         limit = 10 if re.search(r"\bcities\b", folded) else 1
-    if re.search(r"\busers?\b|\bsubscribers?\b", folded):
+    if lists_cities and not re.search(r"\b(usage|traffic|bytes|highest|maximum|most)\b", folded):
+        order = "city"
+    elif re.search(r"\busers?\b|\bsubscribers?\b", folded):
         order = "users"
     elif _means_hits(folded) or re.search(r"\bflows?\b|\bflow count\b", folded):
         order = "flows"
     else:
         order = "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0", "IFNULL(loc, '') <> ''"]
+    for isp in isps:
+        where.append(column_predicate("client_asn", isp))
     stem = known_app_token(question, _NOT_AN_APP)
     previous = _last_sql(history or [])
-    if not stem and "group by city" in previous.lower():
+    if not stem and not isps and "group by city" in previous.lower():
         kept = re.search(r"LOWER\(app_label\)\s+LIKE\s+'%([^']+)%'", previous, flags=re.IGNORECASE)
         stem = kept.group(1) if kept else None
     if stem:
