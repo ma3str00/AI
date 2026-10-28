@@ -485,7 +485,8 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
     return (
         f"SELECT {city_from_loc()} AS city, {measures} "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
-        f"GROUP BY city HAVING city IS NOT NULL ORDER BY {order} DESC LIMIT {int(limit)}"
+        f"GROUP BY city HAVING city IS NOT NULL ORDER BY {order} "
+        f"{'ASC' if order == 'city' else 'DESC'} LIMIT {int(limit)}"
     )
 
 
@@ -1107,6 +1108,13 @@ def _add_user_count(question: str, history: list[dict]) -> str | None:
             base,
             count=1,
         )
+    if re.search(r"\b(order|ordered|sort|sorted)\b", folded) and re.search(r"\busers?\b|\buser count\b", folded):
+        base = re.sub(
+            r"(?i)\border\s+by\s+[a-z0-9_]+(?:\s+(?:asc|desc))?",
+            "ORDER BY users DESC",
+            base,
+            count=1,
+        )
     return re.sub(r"\s+", " ", base).strip()
 
 
@@ -1537,7 +1545,7 @@ def _present_measures(question: str, sql: str) -> str | None:
         download_unit = _existing_unit(sql, "s2c")
         total_unit = _existing_unit(sql, "total")
     key = _group_key(sql) or "app_label"
-    columns = [key]
+    columns = [_grouped_expression(sql, key)]
     if keep_flows:
         columns.append("COUNT(*) AS flow_count")
     if keep_upload:
@@ -1567,6 +1575,14 @@ def _present_measures(question: str, sql: str) -> str | None:
         else:
             statement = f"{statement} ORDER BY {order} DESC"
     return re.sub(r"\s+", " ", statement).strip()
+
+
+def _grouped_expression(sql: str, alias: str) -> str:
+    """Keep CASE ... END AS city. The alias alone is not a column of the table."""
+    match = re.search(rf"(?is)\bSELECT\s+(.+?)\s+AS\s+{re.escape(alias)}\b", sql)
+    if not match:
+        return alias
+    return f"{match.group(1).strip()} AS {alias}"
 
 
 def _wants_user_count(question: str) -> bool:

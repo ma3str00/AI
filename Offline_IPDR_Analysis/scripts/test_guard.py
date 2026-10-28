@@ -961,10 +961,36 @@ def main() -> None:
         or "client_asn" not in folded_nayatel
         or "client_location" in folded_nayatel
         or "limit 200" not in folded_nayatel
-        or "order by city" not in folded_nayatel
+        or "order by city asc" not in folded_nayatel
     ):
         raise SystemExit(f"Nayatel cities were listed as subscribers: {nayatel_cities}")
     prepare(nayatel_cities, 200, allow_full_scan=True)
+    by_users = resolve_followup(
+        "order the cities by unique user count",
+        [{"question": "show me all the cities where nayatel is present", "sql": nayatel_cities}],
+    )
+    folded_users = (by_users or "").lower()
+    if (
+        not by_users
+        or "case when" not in folded_users
+        or "as users" not in folded_users
+        or "order by users desc" not in folded_users
+        or "like '%nayatel%'" not in folded_users
+    ):
+        raise SystemExit(f"user count did not sort the cities: {by_users}")
+    again = resolve_followup(
+        "order them by users in descending order",
+        [{"question": "order the cities by unique user count", "sql": by_users}],
+    )
+    folded_again = (again or "").lower()
+    if (
+        not again
+        or not folded_again.startswith("select case when")
+        or "order by users desc" not in folded_again
+        or "like '%nayatel%'" not in folded_again
+    ):
+        raise SystemExit(f"sorting by users dropped the city expression: {again}")
+    prepare(again, 200, allow_full_scan=True)
     hits = resolve_followup(
         "show the top 10 websites with maximum hits",
         [{"question": "show the top 25 snapchat users", "sql": ranking}],
