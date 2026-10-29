@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.answer_check import check_sql, needs_clarification
@@ -135,35 +135,51 @@ def starters():
     return {"questions": STARTER_QUESTIONS}
 
 
-@app.post("/api/ask")
-def ask(body: Question):
+def _status(text: str) -> dict:
+    return {"type": "status", "text": text}
+
+
+def _done(result: dict) -> dict:
+    return {"type": "done", "result": result}
+
+
+def _ask_events(body: Question):
+    """Real stages of one question. The page shows each line as it happens."""
     question = body.question.strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="Enter a question.")
     config: Config = _state["config"]
     index: ExampleIndex = _state["index"]
     mapping: AppMap = _state["mapping"]
     database: Database = _state["db"]
     engine_id = (body.engine or "local").strip() or "local"
     llama: LlamaServer | None = _state["engines"].get(engine_id)
-    if llama is None:
-        raise HTTPException(status_code=400, detail="Choose an AI engine from the list.")
-
+    engine = next((item for item in config.engines if item.id == engine_id), None)
+    engine_label = engine.label if engine else engine_id
+    yield _status("Checking saved answers")
     history = _history_payload(body.history)
     saved = saved_sql(_state["index"].examples, question)
     if saved:
+        yield _status("Running the saved query")
         replayed = _replay_saved(saved, config, database)
         if replayed is not None:
-            return replayed
+            yield _done(replayed)
+            return
+    yield _status("Matching this to the previous question")
     choice_sql, choice_question = limit_followup(question, history, config.max_rows)
     if choice_question:
-        return _clarify(choice_question)
+        yield _done(_clarify(choice_question))
+        return
     resolved = choice_sql or resolve_followup(question, history)
     if resolved:
         resolved = repair_sql(question, resolved, history)
         one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))
+        full_scan = conversation_full_scan(question, history) and not one_subscriber
+        yield _status(
+            "Running the follow-up. This reads the whole table and can take several minutes."
+            if full_scan
+            else "Running the follow-up"
+        )
         replayed = _replay_saved(
-            {"sql": resolved, "full_scan": conversation_full_scan(question, history) and not one_subscriber},
+            {"sql": resolved, "full_scan": full_scan},
             config,
             database,
             _followup_notice(question, resolved),
@@ -172,16 +188,24 @@ def ask(body: Question):
         if replayed is not None:
             if replayed.get("row_count") == 0 and "subscriber_id = " in resolved.lower():
                 replayed["explanation"] = _empty_subscriber_result(resolved)
-            return replayed
+            yield _status("Preparing the chart and the table")
+            yield _done(replayed)
+            return
     clarification = needs_clarification(question, history)
     if clarification:
-        return _clarify(clarification)
+        yield _done(_clarify(clarification))
+        return
     full_scan = use_full_scan(question, history, missing_time_means_all())
     examples = _select_examples(index, question, history, full_scan)
     hints = mapping.hints(question)
+    where = "on the Kaggle GPU" if llama and llama.kind == "ollama" else "on the local CPU"
     error = None
     previous_sql = None
-    for _attempt in range(3):
+    for attempt in range(3):
+        if attempt == 0:
+            yield _status(f"Asking {engine_label} {where}")
+        else:
+            yield _status(f"The SQL was rejected. Asking {engine_label} again.")
         try:
             raw = llama.chat(
                 sql_messages(
@@ -199,7 +223,8 @@ def ask(body: Question):
                 temperature=0,
             )
         except LlamaError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            yield _done(_failed(str(exc)))
+            return
         try:
             parsed = _parse_json(raw)
         except ValueError as exc:
@@ -217,11 +242,13 @@ def ask(body: Question):
                 )
                 previous_sql = clarify
                 continue
-            return _clarify(clarify)
+            yield _done(_clarify(clarify))
+            return
         if not sql:
             error = "The model returned neither sql nor clarify."
             previous_sql = raw[:800]
             continue
+        yield _status("Checking the SQL")
         sql = repair_sql(question, sql, history)
         mismatch = check_sql(question, sql, history, full_scan) or dictionary_problem(question, sql)
         if mismatch:
@@ -239,6 +266,11 @@ def ask(body: Question):
             error = str(exc)
             previous_sql = sql
             continue
+        yield _status(
+            "Running the query. This reads the whole table and can take several minutes."
+            if full_scan
+            else "Running the query"
+        )
         try:
             columns, rows, warning = database.query(
                 safe_sql,
@@ -259,7 +291,8 @@ def ask(body: Question):
                 scan_note = "This query reads the whole table because you marked an answer with no time range as correct. On a large table it can take several minutes."
             warning = f"{scan_note} {warning}" if warning else scan_note
         explanation = explain_rows(columns, shown, safe_sql)
-        return {
+        yield _status("Preparing the chart and the table")
+        yield _done({
             "ok": True,
             "clarify": None,
             "sql": safe_sql,
@@ -268,7 +301,12 @@ def ask(body: Question):
             "explanation": explanation,
             "warning": warning,
             "row_count": len(shown),
-        }
+        })
+        return
+    yield _done(_failed("I could not turn that into a query."))
+
+
+def _failed(message: str) -> dict:
     return {
         "ok": False,
         "clarify": None,
@@ -277,8 +315,31 @@ def ask(body: Question):
         "rows": [],
         "explanation": None,
         "warning": None,
-        "error": "I could not turn that into a query.",
+        "error": message,
     }
+
+
+@app.post("/api/ask")
+def ask(body: Question):
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Enter a question.")
+    engine_id = (body.engine or "local").strip() or "local"
+    if _state["engines"].get(engine_id) is None:
+        raise HTTPException(status_code=400, detail="Choose an AI engine from the list.")
+
+    def generate():
+        try:
+            for event in _ask_events(body):
+                yield json.dumps(event, default=str) + "\n"
+        except Exception as exc:
+            yield json.dumps(_done(_failed(str(exc)))) + "\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/learn")
