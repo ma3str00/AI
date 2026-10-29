@@ -4,10 +4,11 @@
 #
 # num_ctx 8192 is enough for this prompt and avoids a 6 GiB KV cache from 32768.
 # keep_alive -1 keeps the 14B model in GPU memory so idle minutes do not reload it.
+# Send it as an integer. The string "-1" makes Ollama return HTTP 400.
 - id: kaggle
   label: Kaggle 14B
   kind: ollama
   base_url: "https://bone-indexes-ensures-joe.trycloudflare.com"
   model: "qwen2.5-coder-14b:latest"
   num_ctx: 8192
-  keep_alive: "-1"
+  keep_alive: -1

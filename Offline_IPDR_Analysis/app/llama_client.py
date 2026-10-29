@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 
 
@@ -119,7 +121,12 @@ class LlamaServer:
             "options": options,
         }
         if self.keep_alive is not None:
-            payload["keep_alive"] = self.keep_alive
+            # Ollama wants a number (-1) or a duration with a unit ("24h"), not "-1".
+            text = str(self.keep_alive).strip()
+            if re.fullmatch(r"-?\d+", text):
+                payload["keep_alive"] = int(text)
+            else:
+                payload["keep_alive"] = text
         if json_mode:
             payload["format"] = "json"
         try:

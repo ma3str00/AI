@@ -671,7 +671,10 @@ def _same_request_other_isp(question: str, history: list[dict]) -> str | None:
     if not _asks_same_result(question) and re.search(r"\b(top|highest|maximum|most)\b", folded):
         return None
     previous = _last_sql(history)
-    if not previous or "group by subscriber_id" not in previous.lower():
+    key = _group_key(previous or "")
+    if not previous or key not in {"subscriber_id", "app_label", "app_category", "requested_server", "city"}:
+        return None
+    if "client_asn" not in previous.lower() and not _asks_same_result(question):
         return None
     text = _strip_column_group(re.sub(r"\s+", " ", previous).strip(), "client_asn")
     text = re.sub(
@@ -680,7 +683,7 @@ def _same_request_other_isp(question: str, history: list[dict]) -> str | None:
         text,
         count=1,
     )
-    if not re.search(r"(?i)\bas client_asn\b", text):
+    if key == "subscriber_id" and not re.search(r"(?i)\bas client_asn\b", text):
         text = re.sub(r"(?i)\bFROM\b", ", " + _address_expression("client_asn") + " FROM", text, count=1)
     limit = _limit_in(question)
     if limit is not None:

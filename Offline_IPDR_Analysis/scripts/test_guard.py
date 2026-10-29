@@ -1721,6 +1721,21 @@ def main() -> None:
     ):
         raise SystemExit(f"blocked apps in PTCL dropped the operator: {ptcl_apps}")
     prepare(ptcl_apps, 200, allow_full_scan=True)
+    jazz_apps = resolve_followup(
+        "show me the same for jazz",
+        [{"question": "top apps blocked in PTCL", "sql": ptcl_apps}],
+    )
+    jazz_folded = (jazz_apps or "").lower()
+    if (
+        not jazz_apps
+        or "group by app_label" not in jazz_folded
+        or "like '%jazz%'" not in jazz_folded
+        or "like '%ptcl%'" in jazz_folded
+        or "block_type <> 0" not in jazz_folded
+        or "limit 10" not in jazz_folded
+    ):
+        raise SystemExit(f"same for Jazz did not swap the operator: {jazz_apps}")
+    prepare(jazz_apps, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
