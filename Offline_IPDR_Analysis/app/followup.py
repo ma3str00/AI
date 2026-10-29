@@ -1686,6 +1686,8 @@ def _blocked_protocols(question: str, history: list[dict]) -> str | None:
     where = [BLOCKED_SQL if blocked else ALLOWED_SQL]
     if family:
         where.insert(0, f"LOWER(app_label) LIKE '%{family}%'")
+    for isp in mentioned_isps(question):
+        where.append(column_predicate("client_asn", isp))
     measure = "blocked_flows" if blocked else "allowed_flows"
     by_volume = bool(re.search(r"\b(bytes|traffic|volume)\b", folded))
     order = "total_mb" if by_volume else measure

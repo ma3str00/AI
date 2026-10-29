@@ -1709,6 +1709,18 @@ def main() -> None:
     ):
         raise SystemExit(f"blocked flows by operator were wrong: {by_operator}")
     prepare(by_operator, 200, allow_full_scan=True)
+    ptcl_apps = resolve_followup("show me the top 10 apps that got blocked in PTCL", [])
+    ptcl_folded = (ptcl_apps or "").lower()
+    if (
+        not ptcl_apps
+        or "group by app_label" not in ptcl_folded
+        or "block_type <> 0" not in ptcl_folded
+        or "like '%ptcl%'" not in ptcl_folded
+        or "client_asn" not in ptcl_folded
+        or "limit 10" not in ptcl_folded
+    ):
+        raise SystemExit(f"blocked apps in PTCL dropped the operator: {ptcl_apps}")
+    prepare(ptcl_apps, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

@@ -667,9 +667,11 @@ def _followup_notice(question: str, sql: str = "") -> str:
     if "group by app_label" in compact and "subscriber_id = " not in compact and "block_type <> 0" in compact:
         app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
         subject = f"{app.group(1)} " if app else ""
+        operator = " The operator is the client ASN name." if "client_asn" in compact else ""
         return (
             f"This ranks {subject}protocols by how many flows were blocked. "
             "Each row is one app_label. Any block_type other than 0 means blocked."
+            + operator
         )
     if "group by app_label" in compact and "subscriber_id = " not in compact and "block_type = 0" in compact:
         app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
