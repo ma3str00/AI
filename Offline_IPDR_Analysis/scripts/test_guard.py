@@ -1751,6 +1751,31 @@ def main() -> None:
     ):
         raise SystemExit(f"unique Zong users were not added beside the apps: {with_users}")
     prepare(with_users, 200, allow_full_scan=True)
+    vk_users = (
+        "SELECT subscriber_id, COUNT(*) AS blocked_flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, requested_server, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(geo, '') <> '' THEN geo END ORDER BY geo SEPARATOR ', ') AS geo "
+        "FROM ntc_ssl_logs WHERE (block_type IS NOT NULL AND block_type <> 0) AND (LOWER(client_asn) LIKE '%telenor%') "
+        "AND LOWER(app_label) IN ('vkontakte_music', 'vkontakte', 'vkontakte_video') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id, requested_server ORDER BY blocked_flows DESC LIMIT 10"
+    )
+    swat_users = resolve_followup(
+        "building on the previous query, I want to see only those users that belong to swat city",
+        [{"question": "also show the address of the users", "sql": vk_users}],
+    )
+    swat_folded = (swat_users or "").lower()
+    if (
+        not swat_users
+        or "like '%swat%'" not in swat_folded
+        or "like '%telenor%'" not in swat_folded
+        or "vkontakte" not in swat_folded
+        or "bloons_monkey_city" in swat_folded
+        or "group by subscriber_id" not in swat_folded
+    ):
+        raise SystemExit(f"Swat filter dropped the previous ranking: {swat_users}")
+    prepare(swat_users, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

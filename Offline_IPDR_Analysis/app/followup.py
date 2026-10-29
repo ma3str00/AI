@@ -747,10 +747,17 @@ def _from_place(question: str) -> str | None:
     return place
 
 
-def _apply_place_filters(text: str, question: str) -> str:
+def _apply_place_filters(
+    text: str,
+    question: str,
+    cities: list | None = None,
+    isps: list | None = None,
+) -> str:
     """Keep a subscriber ranking and set the city and ISP named in the question."""
-    cities = [place for place in named_in(question) if place.kind == "city"]
-    isps = [place for place in named_in(question) if place.kind == "isp"]
+    if cities is None:
+        cities = [place for place in named_in(question) if place.kind == "city"] or mentioned_cities(question)
+    if isps is None:
+        isps = [place for place in named_in(question) if place.kind == "isp"] or mentioned_isps(question)
     areas = mentioned_areas(question)
     unknown = _from_place(question)
     if not cities and not isps and not unknown and not areas:
@@ -812,14 +819,44 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
     """Keep the subscriber ranking and apply a named city or ISP."""
     if _mentions_fixed(question) or _mentions_mobile(question):
         return None
-    if _subject_filter(without_areas(without_named(question)).lower()):
+    folded = question.lower()
+    # A fresh ranking such as 'top 20 Ufone users' is not a filter on the current list.
+    fresh_ranking = bool(re.search(r"\b(top|highest|maximum|most)\b", folded) and re.search(r"\b(users?|subscribers?)\b", folded))
+    narrows = bool(
+        re.search(
+            r"\b(belong|belongs|belonging|only those|only the|building on|previous query|same city|that city|this city)\b",
+            folded,
+        )
+    )
+    named = named_in(question)
+    if fresh_ranking and not narrows and not named:
         return None
-    if not named_in(question) and _from_place(question) is None and not mentioned_areas(question):
+    place_cities = [place for place in named if place.kind == "city"]
+    isps = [place for place in named if place.kind == "isp"]
+    if not place_cities and (narrows or not fresh_ranking):
+        place_cities = mentioned_cities(question)
+    if not isps and narrows:
+        isps = mentioned_isps(question)
+    if not place_cities and not isps and _from_place(question) is None and not mentioned_areas(question):
+        return None
+    leftover = without_areas(without_named(question)).lower()
+    for place in (*place_cities, *isps):
+        for alias in sorted(place.aliases, key=len, reverse=True):
+            leftover = re.sub(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", leftover)
+    leftover = re.sub(
+        r"\b("
+        r"city|cities|users?|subscribers?|people|belong|belongs|belonging|only|those|these|that|"
+        r"previous|query|building|want|see|show|list|from|in|to|of|the|a|an"
+        r")\b",
+        " ",
+        leftover,
+    )
+    if _subject_filter(leftover):
         return None
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
         return None
-    text = _apply_place_filters(re.sub(r"\s+", " ", previous).strip(), question)
+    text = _apply_place_filters(re.sub(r"\s+", " ", previous).strip(), question, place_cities, isps)
     limit = _limit_in(question)
     if limit is not None:
         text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
@@ -1075,8 +1112,9 @@ _NOT_AN_APP = {
     "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
     "along", "with", "also", "list", "listed", "respective", "corresponding", "related",
     "address", "addresses", "location", "locations", "whereabouts", "asn",
-    "instead", "showing", "rather", "sorted", "ordering", "city", "cities",
+    "instead", "showing", "rather", "sorted", "ordering",     "city", "cities", "town", "district", "province",
     "area", "locality", "neighborhood", "neighbourhood", "vicinity",
+    "belong", "belongs", "belonging", "building", "previous", "query",
     "tried", "try", "access", "accessed", "accessing", "visit", "visited", "visiting",
     "blocked", "denied", "rejected", "allowed", "permitted",
 }

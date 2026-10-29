@@ -568,6 +568,14 @@ def _followup_notice(question: str, sql: str = "") -> str:
             + " loc and geo are the cell or the fixed-line premises. "
             "client_location and server_location come from an IP database and are not the subscriber's address."
         )
+    if "group by subscriber_id" in compact and re.search(r"loc like '%", compact) and "as loc" not in compact:
+        city = re.search(r"loc like '%([^']+)%'", compact)
+        where = f" Only addresses containing {city.group(1)} are included." if city else ""
+        return (
+            "This keeps the previous ranking and limits it to that city."
+            + where
+            + " The city is read from loc, the cell or fixed-line address."
+        )
     if "group by city" in compact and "client_asn" in compact and "app_label" not in compact:
         return (
             "This lists the cities where that operator is present. "

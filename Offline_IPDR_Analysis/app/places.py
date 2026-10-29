@@ -258,7 +258,7 @@ ISPS: tuple[Place, ...] = (
 )
 
 
-_PREPOSITION = r"(?:from|in|near|within|at|of)"
+_PREPOSITION = r"(?:from|in|near|within|at|of|to)"
 _ALIAS_INDEX: list[tuple[str, Place]] = sorted(
     ((alias, place) for place in (*CITIES, *ISPS) for alias in place.aliases),
     key=lambda item: len(item[0]),
