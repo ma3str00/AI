@@ -101,8 +101,11 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .chart-card { margin-top: 12px; }
-  .chart-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-  .chart-toolbar button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .chart-controls { display: grid; gap: 8px; margin-bottom: 10px; }
+  .chart-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+  .chart-row span { min-width: 6.5rem; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .chart-row .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chart-row button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .chart-svg { width: 100%; height: auto; display: block; }
   .chart-note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
   details.sql { margin-top: 12px; }
@@ -308,55 +311,89 @@ function chartRows(rows, measure) {
     .slice(0, 12);
 }
 
+const MEASURE_LABELS = {
+  total_bytes: "Total bytes",
+  total_mb: "Total MB",
+  total_gb: "Total GB",
+  total_tb: "Total TB",
+  flows: "Flows",
+  flow_count: "Flow count",
+  blocked_flows: "Blocked flows",
+  users: "Users",
+  websites: "Websites",
+  traffic_volume: "Traffic volume",
+  traffic_volume_mb: "Traffic volume (MB)",
+  traffic_volume_gb: "Traffic volume (GB)",
+  traffic_volume_tb: "Traffic volume (TB)"
+};
+
+function measureLabel(column) {
+  return MEASURE_LABELS[column] || column.replace(/_/g, " ");
+}
+
+function choiceButton(label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary";
+  button.textContent = label;
+  return button;
+}
+
 function chartCard(columns, rows, question, sql, kind) {
   const fields = chartFields(columns, rows, question, sql);
   const card = document.createElement("div");
   card.className = "chart-card";
   if (!fields) return card;
-  const toolbar = document.createElement("div");
-  toolbar.className = "chart-toolbar";
-  const title = document.createElement("h2");
+  const controls = document.createElement("div");
+  controls.className = "chart-controls";
   const measureButtons = fields.numeric.map((column) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "secondary";
-    button.textContent = column.replace(/_/g, " ");
+    const button = choiceButton(measureLabel(column));
+    button.dataset.measure = column;
     button.addEventListener("click", () => {
       fields.measure = column;
       draw(currentKind);
     });
     return button;
   });
-  const barButton = document.createElement("button");
-  const pieButton = document.createElement("button");
-  barButton.type = "button";
-  pieButton.type = "button";
-  barButton.className = "secondary";
-  pieButton.className = "secondary";
-  barButton.textContent = "Bar";
-  pieButton.textContent = "Pie";
+  const barButton = choiceButton("Bar");
+  const pieButton = choiceButton("Pie");
   const plot = document.createElement("div");
   const note = document.createElement("p");
   note.className = "chart-note";
   let currentKind = kind === "pie" ? "pie" : "bar";
-  function draw(kind) {
-    currentKind = kind;
+  function draw(nextKind) {
+    currentKind = nextKind;
     const shown = chartRows(rows, fields.measure);
-    title.textContent = fields.measure.replace(/_/g, " ");
-    for (const button of measureButtons) button.classList.toggle("active", button.textContent === title.textContent);
-    barButton.classList.toggle("active", kind === "bar");
-    pieButton.classList.toggle("active", kind === "pie");
-    plot.replaceChildren(kind === "pie" ? pieChart(shown, fields) : barChart(shown, fields));
+    const label = measureLabel(fields.measure);
+    for (const button of measureButtons) button.classList.toggle("active", button.dataset.measure === fields.measure);
+    barButton.classList.toggle("active", nextKind === "bar");
+    pieButton.classList.toggle("active", nextKind === "pie");
+    plot.replaceChildren(nextKind === "pie" ? pieChart(shown, fields) : barChart(shown, fields));
     note.textContent = rows.length > shown.length
-      ? "Largest " + shown.length + " of " + rows.length + " rows, by " + title.textContent + "."
-      : "Ordered by " + title.textContent + ", largest first.";
+      ? "Largest " + shown.length + " of " + rows.length + " rows, by " + label + "."
+      : "Ordered by " + label + ", largest first.";
   }
   barButton.addEventListener("click", () => draw("bar"));
   pieButton.addEventListener("click", () => draw("pie"));
-  toolbar.append(title, ...measureButtons, barButton, pieButton);
-  card.append(toolbar, plot, note);
+  controls.append(
+    controlRow("Chart type", [barButton, pieButton]),
+    controlRow("Measure", measureButtons)
+  );
+  card.append(controls, plot, note);
   draw(currentKind);
   return card;
+}
+
+function controlRow(name, buttons) {
+  const row = document.createElement("div");
+  row.className = "chart-row";
+  const label = document.createElement("span");
+  label.textContent = name;
+  const choices = document.createElement("div");
+  choices.className = "choices";
+  choices.append(...buttons);
+  row.append(label, choices);
+  return row;
 }
 
 function barChart(rows, fields) {
