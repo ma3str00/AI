@@ -1,7 +1,8 @@
 # Extra AI servers. The local llama.cpp server always comes from config.yaml.
-# Replace base_url when the Kaggle tunnel address changes.
+# The Kaggle address changes every time the tunnel starts. Put the current one in
+# config.yaml under kaggle.base_url. That value replaces the address below.
 - id: kaggle
   label: Kaggle 14B
   kind: ollama
-  base_url: "https://posts-ink-direct-eat.trycloudflare.com"
+  base_url: "https://bone-indexes-ensures-joe.trycloudflare.com"
   model: "qwen2.5-coder-14b:latest"

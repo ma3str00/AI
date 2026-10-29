@@ -18,6 +18,11 @@ llama:
   # Two examples keep the prompt small enough for the 3B model on CPU.
   example_count: 2
 
+# The Cloudflare quick-tunnel address. Change this when Kaggle prints a new URL.
+# It replaces the address shipped in engines.yaml. Restart ipdr-assistant after editing.
+kaggle:
+  base_url: "https://bone-indexes-ensures-joe.trycloudflare.com"
+
 server:
   # 8090 avoids the llama-server port. 0.0.0.0 accepts connections on every interface.
   host: "0.0.0.0"

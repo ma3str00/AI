@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -93,8 +93,11 @@ def load_config() -> Config:
     )
     engines = [local]
     seen = {"local"}
+    kaggle_url = str((raw.get("kaggle") or {}).get("base_url") or "").strip().rstrip("/")
     for item in list(raw.get("engines") or []) + _engine_file(path.parent):
         engine = _engine(item)
+        if engine.id == "kaggle" and kaggle_url:
+            engine = replace(engine, base_url=kaggle_url)
         if engine.id in seen:
             continue
         engines.append(engine)
