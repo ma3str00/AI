@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.app_map import CATEGORY_PHRASES, known_app_token
+from app.app_map import CATEGORY_PHRASES, exact_app_label, known_app_token
 from app.glossary import mentions
 from app.places import (
     asks_same_city,
@@ -370,14 +370,20 @@ def _top_websites(question: str) -> str | None:
         return None
     if re.search(r"\b(users?|subscribers?)\b", folded):
         return None
-    if not re.search(r"\b(top|highest|maximum|most)\b", folded):
-        return None
-    limit = _limit_in(question) or 10
     blocked = mentions(question, "blocked")
     allowed = mentions(question, "allowed")
+    ranked = bool(re.search(r"\b(top|highest|maximum|most)\b", folded))
+    if not ranked and not blocked and not allowed:
+        return None
+    limit = _limit_in(question) or (200 if (blocked or allowed) and not ranked else 10)
     by_volume = bool(re.search(r"\b(bytes|traffic|volume|download|upload)\b", folded))
     order = "flows" if _means_hits(folded) or ((blocked or allowed) and not by_volume) else "total_bytes"
     where = ["IFNULL(requested_server, '') <> ''"]
+    app = _named_app_label(question) or known_app_token(
+        question, _NOT_AN_APP | {"domain", "domains", "website", "websites", "site", "sites"}
+    )
+    if app:
+        where.append(_app_label_predicate(app))
     if blocked:
         where.append(BLOCKED_SQL)
     elif allowed:
@@ -389,6 +395,13 @@ def _top_websites(question: str) -> str | None:
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY requested_server ORDER BY {order} DESC LIMIT {int(limit)}"
     )
+
+
+def _app_label_predicate(label: str) -> str:
+    safe = label.lower().replace("'", "")
+    if exact_app_label(safe):
+        return f"LOWER(app_label) = '{safe}'"
+    return f"LOWER(app_label) LIKE '%{safe}%'"
 
 
 def _people_by_website_count(question: str) -> str | None:
@@ -563,7 +576,7 @@ def _means_hits(text: str) -> bool:
 
 
 def _named_app_label(text: str) -> str | None:
-    """The application named as a filter, as in 'against app type HTTP'."""
+    """The application named as a filter, as in 'against app type HTTP' or 'ssl app'."""
     folded = text.lower()
     match = re.search(r"\bapp(?:lication)?\s+type\s+([a-z0-9][a-z0-9_.-]{1,40})\b", folded)
     if not match:
@@ -572,11 +585,20 @@ def _named_app_label(text: str) -> str | None:
             folded,
         )
     if not match:
+        match = re.search(
+            r"\b(?:for|against|of|in)\s+(?:the\s+)?([a-z0-9][a-z0-9_.-]{1,40})\s+app(?:lication)?\b",
+            folded,
+        )
+    if not match:
+        match = re.search(r"\b([a-z0-9][a-z0-9_.-]{1,40})\s+app(?:lication)?\b", folded)
+    if not match:
         return None
     label = match.group(1)
-    if label in _NOT_AN_APP or label in {"type", "label", "category", "name"}:
+    if label in _NOT_AN_APP or label in {"type", "label", "category", "name", "blocked", "allowed"}:
         return None
-    return label
+    if exact_app_label(label) or known_app_token(label, set()) == label or len(label) >= 4:
+        return label
+    return None
 
 
 def _same_app_stem(question: str) -> str | None:
@@ -1595,9 +1617,14 @@ def _present_measures(question: str, sql: str) -> str | None:
 def _blocked_protocols(question: str, history: list[dict]) -> str | None:
     """'Protocols that got blocked the most' ranks app labels by blocked flows."""
     folded = question.lower()
+    if _asks_for_websites(question):
+        return None
     if not re.search(r"\b(protocols?|applications?|apps?)\b", folded):
         return None
     if re.search(r"\b(users?|subscribers?)\b", folded):
+        return None
+    # "ssl app" names one application. It is not a request to rank every protocol.
+    if _named_app_label(question) and not re.search(r"\b(protocols?|applications?)\b", folded):
         return None
     blocked = mentions(question, "blocked")
     allowed = mentions(question, "allowed")

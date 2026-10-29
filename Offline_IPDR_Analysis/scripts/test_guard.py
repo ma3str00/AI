@@ -1685,6 +1685,18 @@ def main() -> None:
     ):
         raise SystemExit(f"blocking count list was wrong: {blocked_list}")
     prepare(blocked_list, 200, allow_full_scan=True)
+    ssl_domains = resolve_followup("show me the blocked domains against ssl app", [])
+    ssl_folded = (ssl_domains or "").lower()
+    if (
+        not ssl_domains
+        or "group by requested_server" not in ssl_folded
+        or "lower(app_label) = 'ssl'" not in ssl_folded
+        or "block_type <> 0" not in ssl_folded
+        or "group by app_label" in ssl_folded
+        or "like '%ssl%'" in ssl_folded
+    ):
+        raise SystemExit(f"blocked SSL domains were wrong: {ssl_domains}")
+    prepare(ssl_domains, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

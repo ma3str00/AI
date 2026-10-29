@@ -40,8 +40,11 @@ class AppMap:
     def __init__(self, rows: list[tuple[str, str]]):
         self.rows = rows
         self.label_tokens: set[str] = set()
+        self.exact_labels: set[str] = set()
         for label, _category in rows:
-            for part in re.split(r"[^a-z0-9]+", label.lower()):
+            folded = label.lower()
+            self.exact_labels.add(folded)
+            for part in re.split(r"[^a-z0-9]+", folded):
                 if len(part) >= 4 and part not in _NOT_APP_WORDS:
                     self.label_tokens.add(part)
 
@@ -50,6 +53,7 @@ class AppMap:
 
         A word is not an application just because it is left over. Gulshan is a
         place, and it is not in the mapping, so it does not become a filter.
+        Short exact labels such as ssl are recognized only through exact_app_label.
         """
         ignored = skip or set()
         tokens = [
@@ -150,10 +154,17 @@ def known_app_token(text: str, skip: set[str] | None = None) -> str | None:
     return _active.known_app_token(text, skip)
 
 
+def exact_app_label(token: str) -> bool:
+    if _active is None:
+        return False
+    return token.lower() in _active.exact_labels
+
+
 def label_token_known(token: str) -> bool:
     if _active is None:
         return False
-    return token.lower() in _active.label_tokens
+    folded = token.lower()
+    return folded in _active.label_tokens or folded in _active.exact_labels
 
 
 def _shared_stem(matched: list[tuple[str, str]], tokens: set[str]) -> str:

@@ -538,13 +538,17 @@ def _followup_notice(question: str, sql: str = "") -> str:
     if "group by requested_server" in compact and re.search(r"\b(hits?|visits?|requests?)\b", folded):
         return "This ranks websites by the number of hits. A hit is one flow."
     if "group by requested_server" in compact and "block_type" in compact:
+        app = re.search(r"lower\(app_label\)\s*=\s*'([^']+)'", compact) or re.search(
+            r"lower\(app_label\) like '%([^']+)%'", compact
+        )
+        subject = f" in the {app.group(1)} application" if app else ""
         if "block_type = 0" in compact:
             return (
-                "This ranks websites by how many flows were allowed. "
+                f"This ranks websites{subject} by how many flows were allowed. "
                 "A website is the TLS server name in requested_server. block_type 0 means allowed."
             )
         return (
-            "This ranks websites by how many flows were blocked. "
+            f"This ranks websites{subject} by how many flows were blocked. "
             "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
         )
     if "group by app_label" in compact and "subscriber_id = " in compact:

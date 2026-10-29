@@ -108,8 +108,9 @@
   .chart-row button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .chart-svg { width: 100%; height: auto; display: block; }
   .chart-note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
-  details.sql { margin-top: 12px; }
-  details.sql summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details.sql, details.chart { margin-top: 12px; }
+  details.sql summary, details.chart summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details.chart[open] summary { margin-bottom: 8px; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
@@ -349,8 +350,12 @@ function choiceButton(label) {
 
 function chartCard(columns, rows, question, sql, kind) {
   const fields = chartFields(columns, rows, question, sql);
-  const card = document.createElement("div");
-  card.className = "chart-card";
+  const card = document.createElement("details");
+  card.className = "chart";
+  card.open = true;
+  const summary = document.createElement("summary");
+  summary.textContent = "Chart";
+  card.append(summary);
   if (!fields) return card;
   const controls = document.createElement("div");
   controls.className = "chart-controls";
