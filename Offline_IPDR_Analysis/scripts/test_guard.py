@@ -1825,6 +1825,27 @@ def main() -> None:
     ):
         raise SystemExit(f"access times for a letter login were not listed: {login_times}")
     prepare(login_times, 200, allow_full_scan=True)
+    weather_times = (
+        "SELECT FROM_UNIXTIME(start_time) AS start_gmt5, app_label, requested_server, "
+        "c2s_byte_num + s2c_byte_num AS total_bytes, duration, block_type "
+        "FROM ntc_ssl_logs WHERE subscriber_id = '03076195547' AND LOWER(app_label) LIKE '%weather%' "
+        "ORDER BY start_time LIMIT 50"
+    )
+    duration_minutes = resolve_followup(
+        "also show the duration of each session in minutes",
+        [{"question": "what was the time when 03076195547 tried to access weather", "sql": weather_times}],
+    )
+    minutes_folded = (duration_minutes or "").lower()
+    if (
+        not duration_minutes
+        or "as duration_minutes" not in minutes_folded
+        or "duration / 60000" not in minutes_folded
+        or "subscriber_id = '03076195547'" not in minutes_folded
+        or "weather" not in minutes_folded
+        or "as start_gmt5" not in minutes_folded
+    ):
+        raise SystemExit(f"duration in minutes was not added to the access-time list: {duration_minutes}")
+    prepare(duration_minutes, 200, allow_full_scan=True)
     times_folded = (access_times or "").lower()
     if (
         not access_times

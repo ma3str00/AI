@@ -113,6 +113,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     if _pending(history) and _answer_drops(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_drop=True)
     previous = _last_sql(history)
+    duration_unit = _duration_in_units(question, previous)
+    if duration_unit:
+        return duration_unit
     presented = _present_measures(question, previous)
     if presented:
         return presented
@@ -1686,6 +1689,57 @@ def _app_choice(blob: str, previous: str) -> tuple[bool, bool]:
 
 def _has_app_filter(sql: str) -> bool:
     return "app_label" in sql.lower()
+
+
+def _duration_display_unit(question: str) -> str | None:
+    folded = question.lower()
+    if not re.search(r"\b(duration|session|sessions|how long)\b", folded):
+        return None
+    if re.search(r"\bminutes?\b", folded):
+        return "minutes"
+    if re.search(r"\bhours?\b", folded):
+        return "hours"
+    if re.search(r"\bseconds?\b", folded) and "millisecond" not in folded:
+        return "seconds"
+    return None
+
+
+def _duration_unit_expression(unit: str) -> str:
+    if unit == "minutes":
+        return "ROUND(duration / 60000, 2) AS duration_minutes"
+    if unit == "hours":
+        return "ROUND(duration / 3600000, 2) AS duration_hours"
+    return "ROUND(duration / 1000, 2) AS duration_seconds"
+
+
+def _duration_in_units(question: str, sql: str | None) -> str | None:
+    """Show flow duration in minutes/seconds/hours. duration is stored as milliseconds."""
+    unit = _duration_display_unit(question)
+    if not unit or not sql:
+        return None
+    if re.search(r"\bgroup\s+by\b", sql, flags=re.IGNORECASE):
+        return None
+    expression = _duration_unit_expression(unit)
+    alias = f"duration_{unit}"
+    text = re.sub(r"\s+", " ", sql).strip()
+    if re.search(rf"(?i)\bas {alias}\b", text):
+        return text
+    select = re.search(r"(?is)\bSELECT\b(.*?)\bFROM\b", text)
+    if not select:
+        return None
+    head = select.group(1)
+    if re.search(r"(?i)\bROUND\(\s*duration\s*/\s*\d+", head) or re.search(
+        r"(?i)(?<![a-z0-9_])duration(?![a-z0-9_])", head
+    ):
+        head = re.sub(
+            r"(?i)\bROUND\(\s*duration\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+duration_\w+\b|"
+            r"(?<![a-z0-9_])duration(?![a-z0-9_])",
+            expression,
+            head,
+            count=1,
+        )
+        return re.sub(r"\s+", " ", text[: select.start(1)] + head + text[select.end(1) :]).strip()
+    return re.sub(r"(?i)\bFROM\b", f", {expression} FROM", text, count=1)
 
 
 def _present_measures(question: str, sql: str) -> str | None:

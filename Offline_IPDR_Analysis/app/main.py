@@ -556,9 +556,17 @@ def _followup_notice(question: str, sql: str = "") -> str:
     if "as start_gmt5" in compact and "subscriber_id = " in compact:
         app = re.search(r"lower\(app_label\)\s*(?:=|like)\s*'%?([^'%]+)%?'", compact)
         subject = f" {app.group(1)}" if app else ""
+        duration = ""
+        if "as duration_minutes" in compact:
+            duration = " duration_minutes is duration / 60000; duration is stored in milliseconds."
+        elif "as duration_seconds" in compact:
+            duration = " duration_seconds is duration / 1000; duration is stored in milliseconds."
+        elif "as duration_hours" in compact:
+            duration = " duration_hours is duration / 3600000; duration is stored in milliseconds."
         return (
             f"This lists each{subject} flow start time for that subscriber. "
             "start_gmt5 is FROM_UNIXTIME(start_time) in the session time zone (GMT+5)."
+            + duration
         )
     if "group by app_label" in compact and "subscriber_id = " in compact:
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
