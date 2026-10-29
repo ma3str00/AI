@@ -658,6 +658,8 @@ def _same_request_other_isp(question: str, history: list[dict]) -> str | None:
     """
     if _named_app_label(question) or mentions(question, "website") or mentions(question, "their_apps"):
         return None
+    if _wants_user_count(question.lower()):
+        return None
     if any(place.kind == "city" for place in named_in(question)):
         return None
     isps = mentioned_isps(question)
@@ -1777,10 +1779,14 @@ def _wants_user_count(question: str) -> bool:
     """A user count beside the current rows. 'Users against TikTok' is a new ranking."""
     return bool(
         re.search(
-            r"\b(unique users|number of users|user count|users per|users for each|users against each)\b",
+            r"\b("
+            r"unique users|unique number of(?:\s+\w+){0,3}\s+users|"
+            r"number of users|user count|users per|users for each|"
+            r"users against each|users against(?:\s+the)?(?:\s+blocked)?\s+apps?"
+            r")\b",
             question,
         )
-        or ("user" in question and re.search(r"\b(each app|per app|against each|by app)\b", question))
+        or ("user" in question and re.search(r"\b(each app|per app|against each|by app|against those|against the)\b", question))
     )
 
 

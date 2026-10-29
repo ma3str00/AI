@@ -1736,6 +1736,21 @@ def main() -> None:
     ):
         raise SystemExit(f"same for Jazz did not swap the operator: {jazz_apps}")
     prepare(jazz_apps, 200, allow_full_scan=True)
+    zong_apps = resolve_followup("show me the same for zong", [{"question": "ptcl apps", "sql": ptcl_apps}])
+    with_users = resolve_followup(
+        "also show the unique number of zong users against the blocked apps",
+        [{"question": "same for zong", "sql": zong_apps}],
+    )
+    users_folded = (with_users or "").lower()
+    if (
+        not with_users
+        or "as users" not in users_folded
+        or "group by app_label" not in users_folded
+        or "like '%zong%'" not in users_folded
+        or "block_type <> 0" not in users_folded
+    ):
+        raise SystemExit(f"unique Zong users were not added beside the apps: {with_users}")
+    prepare(with_users, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
