@@ -95,6 +95,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     counted = _add_user_count(question, history)
     if counted:
         return counted
+    protocols = _blocked_protocols(question, history)
+    if protocols:
+        return protocols
     protocols = _protocols_by_usage(question)
     if protocols:
         return protocols
@@ -1587,6 +1590,42 @@ def _present_measures(question: str, sql: str) -> str | None:
         else:
             statement = f"{statement} ORDER BY {order} DESC"
     return re.sub(r"\s+", " ", statement).strip()
+
+
+def _blocked_protocols(question: str, history: list[dict]) -> str | None:
+    """'Protocols that got blocked the most' ranks app labels by blocked flows."""
+    folded = question.lower()
+    if not re.search(r"\b(protocols?|applications?|apps?)\b", folded):
+        return None
+    if re.search(r"\b(users?|subscribers?)\b", folded):
+        return None
+    blocked = mentions(question, "blocked")
+    allowed = mentions(question, "allowed")
+    if not blocked and not allowed:
+        return None
+    family = _protocol_family(question)
+    if not family:
+        previous = _last_sql(history)
+        kept = re.search(r"LOWER\(app_label\)\s+LIKE\s+'%([^']+)%'", previous or "", flags=re.IGNORECASE)
+        if kept and "group by app_label" in (previous or "").lower():
+            family = kept.group(1)
+    where = [BLOCKED_SQL if blocked else ALLOWED_SQL]
+    if family:
+        where.insert(0, f"LOWER(app_label) LIKE '%{family}%'")
+    measure = "blocked_flows" if blocked else "allowed_flows"
+    by_volume = bool(re.search(r"\b(bytes|traffic|volume)\b", folded))
+    order = "total_mb" if by_volume else measure
+    limit = _limit_in(question)
+    if limit is None and not family and not _wants_every_app_family(folded):
+        limit = 10
+    limit_sql = f" LIMIT {int(limit)}" if limit else ""
+    return (
+        f"SELECT app_label, COUNT(*) AS {measure}, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY app_label ORDER BY {order} DESC{limit_sql}"
+    )
 
 
 def _protocols_by_usage(question: str) -> str | None:

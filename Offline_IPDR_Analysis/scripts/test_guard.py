@@ -1656,6 +1656,22 @@ def main() -> None:
     ):
         raise SystemExit(f"youtube protocols were not listed: {youtube_protocols}")
     prepare(youtube_protocols, 200, allow_full_scan=True, allow_all_groups=True)
+    blocked_protocols = resolve_followup(
+        "show me the protocols that got blocked the most",
+        [{"question": "show me the same for whatsapp", "sql": youtube_protocols.replace("%youtube%", "%whatsapp%")}],
+    )
+    blocked_folded = (blocked_protocols or "").lower()
+    if (
+        not blocked_protocols
+        or "like '%whatsapp%'" not in blocked_folded
+        or "block_type <> 0" not in blocked_folded
+        or "group by app_label" not in blocked_folded
+        or "group by subscriber_id" in blocked_folded
+        or "as blocked_flows" not in blocked_folded
+        or "order by blocked_flows desc" not in blocked_folded
+    ):
+        raise SystemExit(f"blocked protocols were not ranked: {blocked_protocols}")
+    prepare(blocked_protocols, 200, allow_full_scan=True, allow_all_groups=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
