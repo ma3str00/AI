@@ -121,7 +121,9 @@ def prepare(sql: str, max_rows: int, allow_full_scan: bool = False, allow_all_gr
         for eq in expr.find_all(exp.EQ)
     )
     if not has_time and not has_one_subscriber:
-        if not (allow_full_scan and _is_aggregate(expr)):
+        # Aggregates and limited row listings (top flows by duration) may scan the
+        # whole table when the conversation has already allowed that.
+        if not (allow_full_scan and (_is_aggregate(expr) or expr.args.get("limit") is not None)):
             raise GuardError(
                 "Filter on start_time, end_time, recv_time, id, or log_id. "
                 "A question with no time range is not run unless you explicitly ask for all of the data."

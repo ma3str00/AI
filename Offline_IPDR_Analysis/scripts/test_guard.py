@@ -1992,10 +1992,15 @@ def main() -> None:
         or "limit 50" not in longest_folded
         or "as duration_seconds" not in longest_folded
         or "as start_gmt5" not in longest_folded
+        or "subscriber_id = 'duration'" in longest_folded
         or "group by" in longest_folded
     ):
         raise SystemExit(f"top flows by duration were not ranked: {longest}")
     prepare(longest, 200, allow_full_scan=True)
+    from app.followup import named_subscriber
+
+    if named_subscriber("show me the top 50 flows by duration"):
+        raise SystemExit("duration was treated as a subscriber id")
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

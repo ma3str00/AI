@@ -480,6 +480,10 @@ def _lists_every_app(sql: str) -> bool:
 def _empty_subscriber_result(sql: str) -> str:
     folded = sql.lower()
     blocked = "block_type <> 0" in folded
+    if "order by duration" in folded and "group by" not in folded:
+        return "No flows were found for that ranking."
+    if "as start_gmt5" in folded and "group by" not in folded:
+        return "No flows were found for that subscriber."
     if "group by loc" in folded:
         return "No street address was stored for that subscriber. loc is the cell or fixed-line address."
     if blocked and "requested_server" in folded and "app_label" in folded:

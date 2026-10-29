@@ -1636,6 +1636,9 @@ _NOT_SUBSCRIBER = {
     "operator", "operators", "isp", "isps", "provider", "providers", "asn", "asns",
     "protocol", "protocols", "domain", "domains", "blocking", "blocked", "allowed",
     "address", "addresses", "location", "locations", "whereabouts", "output", "data",
+    "duration", "durations", "timing", "timings", "session", "sessions",
+    "minute", "minutes", "second", "seconds", "hour", "hours", "flow", "flows",
+    "bytes", "traffic", "volume", "order", "ordered", "sort", "sorted",
 }
 
 
