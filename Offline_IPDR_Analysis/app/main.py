@@ -562,11 +562,13 @@ def _followup_notice(question: str, sql: str = "") -> str:
         subject = f" {label}" if label else ""
         duration = ""
         if "as duration_minutes" in compact:
-            duration = " duration_minutes is duration / 60000; duration is stored in milliseconds."
+            duration = " duration_minutes is duration / 60000. The stored duration column is milliseconds."
         elif "as duration_seconds" in compact:
-            duration = " duration_seconds is duration / 1000; duration is stored in milliseconds."
+            duration = " duration_seconds is duration / 1000. The stored duration column is milliseconds."
         elif "as duration_hours" in compact:
-            duration = " duration_hours is duration / 3600000; duration is stored in milliseconds."
+            duration = " duration_hours is duration / 3600000. The stored duration column is milliseconds."
+        elif re.search(r"(?i),\s*duration\s*,", compact) or re.search(r"(?i)\bas duration\b", compact):
+            duration = " The duration column is milliseconds (69496 means about 69.5 seconds)."
         ended = " end_gmt5 is FROM_UNIXTIME(end_time)." if "as end_gmt5" in compact else ""
         return (
             f"This lists each{subject} flow start time for that subscriber. "

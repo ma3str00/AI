@@ -1820,6 +1820,8 @@ def main() -> None:
     if (
         not login_times
         or "from_unixtime(start_time)" not in login_folded
+        or "as duration_seconds" not in login_folded
+        or "duration / 1000" not in login_folded
         or "subscriber_id = 'ayanjutt'" not in login_folded
         or "nordvpn" not in login_folded
     ):
@@ -1887,6 +1889,7 @@ def main() -> None:
         not access_times
         or "from_unixtime(start_time)" not in times_folded
         or "as start_gmt5" not in times_folded
+        or "as duration_seconds" not in times_folded
         or "subscriber_id = '210317380'" not in times_folded
         or "xhamster" not in times_folded
         or re.search(r"start_time\s*(?:>=|<=|=|>|<)", times_folded)

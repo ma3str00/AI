@@ -372,10 +372,10 @@ def _access_times_of_one(question: str, history: list[dict]) -> str | None:
     time_clause = _time_clause(previous)
     if time_clause:
         where.append(time_clause)
-    duration_col = "duration"
-    unit = _duration_display_unit(question)
-    if unit:
-        duration_col = _duration_unit_expression(unit)
+    # duration is stored in milliseconds. Flow lists show seconds by default so the
+    # number lines up with start_gmt5 / end_gmt5 (69s, not 69496).
+    unit = _duration_display_unit(question) or "seconds"
+    duration_col = _duration_unit_expression(unit)
     columns = [
         "FROM_UNIXTIME(start_time) AS start_gmt5",
         "app_label",
@@ -416,12 +416,23 @@ def _add_end_time(question: str, history: list[dict]) -> str | None:
     if re.search(r"(?i)\bas end_gmt5\b", text):
         return text
     if re.search(r"(?i)\bas start_gmt5\b", text):
-        return re.sub(
+        text = re.sub(
             r"(?i)(AS start_gmt5)",
             r"\1, FROM_UNIXTIME(end_time) AS end_gmt5",
             text,
             count=1,
         )
+        # Older lists still expose raw millisecond duration next to wall-clock times.
+        if re.search(r"(?i),\s*duration\s*,", text) and not re.search(
+            r"(?i)\bas duration_(?:seconds|minutes|hours)\b", text
+        ):
+            text = re.sub(
+                r"(?i),\s*duration\s*,",
+                f", {_duration_unit_expression('seconds')},",
+                text,
+                count=1,
+            )
+        return text
     if re.search(r"\bgroup\s+by\b", text, flags=re.IGNORECASE):
         return None
     if "subscriber_id = " not in text.lower():
