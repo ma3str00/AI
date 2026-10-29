@@ -65,6 +65,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     blank_servers = _include_blank_servers(question, history)
     if blank_servers:
         return blank_servers
+    with_end = _add_end_time(question, history)
+    if with_end:
+        return with_end
     access_times = _access_times_of_one(question, history)
     if access_times:
         return access_times
@@ -300,7 +303,7 @@ def _apply_named_subscriber(question: str, history: list[dict]) -> str | None:
 
 def _asks_for_access_times(question: str) -> bool:
     folded = question.lower()
-    return bool(
+    names_clock = bool(
         re.search(
             r"\b("
             r"at\s+what\s+time|"
@@ -312,38 +315,122 @@ def _asks_for_access_times(question: str) -> bool:
             r"when\s+were|"
             r"timestamps?|"
             r"date\s+and\s+time|"
-            r"access\s+times?"
+            r"access\s+times?|"
+            r"flows?\s+along\s+with|"
+            r"start(?:\s+times?)?"
             r")\b",
             folded,
         )
     )
+    # "duration in minutes" alone edits the list already on screen. It is not a new time listing.
+    if _duration_display_unit(question) and not names_clock and not _asks_for_end_time(question):
+        return False
+    if names_clock:
+        return True
+    return bool(re.search(r"\b(flows?|sessions?)\b", folded)) and bool(
+        re.search(r"\b(start(?:\s+time)?|timestamp)\b", folded)
+    )
+
+
+def _asks_for_end_time(question: str) -> bool:
+    folded = question.lower()
+    return bool(re.search(r"\b(end\s+times?|ended\s+at|finish(?:ed)?\s+times?|when\s+(?:it\s+)?ended)\b", folded))
+
+
+def _app_predicate_from_sql(sql: str) -> str | None:
+    match = re.search(
+        r"(LOWER\(app_label\)\s*(?:=|LIKE|IN)\s*(?:'[^']+'|\([^)]+\)))",
+        sql or "",
+        flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else None
 
 
 def _access_times_of_one(question: str, history: list[dict]) -> str | None:
     """List flow start times for one subscriber, optionally limited to a named app."""
     if not _asks_for_access_times(question):
         return None
+    previous = _last_sql(history) or ""
     subscriber = named_subscriber(question) or _id_anywhere(question)
     if not subscriber and _points_at_known_user(question):
         subscriber = _subscriber_from_history(history)
     if not subscriber:
-        subscriber = _subscriber_in_sql(_last_sql(history) or "")
+        subscriber = _subscriber_in_sql(previous)
     if not subscriber:
         return None
     where = [f"subscriber_id = '{subscriber}'"]
     app = _named_app_label(question) or known_app_token(question, _NOT_AN_APP)
     if app:
         where.append(_app_label_predicate(app))
-    time_clause = _time_clause(_last_sql(history) or "")
+    else:
+        inherited = _app_predicate_from_sql(previous)
+        drops_app = bool(
+            re.search(r"\b(all|every|other)\s+(?:the\s+)?(?:apps?|applications?|activities)\b", question.lower())
+        )
+        if inherited and not drops_app:
+            where.append(inherited)
+    time_clause = _time_clause(previous)
     if time_clause:
         where.append(time_clause)
+    duration_col = "duration"
+    unit = _duration_display_unit(question)
+    if unit:
+        duration_col = _duration_unit_expression(unit)
+    columns = [
+        "FROM_UNIXTIME(start_time) AS start_gmt5",
+        "app_label",
+        "requested_server",
+        "c2s_byte_num + s2c_byte_num AS total_bytes",
+        duration_col,
+        "block_type",
+    ]
+    if _asks_for_end_time(question):
+        columns.insert(1, "FROM_UNIXTIME(end_time) AS end_gmt5")
     limit = _limit_in(question)
-    limit_sql = f" LIMIT {int(limit)}" if limit is not None else " LIMIT 50"
+    if limit is not None:
+        limit_sql = f" LIMIT {int(limit)}"
+    elif re.search(r"\b(all|every)\b", question.lower()):
+        limit_sql = " LIMIT 200"
+    else:
+        limit_sql = " LIMIT 50"
     return (
-        "SELECT FROM_UNIXTIME(start_time) AS start_gmt5, app_label, requested_server, "
-        "c2s_byte_num + s2c_byte_num AS total_bytes, duration, block_type "
+        f"SELECT {', '.join(columns)} "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"ORDER BY start_time{limit_sql}"
+    )
+
+
+def _add_end_time(question: str, history: list[dict]) -> str | None:
+    """Add end_gmt5 to a flow list that already shows start_gmt5."""
+    if not _asks_for_end_time(question):
+        return None
+    # A brand-new listing that also names timestamps is built by _access_times_of_one.
+    if _asks_for_access_times(question) and not re.search(
+        r"(?i)\bas start_gmt5\b", _last_sql(history) or ""
+    ):
+        return None
+    previous = _last_sql(history)
+    if not previous:
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    if re.search(r"(?i)\bas end_gmt5\b", text):
+        return text
+    if re.search(r"(?i)\bas start_gmt5\b", text):
+        return re.sub(
+            r"(?i)(AS start_gmt5)",
+            r"\1, FROM_UNIXTIME(end_time) AS end_gmt5",
+            text,
+            count=1,
+        )
+    if re.search(r"\bgroup\s+by\b", text, flags=re.IGNORECASE):
+        return None
+    if "subscriber_id = " not in text.lower():
+        return None
+    return re.sub(
+        r"(?i)\bFROM\b",
+        ", FROM_UNIXTIME(end_time) AS end_gmt5 FROM",
+        text,
+        count=1,
     )
 
 
@@ -1188,6 +1275,8 @@ _NOT_AN_APP = {
     "tried", "try", "access", "accessed", "accessing", "visit", "visited", "visiting",
     "blocked", "denied", "rejected", "allowed", "permitted",
     "time", "times", "timestamp", "timestamps", "when", "date", "dates",
+    "session", "sessions", "duration", "durations", "minute", "minutes",
+    "second", "seconds", "hour", "hours", "flow", "flows", "end",
 }
 
 
@@ -1693,7 +1782,7 @@ def _has_app_filter(sql: str) -> bool:
 
 def _duration_display_unit(question: str) -> str | None:
     folded = question.lower()
-    if not re.search(r"\b(duration|session|sessions|how long)\b", folded):
+    if not re.search(r"\b(durations?|sessions?|how long)\b", folded):
         return None
     if re.search(r"\bminutes?\b", folded):
         return "minutes"

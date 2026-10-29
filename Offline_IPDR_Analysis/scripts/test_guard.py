@@ -1846,6 +1846,42 @@ def main() -> None:
     ):
         raise SystemExit(f"duration in minutes was not added to the access-time list: {duration_minutes}")
     prepare(duration_minutes, 200, allow_full_scan=True)
+    nordvpn_user = (
+        "SELECT subscriber_id, app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = '03334128404ASD' "
+        "AND LOWER(app_label) IN ('nordvpn', 'vpn_connect') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id, app_label ORDER BY total_bytes DESC LIMIT 200"
+    )
+    nord_flows = resolve_followup(
+        "display all the flows along with the timestamps and durations in minutes",
+        [{"question": "all the nordvpn connections", "sql": nordvpn_user}],
+    )
+    nord_folded = (nord_flows or "").lower()
+    if (
+        not nord_flows
+        or "as start_gmt5" not in nord_folded
+        or "as duration_minutes" not in nord_folded
+        or "subscriber_id = '03334128404asd'" not in nord_folded
+        or "nordvpn" not in nord_folded
+        or "group by" in nord_folded
+    ):
+        raise SystemExit(f"NordVPN flow times dropped the app filter or minutes: {nord_flows}")
+    prepare(nord_flows, 200, allow_full_scan=True)
+    with_end = resolve_followup(
+        "also display the end time of each flow",
+        [{"question": "flows with timestamps", "sql": nord_flows}],
+    )
+    end_folded = (with_end or "").lower()
+    if (
+        not with_end
+        or "as end_gmt5" not in end_folded
+        or "as start_gmt5" not in end_folded
+        or "nordvpn" not in end_folded
+        or "as duration_minutes" not in end_folded
+    ):
+        raise SystemExit(f"end time was not added to the flow list: {with_end}")
+    prepare(with_end, 200, allow_full_scan=True)
     times_folded = (access_times or "").lower()
     if (
         not access_times
