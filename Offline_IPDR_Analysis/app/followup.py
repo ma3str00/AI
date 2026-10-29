@@ -316,6 +316,8 @@ def _asks_for_access_times(question: str) -> bool:
             r"timestamps?|"
             r"date\s+and\s+time|"
             r"access\s+times?|"
+            r"activity\s+timings?|"
+            r"timings?|"
             r"flows?\s+along\s+with|"
             r"start(?:\s+times?)?"
             r")\b",
@@ -384,12 +386,17 @@ def _access_times_of_one(question: str, history: list[dict]) -> str | None:
         duration_col,
         "block_type",
     ]
-    if _asks_for_end_time(question):
+    wants_end = _asks_for_end_time(question) or bool(
+        re.search(r"\b(activity\s+)?timings?\b", question.lower())
+    )
+    if wants_end:
         columns.insert(1, "FROM_UNIXTIME(end_time) AS end_gmt5")
     limit = _limit_in(question)
     if limit is not None:
         limit_sql = f" LIMIT {int(limit)}"
-    elif re.search(r"\b(all|every)\b", question.lower()):
+    elif re.search(r"\b(all|every)\b", question.lower()) or re.search(
+        r"\b(activity\s+)?timings?\b", question.lower()
+    ):
         limit_sql = " LIMIT 200"
     else:
         limit_sql = " LIMIT 50"
@@ -1293,6 +1300,7 @@ _NOT_AN_APP = {
     "time", "times", "timestamp", "timestamps", "when", "date", "dates",
     "session", "sessions", "duration", "durations", "minute", "minutes",
     "second", "seconds", "hour", "hours", "flow", "flows", "end",
+    "timing", "timings", "activity", "activities",
 }
 
 

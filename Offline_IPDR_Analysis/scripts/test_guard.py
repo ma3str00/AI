@@ -1961,6 +1961,29 @@ def main() -> None:
     ):
         raise SystemExit(f"TWA Karachi kept the Cybernet filter: {twa_karachi}")
     prepare(twa_karachi, 200, allow_full_scan=True)
+    site_apps = (
+        "SELECT requested_server, app_label, COUNT(*) AS flows, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
+        "FROM ntc_ssl_logs WHERE subscriber_id = '923000953218' "
+        "AND IFNULL(requested_server, '') <> '' AND IFNULL(app_label, '') <> '' "
+        "GROUP BY requested_server, app_label ORDER BY total_bytes DESC LIMIT 50"
+    )
+    activity_times = resolve_followup(
+        "also show the activity timings",
+        [{"question": "apps and websites accessed by 923000953218", "sql": site_apps}],
+    )
+    activity_folded = (activity_times or "").lower()
+    if (
+        not activity_times
+        or "as start_gmt5" not in activity_folded
+        or "as end_gmt5" not in activity_folded
+        or "as duration_seconds" not in activity_folded
+        or "subscriber_id = '923000953218'" not in activity_folded
+        or "group by" in activity_folded
+    ):
+        raise SystemExit(f"activity timings were not expanded to flow times: {activity_times}")
+    prepare(activity_times, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
