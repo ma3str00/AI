@@ -43,12 +43,12 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     other_isp = _same_request_other_isp(question, history)
     if other_isp:
         return other_isp
-    place = _place_of_one_subscriber(question, history)
-    if place:
-        return place
     places = _addresses_of_current_users(question, history)
     if places:
         return places
+    place = _place_of_one_subscriber(question, history)
+    if place:
+        return place
     from_place = _users_from_place(question, history)
     if from_place:
         return from_place
@@ -866,9 +866,23 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
 
 def _addresses_of_current_users(question: str, history: list[dict]) -> str | None:
     """Add loc and geo to the subscriber list on screen. Not the IP-database place."""
-    if not _asks_for_place(question) or named_subscriber(question):
+    if not _asks_for_place(question):
         return None
-    if not re.search(r"\b(these|those|their)\s+(users?|subscribers?|people|address|addresses)\b", question.lower()):
+    if named_subscriber(question):
+        return None
+    folded = question.lower()
+    asks_for_listed = bool(
+        re.search(
+            r"\b("
+            r"(?:these|those|their)\s+(?:users?|subscribers?|people|address|addresses)|"
+            r"(?:user|subscriber)\s+addresses?|"
+            r"addresses?\s+of\s+(?:the\s+)?(?:users?|subscribers?|people)|"
+            r"also\s+(?:show|display|list|print)\s+(?:the\s+)?(?:user\s+)?addresses?"
+            r")\b",
+            folded,
+        )
+    )
+    if not asks_for_listed:
         return None
     previous = _last_sql(history)
     if not previous or "group by subscriber_id" not in previous.lower():
@@ -889,7 +903,7 @@ def _hostnames_on_current_ranking(question: str, history: list[dict]) -> str | N
     folded = question.lower()
     if not _asks_for_websites(folded) and not re.search(r"\b(requested server|hostname|host name|server name)\b", folded):
         return None
-    if not re.search(r"\b(exact|actual|specific)\b", folded):
+    if not re.search(r"\b(exact|actual|specific|corresponding|also|website name|server name)\b", folded):
         return None
     if named_subscriber(question):
         return None
@@ -899,7 +913,7 @@ def _hostnames_on_current_ranking(question: str, history: list[dict]) -> str | N
     if re.search(r"(?i)\bgroup\s+by\s+requested_server\b", previous):
         return None
     text = re.sub(r"\s+", " ", previous).strip()
-    if re.search(r"(?i)\bas requested_server\b", text):
+    if re.search(r"(?i)\bas requested_server\b", text) or re.search(r"(?i)\bas website\b", text):
         return text
     return re.sub(r"(?i)\bFROM\b", ", " + _address_expression("requested_server") + " FROM", text, count=1)
 
@@ -1386,6 +1400,7 @@ _NOT_SUBSCRIBER = {
     "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
     "operator", "operators", "isp", "isps", "provider", "providers", "asn", "asns",
     "protocol", "protocols", "domain", "domains", "blocking", "blocked", "allowed",
+    "address", "addresses", "location", "locations", "whereabouts", "output", "data",
 }
 
 

@@ -1776,6 +1776,28 @@ def main() -> None:
     ):
         raise SystemExit(f"Swat filter dropped the previous ranking: {swat_users}")
     prepare(swat_users, 200, allow_full_scan=True)
+    snap_users = (
+        "SELECT subscriber_id, COUNT(*) AS blocked_flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) IN ('snapchat', 'snapchat_voip') "
+        "AND (LOWER(client_asn) LIKE '%zong%') AND IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 GROUP BY subscriber_id ORDER BY blocked_flows DESC LIMIT 10"
+    )
+    with_address = resolve_followup(
+        "also show the user addresses",
+        [{"question": "snapchat zong users blocked", "sql": snap_users}],
+    )
+    address_folded = (with_address or "").lower()
+    if (
+        not with_address
+        or "subscriber_id = 'addresses'" in address_folded
+        or "as loc" not in address_folded
+        or "as geo" not in address_folded
+        or "group by subscriber_id" not in address_folded
+        or "snapchat" not in address_folded
+    ):
+        raise SystemExit(f"user addresses were treated as a subscriber: {with_address}")
+    prepare(with_address, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

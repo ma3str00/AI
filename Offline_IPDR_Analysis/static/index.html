@@ -108,9 +108,9 @@
   .chart-row button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .chart-svg { width: 100%; height: auto; display: block; }
   .chart-note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
-  details.sql, details.chart { margin-top: 12px; }
-  details.sql summary, details.chart summary { cursor: pointer; color: var(--muted); font-size: 14px; }
-  details.chart[open] summary { margin-bottom: 8px; }
+  details.sql, details.chart, details.table { margin-top: 12px; }
+  details.sql summary, details.chart summary, details.table summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details.chart[open] summary, details.table[open] summary { margin-bottom: 8px; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 </head>
@@ -570,9 +570,13 @@ function addAnswerBubble(asked, data) {
     bubble.append(row);
   }
   if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    const details = document.createElement("details");
+    details.className = "table";
+    details.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = "Table (" + data.rows.length + " row" + (data.rows.length === 1 ? "" : "s") + ")";
     const wrap = document.createElement("div");
     wrap.className = "table-wrap";
-    wrap.style.marginTop = "10px";
     const table = document.createElement("table");
     const head = document.createElement("tr");
     const numberHead = document.createElement("th");
@@ -599,7 +603,8 @@ function addAnswerBubble(asked, data) {
       table.append(line);
     });
     wrap.append(table);
-    bubble.append(wrap);
+    details.append(summary, wrap);
+    bubble.append(details);
   }
   transcript.append(bubble);
   bubble.scrollIntoView({block: "nearest"});
