@@ -987,9 +987,10 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
         return None
     place_cities = [place for place in named if place.kind == "city"]
     isps = [place for place in named if place.kind == "isp"]
-    if not place_cities and (narrows or not fresh_ranking):
+    # "twa users" / "cybernet users" name the ISP without from/in, so named_in misses them.
+    if not place_cities:
         place_cities = mentioned_cities(question)
-    if not isps and narrows:
+    if not isps:
         isps = mentioned_isps(question)
     if not place_cities and not isps and _from_place(question) is None and not mentioned_areas(question):
         return None
@@ -1222,6 +1223,10 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         and not blocked
         and not allowed
         and not provinces
+        and not cities
+        and not isps
+        and not areas
+        and not place
     ):
         return None
     if subject:

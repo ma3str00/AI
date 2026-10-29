@@ -1938,6 +1938,29 @@ def main() -> None:
     ):
         raise SystemExit(f"unique users dropped the Nayatel filter: {with_nayatel_users}")
     prepare(with_nayatel_users, 200, allow_full_scan=True)
+    cyber_karachi = (
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (LOWER(loc) LIKE '%karachi%' OR LOWER(loc) LIKE '%khi%') "
+        "AND (LOWER(client_asn) LIKE '%stormfiber%' OR LOWER(client_asn) LIKE '%cybernet%') "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 20"
+    )
+    twa_karachi = resolve_followup(
+        "show me the top 20 twa users from karachi by flow count",
+        [{"question": "cybernet karachi users", "sql": cyber_karachi}],
+    )
+    twa_folded = (twa_karachi or "").lower()
+    if (
+        not twa_karachi
+        or "like '%twa%'" not in twa_folded
+        or "like '%transworld%'" not in twa_folded
+        or "like '%cybernet%'" in twa_folded
+        or "like '%stormfiber%'" in twa_folded
+        or "like '%karachi%'" not in twa_folded
+        or "group by subscriber_id" not in twa_folded
+    ):
+        raise SystemExit(f"TWA Karachi kept the Cybernet filter: {twa_karachi}")
+    prepare(twa_karachi, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
