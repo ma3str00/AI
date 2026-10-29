@@ -1,4 +1,4 @@
-"""Client for the llama.cpp server already running on this machine."""
+"""Client for llama.cpp and Ollama OpenAI-compatible servers."""
 
 from __future__ import annotations
 
@@ -10,7 +10,17 @@ class LlamaError(Exception):
 
 
 class LlamaServer:
-    def __init__(self, base_url: str, model: str, timeout: float, sql_max_tokens: int, explain_max_tokens: int, kind: str = "llama.cpp"):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout: float,
+        sql_max_tokens: int,
+        explain_max_tokens: int,
+        kind: str = "llama.cpp",
+        num_ctx: int | None = None,
+        keep_alive: str | None = None,
+    ):
         root = base_url.rstrip("/")
         if root.endswith("/v1"):
             root = root[:-3]
@@ -20,6 +30,8 @@ class LlamaServer:
         self.sql_max_tokens = sql_max_tokens
         self.explain_max_tokens = explain_max_tokens
         self.kind = kind
+        self.num_ctx = num_ctx
+        self.keep_alive = keep_alive
 
     def chat(self, messages: list[dict], *, json_mode: bool, temperature: float) -> str:
         max_tokens = self.sql_max_tokens if json_mode else self.explain_max_tokens
@@ -66,6 +78,8 @@ class LlamaServer:
         return str(data[0].get("id") or "")
 
     def _complete(self, messages: list[dict], *, json_mode: bool, temperature: float, max_tokens: int) -> str:
+        if self.kind == "ollama":
+            return self._ollama_chat(messages, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens)
         payload = {
             "model": self.model,
             "messages": messages,
@@ -73,11 +87,10 @@ class LlamaServer:
             "top_p": 1,
             "stream": False,
             "max_tokens": max_tokens,
+            "top_k": 1 if temperature == 0 else 40,
+            "repeat_penalty": 1.0,
+            "cache_prompt": True,
         }
-        if self.kind != "ollama":
-            payload["top_k"] = 1 if temperature == 0 else 40
-            payload["repeat_penalty"] = 1.0
-            payload["cache_prompt"] = True
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         try:
@@ -88,6 +101,56 @@ class LlamaServer:
             )
         except httpx.HTTPError as exc:
             raise LlamaError(f"Cannot reach llama-server at {self.base_url}. {exc}") from exc
+        return self._content_from_openai(response, json_mode=json_mode)
+
+    def _ollama_chat(self, messages: list[dict], *, json_mode: bool, temperature: float, max_tokens: int) -> str:
+        # Native /api/chat supports keep_alive and num_ctx. The OpenAI path does not.
+        options = {
+            "temperature": temperature,
+            "top_p": 1,
+            "num_predict": max_tokens,
+        }
+        if self.num_ctx:
+            options["num_ctx"] = int(self.num_ctx)
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "options": options,
+        }
+        if self.keep_alive is not None:
+            payload["keep_alive"] = self.keep_alive
+        if json_mode:
+            payload["format"] = "json"
+        try:
+            response = httpx.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=self.timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise LlamaError(f"Cannot reach Ollama at {self.base_url}. {exc}") from exc
+        if response.status_code != 200:
+            detail = response.text[:500]
+            if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():
+                raise LlamaError(
+                    "The Kaggle tunnel is down, so Ollama never received this question. "
+                    "Restart ollama and the Cloudflare tunnel on the notebook, or choose Local 7B."
+                )
+            if json_mode and response.status_code == 400:
+                raise LlamaError(f"response_format was rejected: {detail}")
+            raise LlamaError(f"Ollama returned HTTP {response.status_code}: {detail}")
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise LlamaError("Ollama returned a non-JSON answer.") from exc
+        message = body.get("message") or {}
+        content = (message.get("content") or "").strip()
+        if not content:
+            raise LlamaError("Ollama returned an empty answer.")
+        return content
+
+    def _content_from_openai(self, response: httpx.Response, *, json_mode: bool) -> str:
         if response.status_code != 200:
             detail = response.text[:500]
             if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():

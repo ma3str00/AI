@@ -1,8 +1,13 @@
 # Extra AI servers. The local llama.cpp server always comes from config.yaml.
 # The Kaggle address changes every time the tunnel starts. Put the current one in
 # config.yaml under kaggle.base_url. That value replaces the address below.
+#
+# num_ctx 8192 is enough for this prompt and avoids a 6 GiB KV cache from 32768.
+# keep_alive -1 keeps the 14B model in GPU memory so idle minutes do not reload it.
 - id: kaggle
   label: Kaggle 14B
   kind: ollama
   base_url: "https://bone-indexes-ensures-joe.trycloudflare.com"
   model: "qwen2.5-coder-14b:latest"
+  num_ctx: 8192
+  keep_alive: "-1"

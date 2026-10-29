@@ -23,6 +23,9 @@ llama:
 kaggle:
   base_url: "https://bone-indexes-ensures-joe.trycloudflare.com"
 
+# Optional Ollama tuning for engines.yaml: num_ctx (8192) and keep_alive ("-1").
+# On the Kaggle notebook also start ollama with OLLAMA_KEEP_ALIVE=-1.
+
 server:
   # 8090 avoids the llama-server port. 0.0.0.0 accepts connections on every interface.
   host: "0.0.0.0"

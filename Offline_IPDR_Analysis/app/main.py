@@ -84,6 +84,8 @@ def startup() -> None:
             config.llama_sql_max_tokens,
             config.llama_explain_max_tokens,
             engine.kind,
+            engine.num_ctx,
+            engine.keep_alive,
         )
         for engine in config.engines
     }

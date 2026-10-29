@@ -16,6 +16,8 @@ class Engine:
     kind: str
     base_url: str
     model: str
+    num_ctx: int | None = None
+    keep_alive: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,12 +137,16 @@ def _engine(item: dict) -> Engine:
     engine_id = str(item.get("id") or "").strip()
     if not engine_id:
         raise ValueError("An AI engine needs an id.")
+    num_ctx = item.get("num_ctx")
+    keep_alive = item.get("keep_alive")
     return Engine(
         engine_id,
         str(item.get("label") or engine_id),
         kind,
         str(item.get("base_url") or "").rstrip("/"),
         str(item.get("model") or ""),
+        int(num_ctx) if num_ctx not in (None, "") else None,
+        None if keep_alive in (None, "") else str(keep_alive),
     )
 
 
