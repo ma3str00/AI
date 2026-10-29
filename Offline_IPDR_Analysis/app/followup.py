@@ -301,7 +301,9 @@ def _asks_for_access_times(question: str) -> bool:
         re.search(
             r"\b("
             r"at\s+what\s+time|"
-            r"what\s+time|"
+            r"what\s+(?:was\s+)?(?:the\s+)?time|"
+            r"the\s+time\s+when|"
+            r"time\s+when|"
             r"when\s+did|"
             r"when\s+was|"
             r"when\s+were|"
@@ -1415,11 +1417,13 @@ def named_subscriber(question: str) -> str | None:
         r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bdid\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\bwhen\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bof\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bagainst\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\babout\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bfor\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\b([A-Za-z0-9][A-Za-z0-9._-]{2,64})\s+activit(?:y|ies)\b",
+        r"\b([A-Za-z][A-Za-z0-9._-]{5,64})\s+accessed\b",
         r"\b([A-Za-z][A-Za-z0-9._-]{5,64})\s+details?\b",
     )
     folded = cleaned.lower()

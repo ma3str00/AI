@@ -1803,6 +1803,28 @@ def main() -> None:
         "at what time did 210317380 try to access xhamster",
         [{"question": "other activities", "sql": "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = '210317380' GROUP BY app_label ORDER BY flows DESC"}],
     )
+    login_times = resolve_followup(
+        "what was the time when ayanjutt accessed nordvpn?",
+        [
+            {
+                "question": "other activities",
+                "sql": (
+                    "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+                    "COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = 'ayanjutt' "
+                    "GROUP BY app_label ORDER BY total_bytes DESC"
+                ),
+            }
+        ],
+    )
+    login_folded = (login_times or "").lower()
+    if (
+        not login_times
+        or "from_unixtime(start_time)" not in login_folded
+        or "subscriber_id = 'ayanjutt'" not in login_folded
+        or "nordvpn" not in login_folded
+    ):
+        raise SystemExit(f"access times for a letter login were not listed: {login_times}")
+    prepare(login_times, 200, allow_full_scan=True)
     times_folded = (access_times or "").lower()
     if (
         not access_times
