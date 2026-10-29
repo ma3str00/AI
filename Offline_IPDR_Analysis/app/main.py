@@ -646,6 +646,17 @@ def _followup_notice(question: str, sql: str = "") -> str:
         return f"This keeps the previous columns and shows upload and download in {unit_name}."
     if "upload" in folded and "download" in folded:
         return "This keeps the previous filters and shows upload and download separately."
+    if (
+        "group by app_label" in compact
+        and "subscriber_id = " not in compact
+        and re.search(r"\b(protocols?|applications?|apps?)\b", folded)
+    ):
+        app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
+        if app:
+            return (
+                f"This lists the {app.group(1)} protocols. "
+                "Each row is one app_label. Traffic is upload plus download."
+            )
     if unit_name:
         return f"This keeps the previous columns and shows the traffic in {unit_name}."
     return "This keeps the previous filters and changes only what you just asked."

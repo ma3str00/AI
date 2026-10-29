@@ -1566,15 +1566,61 @@ def _present_measures(question: str, sql: str) -> str | None:
     rest = tail[match.start():]
     rest = re.sub(r"(?is)\bORDER BY\b.+?(?=\bLIMIT\b|$)", "", rest).strip()
     order = _requested_order(folded, columns)
+    if order is None and wants_flows and "by flow" in folded:
+        order = "flow_count"
+    if order is None and wants_volume:
+        order = _volume_alias(columns)
     if order is None:
-        order = "flow_count" if wants_flows and "by flow" in folded else _kept_order(sql, columns)
+        order = _kept_order(sql, columns)
     statement = f"SELECT {', '.join(columns)} {rest}"
+    family = _protocol_family(question)
+    if family and _group_key(sql) == "app_label":
+        statement = _apply_app_family(statement, family)
+    if _wants_every_app_family(folded):
+        statement = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", statement).strip()
     if order:
         if re.search(r"(?i)\bLIMIT\b", statement):
             statement = re.sub(r"(?i)\bLIMIT\b", f"ORDER BY {order} DESC LIMIT", statement, count=1)
         else:
             statement = f"{statement} ORDER BY {order} DESC"
     return re.sub(r"\s+", " ", statement).strip()
+
+
+def _protocol_family(question: str) -> str | None:
+    """'YouTube protocols' is every app_label that contains that name."""
+    folded = question.lower()
+    if not re.search(r"\b(protocols?|applications?|apps?)\b", folded):
+        return None
+    skip = set(_NOT_AN_APP)
+    skip.update({"protocol", "protocols"})
+    return known_app_token(folded, skip)
+
+
+def _wants_every_app_family(question: str) -> bool:
+    return bool(re.search(r"\b(all|every)\b", question) and re.search(r"\b(protocols?|applications?|apps?)\b", question))
+
+
+def _apply_app_family(statement: str, stem: str) -> str:
+    predicate = f"LOWER(app_label) LIKE '%{stem}%'"
+    replaced = re.sub(
+        r"(?i)LOWER\(app_label\)\s+LIKE\s+'%[^']+%'",
+        predicate,
+        statement,
+        count=1,
+    )
+    if replaced != statement:
+        return replaced
+    if re.search(r"(?i)\bWHERE\b", statement):
+        return re.sub(r"(?i)\bWHERE\b", f"WHERE {predicate} AND", statement, count=1)
+    return re.sub(r"(?i)\bGROUP BY\b", f"WHERE {predicate} GROUP BY", statement, count=1)
+
+
+def _volume_alias(columns: list[str]) -> str | None:
+    for item in columns:
+        match = re.search(r"\bas\s+(traffic_volume(?:_[a-z]+)?)\s*$", item, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+    return None
 
 
 def _grouped_expression(sql: str, alias: str) -> str:

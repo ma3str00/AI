@@ -267,7 +267,7 @@ function columnByName(numeric, names) {
   return null;
 }
 
-function measureFromQuestion(question, numeric) {
+function namedMeasures(question, numeric) {
   const text = String(question || "");
   const rules = [
     {pattern: /\b(flow counts?|number of flows|hits)\b/gi, names: ["flow_count", "flows", "blocked_flows"]},
@@ -276,16 +276,22 @@ function measureFromQuestion(question, numeric) {
     {pattern: /\b(user counts?|unique users|subscribers|users)\b/gi, names: ["users"]},
     {pattern: /\bwebsites\b/gi, names: ["websites"]}
   ];
-  let chosen = null;
+  const found = [];
   for (const rule of rules) {
     const pattern = new RegExp(rule.pattern.source, "gi");
     let match;
     while ((match = pattern.exec(text))) {
       const column = columnByName(numeric, rule.names);
-      if (column && (!chosen || match.index >= chosen.index)) chosen = {index: match.index, column};
+      if (column && !found.some((item) => item.column === column)) found.push({index: match.index, column});
     }
   }
-  return chosen ? chosen.column : null;
+  found.sort((left, right) => left.index - right.index);
+  return found.map((item) => item.column);
+}
+
+function measureFromQuestion(question, numeric) {
+  const named = namedMeasures(question, numeric);
+  return named.length === 1 ? named[0] : null;
 }
 
 function measureFromSql(sql, numeric) {
@@ -300,7 +306,8 @@ function chartFields(columns, rows, question, sql) {
     || columns.find((column) => !numeric.includes(column));
   if (!label || !numeric.length) return null;
   const preferred = ["flows", "flow_count", "blocked_flows", "users", "websites", "traffic_volume_mb", "total_mb", "traffic_volume_gb", "total_gb", "traffic_volume", "total_bytes"];
-  const measure = measureFromQuestion(question, numeric) || measureFromSql(sql, numeric) || preferred.find((name) => numeric.includes(name)) || numeric[0];
+  const named = namedMeasures(question, numeric);
+  const measure = (named.length === 1 ? named[0] : null) || measureFromSql(sql, numeric) || named[named.length - 1] || preferred.find((name) => numeric.includes(name)) || numeric[0];
   return {label, measure, numeric};
 }
 
@@ -308,7 +315,7 @@ function chartRows(rows, measure) {
   return rows
     .slice()
     .sort((left, right) => (numberValue(right[measure]) || 0) - (numberValue(left[measure]) || 0))
-    .slice(0, 12);
+    .slice(0, 20);
 }
 
 const MEASURE_LABELS = {
