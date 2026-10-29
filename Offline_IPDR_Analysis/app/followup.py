@@ -89,6 +89,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     by_city = _cities_by_usage(question, history)
     if by_city:
         return by_city
+    by_operator = _flows_by_operator(question)
+    if by_operator:
+        return by_operator
     people = _top_people(question, history)
     if people:
         return people
@@ -912,6 +915,43 @@ def _saved_loc_predicate(sql: str) -> str | None:
     return match.group(0) if match else None
 
 
+def _flows_by_operator(question: str) -> str | None:
+    """Blocked or allowed flows grouped by ISP / operator (client_asn), not by subscriber."""
+    folded = question.lower()
+    if re.search(r"\b(users?|subscribers?|websites?|domains?|cities?|protocols?|applications?|apps?)\b", folded):
+        return None
+    if named_subscriber(question):
+        return None
+    if not re.search(r"\b(operators?|isps?|providers?|asns?)\b", folded) and "client asn" not in folded:
+        return None
+    if not re.search(r"\b(flows?|flow count|traffic|volume|bytes)\b", folded) and not mentions(question, "blocked") and not mentions(question, "allowed"):
+        return None
+    blocked = mentions(question, "blocked")
+    allowed = not blocked and mentions(question, "allowed")
+    by_volume = bool(re.search(r"\b(bytes|traffic|volume)\b", folded)) and not re.search(r"\bflows?\b", folded)
+    if blocked:
+        measure = "blocked_flows"
+    elif allowed:
+        measure = "allowed_flows"
+    else:
+        measure = "flows"
+    order = "total_mb" if by_volume else measure
+    where = ["IFNULL(client_asn, '') <> ''"]
+    if blocked:
+        where.append(BLOCKED_SQL)
+    elif allowed:
+        where.append(ALLOWED_SQL)
+    limit = _limit_in(question) or 20
+    return (
+        "SELECT client_asn, "
+        f"COUNT(*) AS {measure}, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
 def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     """A ranking of identified subscribers. Unidentified IP_port ids are not users."""
     folded = question.lower()
@@ -1301,6 +1341,8 @@ _NOT_SUBSCRIBER = {
     "website", "something", "interested", "looking", "regarding", "information",
     "access", "accessed", "accessing", "visit", "visited", "visiting", "tried", "try",
     "facebook", "youtube", "whatsapp", "tiktok", "instagram", "telegram",
+    "operator", "operators", "isp", "isps", "provider", "providers", "asn", "asns",
+    "protocol", "protocols", "domain", "domains", "blocking", "blocked", "allowed",
 }
 
 

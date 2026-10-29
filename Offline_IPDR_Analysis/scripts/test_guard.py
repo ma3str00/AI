@@ -1697,6 +1697,18 @@ def main() -> None:
     ):
         raise SystemExit(f"blocked SSL domains were wrong: {ssl_domains}")
     prepare(ssl_domains, 200, allow_full_scan=True)
+    by_operator = resolve_followup("show me the blocked flows by operator", [])
+    operator_folded = (by_operator or "").lower()
+    if (
+        not by_operator
+        or "group by client_asn" not in operator_folded
+        or "block_type <> 0" not in operator_folded
+        or "as blocked_flows" not in operator_folded
+        or "group by subscriber_id" in operator_folded
+        or " as loc" in operator_folded
+    ):
+        raise SystemExit(f"blocked flows by operator were wrong: {by_operator}")
+    prepare(by_operator, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

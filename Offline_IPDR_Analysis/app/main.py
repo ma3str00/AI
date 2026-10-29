@@ -618,6 +618,18 @@ def _followup_notice(question: str, sql: str = "") -> str:
             "block_type 0 means allowed. "
             "An id containing an underscore is an IP and port and is left out."
         )
+    if "group by client_asn" in compact and "subscriber_id" not in compact:
+        if "block_type <> 0" in compact:
+            return (
+                "This ranks operators by how many flows were blocked. "
+                "The operator is the client ASN name. Any block_type other than 0 means blocked."
+            )
+        if "block_type = 0" in compact:
+            return (
+                "This ranks operators by how many flows were allowed. "
+                "The operator is the client ASN name. block_type 0 means allowed."
+            )
+        return "This ranks operators by traffic. The operator is the client ASN name."
     if "group by subscriber_id" in compact and re.search(r"\b(users?|subscribers?)\b", folded):
         if "client_asn" in compact:
             return (
