@@ -1635,23 +1635,23 @@ def main() -> None:
     )
     if kept_again or not kept or "030944736121" not in kept or "limit 200" not in kept.lower() or "group by subscriber_id" in kept.lower():
         raise SystemExit(f"a size reply forgot the chosen list: {kept} {kept_again}")
-    app_rank = (
-        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
-        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 20"
+    subscriber_rank = (
+        "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs GROUP BY subscriber_id ORDER BY flows DESC LIMIT 30"
     )
     youtube_protocols = resolve_followup(
         "show the traffic and flows for all the youtube protocols",
-        [{"question": "show me top 20 applications by traffic volume", "sql": app_rank}],
+        [{"question": "top users by flow count", "sql": subscriber_rank}],
     )
     youtube_folded = (youtube_protocols or "").lower()
     if (
         not youtube_protocols
         or "like '%youtube%'" not in youtube_folded
         or "group by app_label" not in youtube_folded
-        or "as flow_count" not in youtube_folded
-        or "as traffic_volume_mb" not in youtube_folded
-        or "order by traffic_volume_mb desc" not in youtube_folded
+        or "group by subscriber_id" in youtube_folded
+        or "as total_mb" not in youtube_folded
+        or "as flows" not in youtube_folded
+        or "order by total_mb desc" not in youtube_folded
         or "limit" in youtube_folded
     ):
         raise SystemExit(f"youtube protocols were not listed: {youtube_protocols}")
