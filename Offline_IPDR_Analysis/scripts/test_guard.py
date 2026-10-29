@@ -1984,6 +1984,18 @@ def main() -> None:
     ):
         raise SystemExit(f"activity timings were not expanded to flow times: {activity_times}")
     prepare(activity_times, 200, allow_full_scan=True)
+    longest = resolve_followup("show me the top 50 flows by duration", [])
+    longest_folded = (longest or "").lower()
+    if (
+        not longest
+        or "order by duration desc" not in longest_folded
+        or "limit 50" not in longest_folded
+        or "as duration_seconds" not in longest_folded
+        or "as start_gmt5" not in longest_folded
+        or "group by" in longest_folded
+    ):
+        raise SystemExit(f"top flows by duration were not ranked: {longest}")
+    prepare(longest, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

@@ -99,6 +99,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     by_operator = _flows_by_operator(question)
     if by_operator:
         return by_operator
+    top_flows = _top_flows(question, history)
+    if top_flows:
+        return top_flows
     people = _top_people(question, history)
     if people:
         return people
@@ -1167,6 +1170,65 @@ def _flows_by_operator(question: str) -> str | None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+def _top_flows(question: str, history: list[dict] | None = None) -> str | None:
+    """Rank individual flows, usually by duration. Not a GROUP BY ranking."""
+    folded = question.lower()
+    if not re.search(r"\bflows?\b", folded):
+        return None
+    if re.search(r"\b(users?|subscribers?|operators?|protocols?|websites?|apps?|applications?)\b", folded):
+        return None
+    ranked = bool(re.search(r"\b(top|highest|longest|maximum|most)\b", folded))
+    by_duration = bool(re.search(r"\b(duration|longest)\b", folded))
+    by_bytes = bool(re.search(r"\b(bytes|traffic|volume)\b", folded))
+    if not ranked:
+        return None
+    # "top 20 by number of flows" reorders a GROUP BY ranking. It is not individual flows.
+    if re.search(r"\bby\s+(?:the\s+)?(?:number\s+of\s+)?flows?\b", folded) and not by_duration:
+        return None
+    names_flow_list = bool(
+        re.search(r"\btop\s+\d+\s+flows?\b", folded)
+        or re.search(r"\b(longest|individual)\s+flows?\b", folded)
+        or by_duration
+    )
+    if not names_flow_list:
+        return None
+    if not by_duration and not by_bytes:
+        by_duration = True
+    limit = _limit_in(question) or 50
+    unit = _duration_display_unit(question) or "seconds"
+    duration_col = _duration_unit_expression(unit)
+    where: list[str] = []
+    subscriber = named_subscriber(question) or _id_anywhere(question)
+    if not subscriber and _points_at_known_user(question):
+        subscriber = _subscriber_from_history(history or [])
+    if subscriber:
+        where.append(f"subscriber_id = '{subscriber}'")
+    app = _named_app_label(question) or known_app_token(question, _NOT_AN_APP)
+    if app:
+        where.append(_app_label_predicate(app))
+    for isp in mentioned_isps(question)[-1:]:
+        where.append(column_predicate("client_asn", isp))
+    for city in mentioned_cities(question)[-1:]:
+        where.append(column_predicate("loc", city))
+    previous = _last_sql(history or [])
+    time_clause = _time_clause(previous or "")
+    if time_clause:
+        where.append(time_clause)
+    if mentions(question, "blocked"):
+        where.append(BLOCKED_SQL)
+    elif mentions(question, "allowed"):
+        where.append(ALLOWED_SQL)
+    where_sql = f" WHERE {' AND '.join(where)}" if where else ""
+    order = "duration DESC" if by_duration else "(c2s_byte_num + s2c_byte_num) DESC"
+    return (
+        "SELECT FROM_UNIXTIME(start_time) AS start_gmt5, FROM_UNIXTIME(end_time) AS end_gmt5, "
+        "subscriber_id, app_label, requested_server, "
+        f"c2s_byte_num + s2c_byte_num AS total_bytes, {duration_col}, block_type "
+        f"FROM ntc_ssl_logs{where_sql} "
+        f"ORDER BY {order} LIMIT {int(limit)}"
     )
 
 

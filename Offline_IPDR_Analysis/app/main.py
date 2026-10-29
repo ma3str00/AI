@@ -553,6 +553,13 @@ def _followup_notice(question: str, sql: str = "") -> str:
             f"This ranks websites{subject} by how many flows were blocked. "
             "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
         )
+    if "order by duration" in compact and "as start_gmt5" in compact and "group by" not in compact:
+        return (
+            "This ranks individual flows by duration. "
+            "duration is stored in milliseconds; duration_seconds is duration / 1000. "
+            "start_time and end_time are whole Unix seconds only, so end_time - start_time "
+            "can differ from duration by up to about one second."
+        )
     shows_clock = "as start_gmt5" in compact or (
         "start_time" in compact and "end_time" in compact
     )
