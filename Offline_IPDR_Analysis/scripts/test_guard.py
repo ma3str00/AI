@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -1798,6 +1799,34 @@ def main() -> None:
     ):
         raise SystemExit(f"user addresses were treated as a subscriber: {with_address}")
     prepare(with_address, 200, allow_full_scan=True)
+    access_times = resolve_followup(
+        "at what time did 210317380 try to access xhamster",
+        [{"question": "other activities", "sql": "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = '210317380' GROUP BY app_label ORDER BY flows DESC"}],
+    )
+    times_folded = (access_times or "").lower()
+    if (
+        not access_times
+        or "from_unixtime(start_time)" not in times_folded
+        or "as start_gmt5" not in times_folded
+        or "subscriber_id = '210317380'" not in times_folded
+        or "xhamster" not in times_folded
+        or re.search(r"start_time\s*(?:>=|<=|=|>|<)", times_folded)
+    ):
+        raise SystemExit(f"access times for one subscriber were not listed: {access_times}")
+    prepare(access_times, 200, allow_full_scan=True)
+    from app.answer_check import check_sql
+    from app.learned import sql_needs_full_scan
+
+    if not sql_needs_full_scan(access_times):
+        raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
+    rejected = check_sql(
+        "at what time did 210317380 try to access xhamster",
+        access_times,
+        [{"question": "other activities", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE subscriber_id = '210317380' GROUP BY app_label"}],
+        True,
+    )
+    if rejected:
+        raise SystemExit(f"listing access times was blocked by the SQL check: {rejected}")
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

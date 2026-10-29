@@ -553,6 +553,13 @@ def _followup_notice(question: str, sql: str = "") -> str:
             f"This ranks websites{subject} by how many flows were blocked. "
             "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
         )
+    if "as start_gmt5" in compact and "subscriber_id = " in compact:
+        app = re.search(r"lower\(app_label\)\s*(?:=|like)\s*'%?([^'%]+)%?'", compact)
+        subject = f" {app.group(1)}" if app else ""
+        return (
+            f"This lists each{subject} flow start time for that subscriber. "
+            "start_gmt5 is FROM_UNIXTIME(start_time) in the session time zone (GMT+5)."
+        )
     if "group by app_label" in compact and "subscriber_id = " in compact:
         return "This lists every application that subscriber used. It reads the whole table and can take several minutes."
     if re.search(r"\b(application|applications|apps|activities)\b", folded) and named_subscriber(question):

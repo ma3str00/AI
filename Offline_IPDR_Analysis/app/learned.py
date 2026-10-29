@@ -12,8 +12,14 @@ def normalize(text: str) -> str:
 
 
 def sql_needs_full_scan(sql: str) -> bool:
-    folded = sql.lower()
-    return not any(column in folded for column in _TIME_COLUMNS)
+    """True when the query has no WHERE time window. SELECT FROM_UNIXTIME(start_time) is not a filter."""
+    return not bool(
+        re.search(
+            r"\b(?:start_time|end_time|recv_time)\s*(?:>=|<=|<>|!=|=|>|<)",
+            sql or "",
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def saved_sql(examples: list[dict], question: str) -> dict | None:

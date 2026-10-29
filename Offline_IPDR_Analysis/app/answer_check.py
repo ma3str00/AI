@@ -45,9 +45,10 @@ def check_sql(question: str, sql: str, history: list[dict] | None, full_scan: bo
                 "The app name is a filter. Do not drop it when the grouping column changes."
             )
 
-    if _forbids_new_time_filter(current, history, full_scan) and any(column in folded for column in TIME_COLUMNS):
+    if _forbids_new_time_filter(current, history, full_scan) and _adds_time_where_filter(folded):
         problems.append(
-            "Do not add start_time, end_time, or recv_time. Keep the previous query's time scope."
+            "Do not add a start_time, end_time, or recv_time filter. Keep the previous query's time scope. "
+            "You may still SELECT FROM_UNIXTIME(start_time) when the user asks when something happened."
         )
 
     kind = subscriber_kind([current])
@@ -134,6 +135,10 @@ def _apps(text: str) -> list[str]:
     return found
 
 
+def _adds_time_where_filter(sql: str) -> bool:
+    return bool(re.search(r"\b(?:start_time|end_time|recv_time)\s*(?:>=|<=|<>|!=|=|>|<)", sql or ""))
+
+
 def _forbids_new_time_filter(current: str, history: list[dict] | None, full_scan: bool) -> bool:
     if any(word in current for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week")):
         return False
@@ -142,7 +147,7 @@ def _forbids_new_time_filter(current: str, history: list[dict] | None, full_scan
         if item.get("sql"):
             previous = str(item["sql"]).lower()
             break
-    if previous and not any(column in previous for column in TIME_COLUMNS):
+    if previous and not _adds_time_where_filter(previous):
         return True
     return full_scan and not previous
 

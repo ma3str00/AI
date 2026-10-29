@@ -22,6 +22,7 @@ from app.places import (
     without_areas,
     without_named,
 )
+from app.learned import sql_needs_full_scan
 from app.schema import ALLOWED_SQL, BLOCKED_SQL, MOBILE_SQL
 from app.sql_guard import wants_all_groups, wants_full_table
 
@@ -64,6 +65,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     blank_servers = _include_blank_servers(question, history)
     if blank_servers:
         return blank_servers
+    access_times = _access_times_of_one(question, history)
+    if access_times:
+        return access_times
     exact_sites = _hostnames_on_current_ranking(question, history)
     if exact_sites:
         return exact_sites
@@ -164,7 +168,7 @@ def conversation_full_scan(question: str, history: list[dict] | None) -> bool:
     ):
         return True
     previous = _last_sql(history or [])
-    return bool(previous) and not any(column in previous.lower() for column in ("start_time", "end_time", "recv_time"))
+    return bool(previous) and sql_needs_full_scan(previous)
 
 
 def use_full_scan(question: str, history: list[dict] | None, missing_time_means_all: bool) -> bool:
@@ -193,7 +197,7 @@ def _id_anywhere(question: str) -> str | None:
             continue
         digits = len(re.findall(r"\d", token))
         letters = len(re.findall(r"[A-Za-z]", token))
-        if (letters and digits >= 4) or (letters == 0 and digits >= 10):
+        if (letters and digits >= 4) or (letters == 0 and digits >= 8):
             return token
     return None
 
@@ -289,6 +293,53 @@ def _apply_named_subscriber(question: str, history: list[dict]) -> str | None:
     if not subscriber or not previous:
         return None
     return _set_subscriber(previous, subscriber)
+
+
+def _asks_for_access_times(question: str) -> bool:
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"at\s+what\s+time|"
+            r"what\s+time|"
+            r"when\s+did|"
+            r"when\s+was|"
+            r"when\s+were|"
+            r"timestamps?|"
+            r"date\s+and\s+time|"
+            r"access\s+times?"
+            r")\b",
+            folded,
+        )
+    )
+
+
+def _access_times_of_one(question: str, history: list[dict]) -> str | None:
+    """List flow start times for one subscriber, optionally limited to a named app."""
+    if not _asks_for_access_times(question):
+        return None
+    subscriber = named_subscriber(question) or _id_anywhere(question)
+    if not subscriber and _points_at_known_user(question):
+        subscriber = _subscriber_from_history(history)
+    if not subscriber:
+        subscriber = _subscriber_in_sql(_last_sql(history) or "")
+    if not subscriber:
+        return None
+    where = [f"subscriber_id = '{subscriber}'"]
+    app = _named_app_label(question) or known_app_token(question, _NOT_AN_APP)
+    if app:
+        where.append(_app_label_predicate(app))
+    time_clause = _time_clause(_last_sql(history) or "")
+    if time_clause:
+        where.append(time_clause)
+    limit = _limit_in(question)
+    limit_sql = f" LIMIT {int(limit)}" if limit is not None else " LIMIT 50"
+    return (
+        "SELECT FROM_UNIXTIME(start_time) AS start_gmt5, app_label, requested_server, "
+        "c2s_byte_num + s2c_byte_num AS total_bytes, duration, block_type "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"ORDER BY start_time{limit_sql}"
+    )
 
 
 def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | None:
@@ -1131,6 +1182,7 @@ _NOT_AN_APP = {
     "belong", "belongs", "belonging", "building", "previous", "query",
     "tried", "try", "access", "accessed", "accessing", "visit", "visited", "visiting",
     "blocked", "denied", "rejected", "allowed", "permitted",
+    "time", "times", "timestamp", "timestamps", "when", "date", "dates",
 }
 
 
@@ -1362,6 +1414,7 @@ def named_subscriber(question: str) -> str | None:
         r"\b(?:what|how)\s+about\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\b(?:user|subscriber)\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bby\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
+        r"\bdid\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bof\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\bagainst\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
         r"\babout\s+([A-Za-z0-9][A-Za-z0-9._-]{2,64})\b",
