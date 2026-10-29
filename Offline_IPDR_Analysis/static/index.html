@@ -231,49 +231,108 @@ function numberValue(value) {
   return null;
 }
 
-function chartFields(columns, rows) {
-  const numeric = columns.filter((column) => rows.some((row) => numberValue(row[column]) !== null));
-  const label = columns.find((column) => !numeric.includes(column));
-  if (!label || !numeric.length) return null;
-  const preferred = ["total_mb", "total_gb", "total_tb", "total_bytes", "users", "flows", "flow_count", "blocked_flows", "websites"];
-  const measure = preferred.find((name) => numeric.includes(name)) || numeric[0];
-  return {label, measure};
+function numericColumns(columns, rows) {
+  return columns.filter((column) => rows.some((row) => numberValue(row[column]) !== null));
 }
 
-function chartCard(columns, rows) {
-  const fields = chartFields(columns, rows);
+function columnByName(numeric, names) {
+  for (const wanted of names) {
+    const found = numeric.find((column) => column.toLowerCase() === wanted);
+    if (found) return found;
+  }
+  return null;
+}
+
+function measureFromQuestion(question, numeric) {
+  const text = String(question || "");
+  const rules = [
+    {pattern: /\b(flow counts?|number of flows|hits)\b/gi, names: ["flow_count", "flows", "blocked_flows"]},
+    {pattern: /\bflows\b/gi, names: ["flows", "flow_count", "blocked_flows"]},
+    {pattern: /\b(traffic volume|volume|bytes|megabytes|total mb)\b/gi, names: ["traffic_volume_mb", "total_mb", "traffic_volume_gb", "total_gb", "traffic_volume_tb", "total_tb", "traffic_volume", "total_bytes"]},
+    {pattern: /\b(user counts?|unique users|subscribers|users)\b/gi, names: ["users"]},
+    {pattern: /\bwebsites\b/gi, names: ["websites"]}
+  ];
+  let chosen = null;
+  for (const rule of rules) {
+    const pattern = new RegExp(rule.pattern.source, "gi");
+    let match;
+    while ((match = pattern.exec(text))) {
+      const column = columnByName(numeric, rule.names);
+      if (column && (!chosen || match.index >= chosen.index)) chosen = {index: match.index, column};
+    }
+  }
+  return chosen ? chosen.column : null;
+}
+
+function measureFromSql(sql, numeric) {
+  const match = String(sql || "").match(/\border\s+by\s+`?([a-zA-Z0-9_]+)`?/i);
+  if (!match) return null;
+  return columnByName(numeric, [match[1].toLowerCase()]);
+}
+
+function chartFields(columns, rows, question, sql) {
+  const numeric = numericColumns(columns, rows);
+  const label = columns.find((column) => !numeric.includes(column));
+  if (!label || !numeric.length) return null;
+  const preferred = ["flows", "flow_count", "blocked_flows", "users", "websites", "traffic_volume_mb", "total_mb", "traffic_volume_gb", "total_gb", "traffic_volume", "total_bytes"];
+  const measure = measureFromQuestion(question, numeric) || measureFromSql(sql, numeric) || preferred.find((name) => numeric.includes(name)) || numeric[0];
+  return {label, measure, numeric};
+}
+
+function chartRows(rows, measure) {
+  return rows
+    .slice()
+    .sort((left, right) => (numberValue(right[measure]) || 0) - (numberValue(left[measure]) || 0))
+    .slice(0, 12);
+}
+
+function chartCard(columns, rows, question, sql) {
+  const fields = chartFields(columns, rows, question, sql);
   const card = document.createElement("div");
   card.className = "chart-card";
   if (!fields) return card;
-  const shown = rows.slice(0, 12);
   const toolbar = document.createElement("div");
   toolbar.className = "chart-toolbar";
   const title = document.createElement("h2");
-  title.textContent = fields.measure.replace(/_/g, " ");
+  const measureButtons = fields.numeric.map((column) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = column.replace(/_/g, " ");
+    button.addEventListener("click", () => {
+      fields.measure = column;
+      draw(currentKind);
+    });
+    return button;
+  });
   const barButton = document.createElement("button");
   const pieButton = document.createElement("button");
   barButton.type = "button";
   pieButton.type = "button";
-  barButton.className = "secondary active";
+  barButton.className = "secondary";
   pieButton.className = "secondary";
   barButton.textContent = "Bar";
   pieButton.textContent = "Pie";
   const plot = document.createElement("div");
+  const note = document.createElement("p");
+  note.className = "chart-note";
+  let currentKind = "bar";
   function draw(kind) {
+    currentKind = kind;
+    const shown = chartRows(rows, fields.measure);
+    title.textContent = fields.measure.replace(/_/g, " ");
+    for (const button of measureButtons) button.classList.toggle("active", button.textContent === title.textContent);
     barButton.classList.toggle("active", kind === "bar");
     pieButton.classList.toggle("active", kind === "pie");
     plot.replaceChildren(kind === "pie" ? pieChart(shown, fields) : barChart(shown, fields));
+    note.textContent = rows.length > shown.length
+      ? "Largest " + shown.length + " of " + rows.length + " rows, by " + title.textContent + "."
+      : "Ordered by " + title.textContent + ", largest first.";
   }
   barButton.addEventListener("click", () => draw("bar"));
   pieButton.addEventListener("click", () => draw("pie"));
-  toolbar.append(title, barButton, pieButton);
-  card.append(toolbar, plot);
-  if (rows.length > shown.length) {
-    const note = document.createElement("p");
-    note.className = "chart-note";
-    note.textContent = "The chart shows the first " + shown.length + " of " + rows.length + " rows.";
-    card.append(note);
-  }
+  toolbar.append(title, ...measureButtons, barButton, pieButton);
+  card.append(toolbar, plot, note);
   draw("bar");
   return card;
 }
@@ -404,7 +463,7 @@ function addAnswerBubble(asked, data) {
   text.textContent = data.explanation || data.clarify || "";
   bubble.append(text);
   if (data.columns && data.columns.length && data.rows && data.rows.length) {
-    bubble.append(chartCard(data.columns, data.rows));
+    bubble.append(chartCard(data.columns, data.rows, asked, data.sql));
   }
   if (data.sql) {
     const details = document.createElement("details");
