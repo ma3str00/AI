@@ -2018,6 +2018,20 @@ def main() -> None:
     ):
         raise SystemExit(f"valid-user filter was not applied to the flow list: {valid_flows}")
     prepare(valid_flows, 200, allow_full_scan=True)
+    with_isp = resolve_followup(
+        "also show the corresponding ISP",
+        [{"question": "only include the valid users", "sql": valid_flows}],
+    )
+    isp_folded = (with_isp or "").lower()
+    if (
+        not with_isp
+        or "client_asn" not in isp_folded
+        or "order by duration desc" not in isp_folded
+        or "locate('_', subscriber_id) = 0" not in isp_folded
+        or "group_concat" in isp_folded
+    ):
+        raise SystemExit(f"ISP was not added beside the flow list: {with_isp}")
+    prepare(with_isp, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

@@ -1409,7 +1409,7 @@ def _display_columns(text: str) -> list[str]:
 
 
 def _add_shown_columns(question: str, history: list[dict]) -> str | None:
-    """'Also show the ISP' adds that column to the subscriber result already on screen."""
+    """'Also show the ISP' adds that column to the subscriber or flow result on screen."""
     wanted = list(_display_columns(question))
     if _asks_for_place(question):
         wanted.extend(column for column in ("loc", "geo") if column not in wanted)
@@ -1419,16 +1419,28 @@ def _add_shown_columns(question: str, history: list[dict]) -> str | None:
     if not previous:
         return None
     one_person = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", previous, flags=re.IGNORECASE))
-    if "group by subscriber_id" not in previous.lower() and not one_person:
+    flow_list = "as start_gmt5" in previous.lower() and not re.search(
+        r"\bgroup\s+by\b", previous, flags=re.IGNORECASE
+    )
+    if "group by subscriber_id" not in previous.lower() and not one_person and not flow_list:
         return None
     text = re.sub(r"\s+", " ", previous).strip()
     named = named_subscriber(question)
     if named and _subscriber_in_sql(text) != named:
         text = _set_subscriber(text, named)
+
+    def missing(column: str) -> bool:
+        select = re.search(r"(?is)\bSELECT\b(.*?)\bFROM\b", text)
+        head = select.group(1) if select else text
+        return not re.search(rf"(?i)\bas {column}\b", head) and not re.search(
+            rf"(?i)(?<![a-z0-9_]){re.escape(column)}(?![a-z0-9_])", head
+        )
+
+    # Per-flow rows already have one client_asn value. Aggregated subscriber rows need GROUP_CONCAT.
     additions = [
-        _shown_expression(column)
+        (column if flow_list else _shown_expression(column))
         for column in wanted
-        if not re.search(rf"(?i)\bas {column}\b", text)
+        if missing(column)
     ]
     if not additions:
         return None
