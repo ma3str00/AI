@@ -1609,6 +1609,11 @@ def _blocked_protocols(question: str, history: list[dict]) -> str | None:
         kept = re.search(r"LOWER\(app_label\)\s+LIKE\s+'%([^']+)%'", previous or "", flags=re.IGNORECASE)
         if kept and "group by app_label" in (previous or "").lower():
             family = kept.group(1)
+    # A fresh list of every protocol should not keep the previous family filter.
+    if family and re.search(r"\b(list|lists|all|every)\b.{0,40}\bprotocols?\b", folded) and not re.search(
+        rf"\b{re.escape(family)}\b", folded
+    ):
+        family = None
     where = [BLOCKED_SQL if blocked else ALLOWED_SQL]
     if family:
         where.insert(0, f"LOWER(app_label) LIKE '%{family}%'")
@@ -1616,7 +1621,9 @@ def _blocked_protocols(question: str, history: list[dict]) -> str | None:
     by_volume = bool(re.search(r"\b(bytes|traffic|volume)\b", folded))
     order = "total_mb" if by_volume else measure
     limit = _limit_in(question)
-    if limit is None and not family and not _wants_every_app_family(folded):
+    if limit is None and family is None and re.search(r"\b(list|lists|all|every)\b", folded):
+        limit = 200
+    elif limit is None and not family and not _wants_every_app_family(folded):
         limit = 10
     limit_sql = f" LIMIT {int(limit)}" if limit else ""
     return (

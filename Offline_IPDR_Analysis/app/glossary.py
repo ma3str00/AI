@@ -175,13 +175,13 @@ MEANINGS: tuple[Meaning, ...] = (
     Meaning(
         "blocked",
         "block_type is not 0.",
-        ("blocked", "denied", "rejected"),
+        ("blocked", "blocking", "denied", "rejected"),
         measure="blocked",
     ),
     Meaning(
         "allowed",
         "block_type is 0.",
-        ("allowed", "permitted", "passed"),
+        ("allowed", "allowing", "permitted", "passed"),
         measure="allowed",
     ),
     Meaning(

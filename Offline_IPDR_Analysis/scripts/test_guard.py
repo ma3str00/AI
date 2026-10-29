@@ -1672,6 +1672,19 @@ def main() -> None:
     ):
         raise SystemExit(f"blocked protocols were not ranked: {blocked_protocols}")
     prepare(blocked_protocols, 200, allow_full_scan=True, allow_all_groups=True)
+    blocked_list = resolve_followup("show me the list of protocols by blocking count", [])
+    list_folded = (blocked_list or "").lower()
+    if (
+        not blocked_list
+        or "block_type <> 0" not in list_folded
+        or "group by app_label" not in list_folded
+        or "as blocked_flows" not in list_folded
+        or "order by blocked_flows desc" not in list_folded
+        or "like '%" in list_folded
+        or "in ('king')" in list_folded
+    ):
+        raise SystemExit(f"blocking count list was wrong: {blocked_list}")
+    prepare(blocked_list, 200, allow_full_scan=True)
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
