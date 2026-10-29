@@ -553,7 +553,15 @@ def _followup_notice(question: str, sql: str = "") -> str:
             f"This ranks websites{subject} by how many flows were blocked. "
             "A website is the TLS server name in requested_server. Any block_type other than 0 means blocked."
         )
-    if "as start_gmt5" in compact and "subscriber_id = " in compact:
+    shows_clock = "as start_gmt5" in compact or (
+        "start_time" in compact and "end_time" in compact
+    )
+    shows_duration = bool(
+        re.search(r"\bas duration_(?:seconds|minutes|hours)\b", compact)
+        or re.search(r"(?i),\s*duration\s*,", compact)
+        or re.search(r"(?i)\bas duration\b", compact)
+    )
+    if shows_clock and ("subscriber_id = " in compact or "group by subscriber_id, start_time" in compact):
         app = re.search(
             r"lower\(app_label\)\s*(?:=|like|in)\s*(?:'%?([^'%]+)%?'|\(\s*'([^']+)')",
             compact,
@@ -562,17 +570,27 @@ def _followup_notice(question: str, sql: str = "") -> str:
         subject = f" {label}" if label else ""
         duration = ""
         if "as duration_minutes" in compact:
-            duration = " duration_minutes is duration / 60000. The stored duration column is milliseconds."
+            duration = " duration_minutes is duration / 60000."
         elif "as duration_seconds" in compact:
-            duration = " duration_seconds is duration / 1000. The stored duration column is milliseconds."
+            duration = " duration_seconds is duration / 1000."
         elif "as duration_hours" in compact:
-            duration = " duration_hours is duration / 3600000. The stored duration column is milliseconds."
-        elif re.search(r"(?i),\s*duration\s*,", compact) or re.search(r"(?i)\bas duration\b", compact):
-            duration = " The duration column is milliseconds (69496 means about 69.5 seconds)."
-        ended = " end_gmt5 is FROM_UNIXTIME(end_time)." if "as end_gmt5" in compact else ""
+            duration = " duration_hours is duration / 3600000."
+        elif shows_duration:
+            duration = " The duration column is milliseconds."
+        if shows_duration:
+            duration += (
+                " duration is the precise flow length in milliseconds. "
+                "start_time and end_time are whole Unix seconds only, so end_time - start_time "
+                "can differ from duration by up to about one second."
+            )
+        ended = (
+            " end_gmt5 is FROM_UNIXTIME(end_time)."
+            if "as end_gmt5" in compact or "end_time" in compact
+            else ""
+        )
         return (
             f"This lists each{subject} flow start time for that subscriber. "
-            "start_gmt5 is FROM_UNIXTIME(start_time) in the session time zone (GMT+5)."
+            "Times are shown in the session time zone (GMT+5)."
             + ended
             + duration
         )
