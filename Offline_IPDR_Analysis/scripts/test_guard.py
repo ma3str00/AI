@@ -2001,6 +2001,23 @@ def main() -> None:
 
     if named_subscriber("show me the top 50 flows by duration"):
         raise SystemExit("duration was treated as a subscriber id")
+    valid_flows = resolve_followup(
+        "only show those flows that have valid users",
+        [{"question": "top 50 flows by duration", "sql": longest}],
+    )
+    valid_folded = (valid_flows or "").lower()
+    if (
+        not valid_flows
+        or "locate('_', subscriber_id) = 0" not in valid_folded
+        or "ifnull(subscriber_id, '') <> ''" not in valid_folded
+        or "order by duration desc" not in valid_folded
+        or (
+            "as duration_seconds" not in valid_folded
+            and "as duration_minutes" not in valid_folded
+        )
+    ):
+        raise SystemExit(f"valid-user filter was not applied to the flow list: {valid_flows}")
+    prepare(valid_flows, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

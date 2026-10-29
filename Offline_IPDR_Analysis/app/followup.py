@@ -119,6 +119,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     if _pending(history) and _answer_drops(question):
         return _revise(str(history[-1].get("question") or ""), history[:-1], force_drop=True)
     previous = _last_sql(history)
+    valid_only = _only_valid_users(question, previous)
+    if valid_only:
+        return valid_only
     duration_unit = _duration_in_units(question, previous)
     if duration_unit:
         return duration_unit
@@ -1221,6 +1224,8 @@ def _top_flows(question: str, history: list[dict] | None = None) -> str | None:
         where.append(BLOCKED_SQL)
     elif mentions(question, "allowed"):
         where.append(ALLOWED_SQL)
+    if _asks_for_valid_users(question):
+        where.extend(["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"])
     where_sql = f" WHERE {' AND '.join(where)}" if where else ""
     order = "duration DESC" if by_duration else "(c2s_byte_num + s2c_byte_num) DESC"
     return (
@@ -1867,6 +1872,47 @@ def _app_choice(blob: str, previous: str) -> tuple[bool, bool]:
 
 def _has_app_filter(sql: str) -> bool:
     return "app_label" in sql.lower()
+
+
+def _asks_for_valid_users(question: str) -> bool:
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"valid\s+users?|"
+            r"identified\s+(?:users?|subscribers?)|"
+            r"real\s+users?|"
+            r"exclude\s+unidentified|"
+            r"without\s+unidentified|"
+            r"only\s+(?:those\s+)?(?:flows?\s+)?(?:that\s+)?(?:have\s+)?valid\s+users?"
+            r")\b",
+            folded,
+        )
+    )
+
+
+def _has_identified_subscriber_filter(sql: str) -> bool:
+    compact = re.sub(r"\s+", "", (sql or "").lower())
+    return "locate('_',subscriber_id)=0" in compact and (
+        "ifnull(subscriber_id,'')<>''" in compact or "subscriber_id<>''" in compact
+    )
+
+
+def _only_valid_users(question: str, sql: str | None) -> str | None:
+    """Keep the current list but drop unidentified clientIP_port subscriber ids."""
+    if not _asks_for_valid_users(question) or not sql:
+        return None
+    text = re.sub(r"\s+", " ", sql).strip()
+    if _has_identified_subscriber_filter(text):
+        return text
+    clause = "IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0"
+    if re.search(r"(?i)\bWHERE\b", text):
+        return re.sub(r"(?i)\bWHERE\b", f"WHERE {clause} AND", text, count=1)
+    if re.search(r"(?i)\bORDER\s+BY\b", text):
+        return re.sub(r"(?i)\bORDER\s+BY\b", f"WHERE {clause} ORDER BY", text, count=1)
+    if re.search(r"(?i)\bLIMIT\b", text):
+        return re.sub(r"(?i)\bLIMIT\b", f"WHERE {clause} LIMIT", text, count=1)
+    return f"{text} WHERE {clause}"
 
 
 def _duration_display_unit(question: str) -> str | None:
