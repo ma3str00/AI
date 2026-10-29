@@ -158,7 +158,7 @@ def _ask_events(body: Question):
     engine_label = engine.label if engine else engine_id
     yield _status("Checking saved answers")
     history = _history_payload(body.history)
-    saved = saved_sql(_state["index"].examples, question)
+    saved = saved_sql(_state["index"].examples, question, history)
     if saved:
         yield _status("Running the saved query")
         replayed = _replay_saved(saved, config, database)
@@ -683,16 +683,18 @@ def _followup_notice(question: str, sql: str = "") -> str:
         app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
         subject = f"{app.group(1)} " if app else ""
         operator = " The operator is the client ASN name." if "client_asn" in compact else ""
+        kind = "protocols" if re.search(r"\bprotocols?\b", folded) else "applications"
         return (
-            f"This ranks {subject}protocols by how many flows were blocked. "
+            f"This ranks {subject}{kind} by how many flows were blocked. "
             "Each row is one app_label. Any block_type other than 0 means blocked."
             + operator
         )
     if "group by app_label" in compact and "subscriber_id = " not in compact and "block_type = 0" in compact:
         app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
         subject = f"{app.group(1)} " if app else ""
+        kind = "protocols" if re.search(r"\bprotocols?\b", folded) else "applications"
         return (
-            f"This ranks {subject}protocols by how many flows were allowed. "
+            f"This ranks {subject}{kind} by how many flows were allowed. "
             "Each row is one app_label. block_type 0 means allowed."
         )
     if (
@@ -702,8 +704,9 @@ def _followup_notice(question: str, sql: str = "") -> str:
     ):
         app = re.search(r"lower\(app_label\) like '%([^']+)%'", compact)
         if app:
+            kind = "protocols" if re.search(r"\bprotocols?\b", folded) else "applications"
             return (
-                f"This lists the {app.group(1)} protocols. "
+                f"This lists the {app.group(1)} {kind}. "
                 "Each row is one app_label. Traffic is upload plus download."
             )
     if unit_name:

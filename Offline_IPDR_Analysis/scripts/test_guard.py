@@ -1815,7 +1815,47 @@ def main() -> None:
         raise SystemExit(f"access times for one subscriber were not listed: {access_times}")
     prepare(access_times, 200, allow_full_scan=True)
     from app.answer_check import check_sql
-    from app.learned import sql_needs_full_scan
+    from app.learned import saved_sql, sql_needs_full_scan
+
+    nayatel_apps = (
+        "SELECT app_label, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+        "WHERE (block_type IS NOT NULL AND block_type <> 0) AND LOWER(client_asn) LIKE '%nayatel%' "
+        "GROUP BY app_label ORDER BY blocked_flows DESC LIMIT 10"
+    )
+    twa_learned = {
+        "question": "also show the corresponding number of unique users",
+        "sql": (
+            "SELECT app_label, COUNT(*) AS blocked_flows, "
+            "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+            "THEN subscriber_id END) AS users FROM ntc_ssl_logs "
+            "WHERE (block_type IS NOT NULL AND block_type <> 0) AND LOWER(client_asn) LIKE '%twa%' "
+            "GROUP BY app_label ORDER BY blocked_flows DESC LIMIT 10"
+        ),
+        "learned": True,
+        "full_scan": True,
+    }
+    if saved_sql([twa_learned], "also show the corresponding number of unique users"):
+        raise SystemExit("a relative follow-up was replayed as a saved answer with no history")
+    if saved_sql(
+        [twa_learned],
+        "also show the corresponding number of unique users",
+        [{"question": "nayatel blocked apps", "sql": nayatel_apps}],
+    ):
+        raise SystemExit("a saved follow-up overrode the current Nayatel thread")
+    with_nayatel_users = resolve_followup(
+        "also show the corresponding number of unique users",
+        [{"question": "nayatel blocked apps", "sql": nayatel_apps}],
+    )
+    nayatel_folded = (with_nayatel_users or "").lower()
+    if (
+        not with_nayatel_users
+        or "as users" not in nayatel_folded
+        or "like '%nayatel%'" not in nayatel_folded
+        or "like '%twa%'" in nayatel_folded
+        or "group by app_label" not in nayatel_folded
+    ):
+        raise SystemExit(f"unique users dropped the Nayatel filter: {with_nayatel_users}")
+    prepare(with_nayatel_users, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
