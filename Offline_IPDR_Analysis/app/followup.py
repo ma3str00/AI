@@ -1957,14 +1957,22 @@ def _sum_duration_unit_expression(unit: str) -> str:
 
 
 def _asks_for_session_count(question: str) -> bool:
+    """Add COUNT(*) beside the current ranking. Flows and sessions are the same rows here."""
     folded = question.lower()
+    # Reordering by flow count is handled by _present_measures, not as an additive column.
+    if re.search(r"\b(instead|rather)\b", folded) and re.search(r"\bflows?\b", folded):
+        return False
+    if re.search(r"\b(?:by|order(?:ed)?\s+by)\s+(?:the\s+)?flow\s+counts?\b", folded):
+        return False
+    if re.search(r"\border(?:ed)?\s+by\s+flows?\b", folded):
+        return False
     return bool(
         re.search(
             r"\b("
-            r"number\s+of\s+sessions?|"
+            r"number\s+of\s+(?:sessions?|flows?)|"
             r"session\s+counts?|"
-            r"corresponding\s+(?:number\s+of\s+)?sessions?|"
-            r"also\s+(?:show|display|include|add)\s+(?:the\s+)?(?:corresponding\s+)?(?:number\s+of\s+)?sessions?"
+            r"corresponding\s+(?:number\s+of\s+)?(?:sessions?|flows?)|"
+            r"also\s+(?:show|display|include|add)\s+(?:the\s+)?(?:corresponding\s+)?(?:number\s+of\s+)?(?:sessions?|flows?)"
             r")\b",
             folded,
         )
@@ -2012,8 +2020,20 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
         if wants_sessions and not re.search(
             r"(?i)\bas sessions\b|\bas flow_count\b|\bas flows\b|count\s*\(\s*\*\s*\)", head
         ):
-            head = f"{head.rstrip()}, COUNT(*) AS sessions"
-        return re.sub(r"\s+", " ", f"{text[: select.start(1)]}{head} {rest.lstrip()}").strip()
+            count_alias = (
+                "flows"
+                if re.search(r"\bflows?\b", question.lower())
+                and not re.search(r"\bsessions?\b", question.lower())
+                else "sessions"
+            )
+            head = f"{head.rstrip()}, COUNT(*) AS {count_alias}"
+        changed = head != select.group(1) or rest != text[select.end(1) :]
+        if changed:
+            return re.sub(r"\s+", " ", f"{text[: select.start(1)]}{head} {rest.lstrip()}").strip()
+        # Count already present on a duration ranking: keep it, do not rebuild via _present_measures.
+        if has_sum_duration and wants_sessions:
+            return text
+        return None
 
     if not unit:
         return None
@@ -2056,6 +2076,10 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_upload = wants_split or _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\)")
     keep_download = wants_split or _has_call(sql, r"sum\s*\(\s*s2c_byte_num\s*\)")
     keep_total = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
+    keep_duration = bool(
+        re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", sql)
+    )
+    corresponding = bool(re.search(r"\b(also|corresponding|beside|as well)\b", folded))
     if wants_split and not re.search(r"\b(also|as well|total)\b", folded):
         keep_total = False
     names_upload = "upload" in folded
@@ -2078,6 +2102,15 @@ def _present_measures(question: str, sql: str) -> str | None:
         total_unit = _existing_unit(sql, "total")
     key = _group_key(sql) or "app_label"
     columns = [_grouped_expression(sql, key)]
+    if keep_duration:
+        duration_match = re.search(
+            r"(?i)(ROUND\(\s*SUM\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
+            r"|SUM\(\s*duration\s*\)\s+AS\s+\w+"
+            r"|SUM\(\s*duration\s*\))",
+            sql,
+        )
+        if duration_match:
+            columns.append(duration_match.group(1))
     if keep_flows:
         columns.append("COUNT(*) AS flow_count")
     if keep_upload:
@@ -2098,7 +2131,7 @@ def _present_measures(question: str, sql: str) -> str | None:
     rest = tail[match.start():]
     rest = re.sub(r"(?is)\bORDER BY\b.+?(?=\bLIMIT\b|$)", "", rest).strip()
     order = _requested_order(folded, columns)
-    if order is None and wants_flows and "by flow" in folded:
+    if order is None and wants_flows and "by flow" in folded and not corresponding:
         order = "flow_count"
     if order is None and wants_volume:
         order = _volume_alias(columns)

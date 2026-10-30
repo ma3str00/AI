@@ -2052,6 +2052,25 @@ def main() -> None:
     ):
         raise SystemExit(f"app duration was not converted to hours with sessions: {duration_hours}")
     prepare(duration_hours, 200, allow_full_scan=True)
+    hours_only = (
+        "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 10"
+    )
+    with_flows = resolve_followup(
+        "show the corresponding number of flows",
+        [{"question": "duration in hours", "sql": hours_only}],
+    )
+    flows_folded = (with_flows or "").lower()
+    if (
+        not with_flows
+        or "as total_duration_hours" not in flows_folded
+        or ("as flows" not in flows_folded and "as flow_count" not in flows_folded and "as sessions" not in flows_folded)
+        or "order by total_duration_hours" not in flows_folded
+        or "group by app_label" not in flows_folded
+    ):
+        raise SystemExit(f"flow count replaced the duration ranking: {with_flows}")
+    prepare(with_flows, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
