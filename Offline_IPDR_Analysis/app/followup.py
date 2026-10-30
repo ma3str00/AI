@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import re
 
-from app.app_map import CATEGORY_PHRASES, exact_app_label, known_app_token
+from app.app_map import (
+    CATEGORY_PHRASES,
+    CLASS_PHRASE_STOPWORDS,
+    class_from_question,
+    class_label_predicate,
+    exact_app_label,
+    known_app_token,
+)
 from app.glossary import mentions
 from app.places import (
     asks_same_city,
@@ -80,6 +87,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_duration = _apps_by_duration(question)
     if apps_duration:
         return apps_duration
+    apps_class = _apps_by_class(question)
+    if apps_class:
+        return apps_class
     apps = _apps_of_one_subscriber(question, history)
     if apps:
         return apps
@@ -1224,6 +1234,36 @@ def _apps_by_duration(question: str) -> str | None:
     )
 
 
+def _apps_by_class(question: str) -> str | None:
+    """Rank apps in a conceptual multi-label class (e.g. social media), not LIKE '%media%'."""
+    class_id = class_from_question(question)
+    if not class_id:
+        return None
+    folded = question.lower()
+    if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded):
+        return None
+    names_apps = bool(re.search(r"\b(apps?|applications?|protocols?)\b", folded))
+    ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display)\b", folded))
+    if not names_apps and not ranked:
+        return None
+    predicate = class_label_predicate(class_id)
+    if not predicate:
+        return None
+    limit = _limit_in(question) or 20
+    if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded):
+        order = "total_mb"
+    else:
+        # "most used" / default → session/flow count
+        order = "flows"
+    return (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"{predicate} AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
 def _top_flows(question: str, history: list[dict] | None = None) -> str | None:
     """Rank individual flows, usually by duration. Not a GROUP BY ranking."""
     folded = question.lower()
@@ -1416,6 +1456,8 @@ _NOT_AN_APP = {
     "session", "sessions", "duration", "durations", "minute", "minutes",
     "second", "seconds", "hour", "hours", "flow", "flows", "end",
     "timing", "timings", "activity", "activities",
+    "media", "social", "dating", "shopping", "ecommerce", "conferencing",
+    "navigation", "payment", "fintech", "assistant", "assistants",
 }
 
 
@@ -1501,7 +1543,10 @@ def _subject_filter(folded: str) -> str | None:
     for phrase, category in CATEGORY_PHRASES:
         if re.search(rf"\b{re.escape(phrase)}\b", folded):
             return f"LOWER(app_category) = '{category}'"
-    stem = known_app_token(folded, _NOT_AN_APP)
+    class_id = class_from_question(folded)
+    if class_id:
+        return class_label_predicate(class_id)
+    stem = known_app_token(folded, set(_NOT_AN_APP) | set(CLASS_PHRASE_STOPWORDS))
     if not stem:
         return None
     return f"LOWER(app_label) LIKE '%{stem}%'"
@@ -2493,8 +2538,12 @@ def _protocol_family(question: str) -> str | None:
     folded = question.lower()
     if not re.search(r"\b(protocols?|applications?|apps?)\b", folded):
         return None
+    # Conceptual classes own phrases like 'social media' — never LIKE '%media%'.
+    if class_from_question(question):
+        return None
     skip = set(_NOT_AN_APP)
     skip.update({"protocol", "protocols"})
+    skip.update(CLASS_PHRASE_STOPWORDS)
     return known_app_token(folded, skip)
 
 

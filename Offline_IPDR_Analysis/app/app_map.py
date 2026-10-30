@@ -29,6 +29,207 @@ CATEGORY_PHRASES = (
     ("browsing", "web_browsing"),
 )
 
+# Conceptual classes on top of DPI app_category. One stem may sit in several classes
+# (WhatsApp → messaging + social_media, YouTube → video_streaming + social_media).
+# Matching uses LOWER(app_label) LIKE '%stem%'. Prefer distinctive stems.
+APP_CLASSES: dict[str, dict[str, tuple[str, ...]]] = {
+    "social_media": {
+        "phrases": (
+            "social media",
+            "social networking",
+            "social network",
+            "social apps",
+            "social applications",
+        ),
+        "stems": (
+            "facebook", "instagram", "tiktok", "whatsapp", "twitter", "snapchat",
+            "linkedin", "reddit", "pinterest", "threads", "youtube", "discord",
+            "telegram", "signal", "viber", "wechat", "imo", "botim", "bigo",
+            "likee", "kuaishou", "clubhouse", "twitch", "tinder", "badoo", "grindr",
+        ),
+    },
+    "messaging": {
+        "phrases": (
+            "messaging apps",
+            "messaging applications",
+            "chat apps",
+            "chat applications",
+            "messenger apps",
+            "im apps",
+        ),
+        "stems": (
+            "whatsapp", "telegram", "signal", "viber", "wechat", "imo", "botim",
+            "discord", "snapchat", "line_im", "facebook_messenger", "imessage",
+            "skype_im", "slack", "bipmessenger", "beetalk", "firechat",
+        ),
+    },
+    "video_streaming": {
+        "phrases": (
+            "video streaming",
+            "streaming video",
+            "video apps",
+            "ott apps",
+            "ott platforms",
+        ),
+        "stems": (
+            "youtube", "netflix", "disney", "hotstar", "hulu", "amazoninstantvideo",
+            "twitch", "tiktok", "kuaishou", "bigo", "dazn", "megavideo",
+        ),
+    },
+    "music": {
+        "phrases": (
+            "music apps",
+            "music streaming",
+            "audio streaming",
+            "music applications",
+        ),
+        "stems": (
+            "spotify", "soundcloud", "deezer", "youtubemusic", "itunes", "anghami",
+            "pandora",
+        ),
+    },
+    "gaming": {
+        "phrases": (
+            "gaming apps",
+            "game apps",
+            "mobile games",
+            "online games",
+        ),
+        "stems": (
+            "roblox", "pubg", "freefire", "fortnite", "steam", "youtubegaming",
+            "discord",
+        ),
+    },
+    "dating": {
+        "phrases": (
+            "dating apps",
+            "dating applications",
+            "dating sites",
+        ),
+        "stems": (
+            "tinder", "badoo", "grindr", "meetme", "meetic",
+        ),
+    },
+    "conferencing": {
+        "phrases": (
+            "video conferencing",
+            "conferencing apps",
+            "meeting apps",
+            "online meetings",
+            "collaboration apps",
+        ),
+        "stems": (
+            "zoom", "microsoftteams", "googlemeet", "skype", "jitsimeet",
+            "gotomeeting", "webex", "slack",
+        ),
+    },
+    "email": {
+        "phrases": (
+            "email apps",
+            "mail apps",
+            "email applications",
+        ),
+        "stems": (
+            "gmail", "outlook", "protonmail", "webmail", "yahoo",
+        ),
+    },
+    "cloud_storage": {
+        "phrases": (
+            "cloud storage",
+            "cloud apps",
+            "file storage apps",
+            "storage apps",
+        ),
+        "stems": (
+            "dropbox", "onedrive", "icloud", "googledrive", "google_drive",
+            "amazons3", "huaweicloud", "megashare", "megaupload",
+        ),
+    },
+    "vpn": {
+        "phrases": (
+            "vpn apps",
+            "vpn applications",
+            "proxy apps",
+            "tunnel apps",
+        ),
+        "stems": (
+            "nordvpn", "expressvpn", "protonvpn", "psiphon", "hotspotvpn",
+            "icloudprivaterelay",
+        ),
+    },
+    "shopping": {
+        "phrases": (
+            "shopping apps",
+            "ecommerce",
+            "e-commerce",
+            "online shopping",
+            "retail apps",
+        ),
+        "stems": (
+            "amazon", "ebay", "aliexpress", "shopify", "daraz",
+        ),
+    },
+    "maps_transport": {
+        "phrases": (
+            "maps apps",
+            "navigation apps",
+            "ride hailing",
+            "ride-hailing",
+            "transport apps",
+        ),
+        "stems": (
+            "waze", "yandexmaps", "uber", "careem", "googlemaps", "google_maps",
+        ),
+    },
+    "payments": {
+        "phrases": (
+            "payment apps",
+            "fintech apps",
+            "wallet apps",
+            "banking apps",
+        ),
+        "stems": (
+            "paypal", "jazzcash", "easypaisa", "stripe", "venmo",
+        ),
+    },
+    "ai_assistants": {
+        "phrases": (
+            "ai apps",
+            "ai assistants",
+            "chatgpt apps",
+            "generative ai",
+        ),
+        "stems": (
+            "chatgpt", "openai", "gemini", "copilot", "claude",
+        ),
+    },
+    "live_streaming": {
+        "phrases": (
+            "live streaming",
+            "livestream apps",
+            "live video apps",
+        ),
+        "stems": (
+            "bigo", "kuaishou", "tiktok_live", "twitch", "youtube_openlive",
+            "facebook_openlive",
+        ),
+    },
+}
+
+# Words that come from class phrases and must not become LIKE '%media%' stems.
+CLASS_PHRASE_STOPWORDS = frozenset(
+    {
+        "social", "media", "networking", "network", "apps", "applications",
+        "messaging", "chat", "messenger", "video", "streaming", "ott", "platforms",
+        "music", "audio", "gaming", "game", "games", "mobile", "online", "dating",
+        "sites", "conferencing", "meeting", "meetings", "collaboration", "email",
+        "mail", "cloud", "storage", "file", "vpn", "proxy", "tunnel", "shopping",
+        "ecommerce", "retail", "maps", "navigation", "ride", "hailing", "transport",
+        "payment", "fintech", "wallet", "banking", "ai", "assistants", "chatgpt",
+        "generative", "live", "livestream", "instant", "popular", "used", "most",
+    }
+)
+
 # These words describe the subscriber, not an application label.
 _NOT_APP_WORDS = {
     "mobile", "fixed", "fixedline", "line", "cell", "cells",
@@ -113,6 +314,22 @@ class AppMap:
             lines.append(
                 f"Category wording in the question maps to LOWER(app_category) IN ({listed})."
             )
+        class_id = class_from_question(question)
+        if class_id:
+            stems = stems_for_class(class_id)
+            preview = ", ".join(f"'%{stem}%'" for stem in stems[:12])
+            more = "" if len(stems) <= 12 else f" (+{len(stems) - 12} more)"
+            lines.append(
+                f"Class '{class_id}' is a multi-label app group (not app_category). "
+                f"Filter with OR of LOWER(app_label) LIKE on stems: {preview}{more}."
+            )
+            siblings = sorted(classes_for_stem(stems[0])) if stems else []
+            if len(siblings) > 1:
+                lines.append(
+                    f"Stems can belong to multiple classes; e.g. '{stems[0]}' → "
+                    + ", ".join(siblings)
+                    + "."
+                )
 
         if not matched:
             if not lines:
@@ -165,6 +382,53 @@ def label_token_known(token: str) -> bool:
         return False
     folded = token.lower()
     return folded in _active.label_tokens or folded in _active.exact_labels
+
+
+def class_from_question(question: str) -> str | None:
+    """Return the conceptual app class named in the question, if any.
+
+    Phrases that already map to DPI app_category (CATEGORY_PHRASES) are left to
+    that path so 'cloud storage' / 'video streaming' keep using app_category.
+    """
+    folded = re.sub(r"\s+", " ", question.lower()).strip()
+    dpi_phrases = {phrase for phrase, _ in CATEGORY_PHRASES}
+    best: tuple[int, str] | None = None
+    for class_id, spec in APP_CLASSES.items():
+        for phrase in spec["phrases"]:
+            if phrase in dpi_phrases:
+                continue
+            if phrase in folded:
+                score = len(phrase)
+                if best is None or score > best[0]:
+                    best = (score, class_id)
+    return best[1] if best else None
+
+
+def stems_for_class(class_id: str) -> list[str]:
+    spec = APP_CLASSES.get(class_id)
+    if not spec:
+        return []
+    return list(spec["stems"])
+
+
+def classes_for_stem(stem: str) -> list[str]:
+    folded = stem.lower()
+    return sorted(
+        class_id
+        for class_id, spec in APP_CLASSES.items()
+        if folded in {item.lower() for item in spec["stems"]}
+    )
+
+
+def class_label_predicate(class_id: str) -> str | None:
+    """SQL boolean for labels that belong to a conceptual class."""
+    stems = stems_for_class(class_id)
+    if not stems:
+        return None
+    parts = [f"LOWER(app_label) LIKE '%{stem.lower()}%'" for stem in stems]
+    if len(parts) == 1:
+        return parts[0]
+    return "(" + " OR ".join(parts) + ")"
 
 
 def _shared_stem(matched: list[tuple[str, str]], tokens: set[str]) -> str:

@@ -2334,6 +2334,38 @@ def main() -> None:
     ):
         raise SystemExit(f"average session duration ranking was wrong: {avg_apps}")
     prepare(avg_apps, 200, allow_full_scan=True)
+    social = resolve_followup("show the most used social media applications", [])
+    social_folded = (social or "").lower()
+    if (
+        not social
+        or "like '%media%'" in social_folded
+        or "like '%facebook%'" not in social_folded
+        or "like '%whatsapp%'" not in social_folded
+        or "like '%youtube%'" not in social_folded
+        or "order by flows" not in social_folded
+        or "group by app_label" not in social_folded
+    ):
+        raise SystemExit(f"social media used a bad media LIKE: {social}")
+    prepare(social, 200, allow_full_scan=True)
+    from app.app_map import classes_for_stem, class_from_question, class_label_predicate
+
+    if class_from_question("most used social media applications") != "social_media":
+        raise SystemExit("social media class was not detected")
+    if "social_media" not in classes_for_stem("whatsapp") or "messaging" not in classes_for_stem("whatsapp"):
+        raise SystemExit(f"whatsapp should be messaging + social_media: {classes_for_stem('whatsapp')}")
+    if "social_media" not in classes_for_stem("youtube") or "video_streaming" not in classes_for_stem("youtube"):
+        raise SystemExit(f"youtube should be video + social_media: {classes_for_stem('youtube')}")
+    dating = resolve_followup("top dating apps by traffic", [])
+    dating_folded = (dating or "").lower()
+    if (
+        not dating
+        or "like '%tinder%'" not in dating_folded
+        or "order by total_mb" not in dating_folded
+    ):
+        raise SystemExit(f"dating apps class ranking failed: {dating}")
+    prepare(dating, 200, allow_full_scan=True)
+    if not class_label_predicate("ai_assistants") or "chatgpt" not in (class_label_predicate("ai_assistants") or ""):
+        raise SystemExit("ai_assistants class predicate missing chatgpt")
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
