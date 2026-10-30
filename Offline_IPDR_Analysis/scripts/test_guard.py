@@ -2273,6 +2273,29 @@ def main() -> None:
     ):
         raise SystemExit(f"average session duration was not added: {added_avg}")
     prepare(added_avg, 200, allow_full_scan=True)
+    lower_apps = (
+        "SELECT LOWER(app_label) AS app_label, SUM(duration) AS total_duration "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY LOWER(app_label) ORDER BY total_duration DESC LIMIT 20"
+    )
+    lower_combo = resolve_followup(
+        "show the duration in hours. also add a column for traffic volume (in GB) "
+        "and a column to show the average session duration(in minutes)",
+        [{"question": "top 20 apps with highest session duration", "sql": lower_apps}],
+    )
+    lower_folded = (lower_combo or "").lower()
+    if (
+        not lower_combo
+        or "lower(app_label) as app_label" not in lower_folded
+        or " as lower," in lower_folded
+        or "as total_duration_hours" not in lower_folded
+        or "as traffic_volume_gb" not in lower_folded
+        or "as average_session_duration_minutes" not in lower_folded
+        or "order by total_duration_hours" not in lower_folded
+        or "group by lower(app_label)" not in lower_folded
+    ):
+        raise SystemExit(f"LOWER(app_label) ranking follow-up broke: {lower_combo}")
+    prepare(lower_combo, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

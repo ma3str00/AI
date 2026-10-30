@@ -1933,6 +1933,24 @@ def _only_valid_users(question: str, sql: str | None) -> str | None:
     return f"{text} WHERE {clause}"
 
 
+def _clause_duration_unit(clause: str) -> str | None:
+    if re.search(r"\bminutes?\b", clause):
+        return "minutes"
+    if re.search(r"\bhours?\b", clause):
+        return "hours"
+    if re.search(r"\bseconds?\b", clause) and "millisecond" not in clause:
+        return "seconds"
+    return None
+
+
+def _duration_clauses(question: str) -> list[str]:
+    return [
+        part.strip()
+        for part in re.split(r"[.!?;]|\balso\b|\band a column\b|\band\b", question.lower())
+        if part and part.strip()
+    ]
+
+
 def _duration_display_unit(question: str) -> str | None:
     folded = question.lower()
     mentions_duration = bool(re.search(r"\b(durations?|sessions?|how long|times?)\b", folded))
@@ -1942,14 +1960,37 @@ def _duration_display_unit(question: str) -> str | None:
     )
     if not mentions_duration and not complains_ms:
         return None
-    if re.search(r"\bminutes?\b", folded):
-        return "minutes"
-    if re.search(r"\bhours?\b", folded):
-        return "hours"
-    if re.search(r"\bseconds?\b", folded) and "millisecond" not in folded:
-        return "seconds"
+    found = _clause_duration_unit(folded)
+    if found:
+        return found
     if complains_ms:
         return "hours"
+    return None
+
+
+def _sum_duration_unit_from_question(question: str) -> str | None:
+    """Unit for total/max duration; ignores average-only clauses like 'average ... in minutes'."""
+    for clause in _duration_clauses(question):
+        if re.search(r"\b(average|avg|mean)\b", clause):
+            continue
+        if re.search(r"\b(durations?|times?|how long)\b", clause):
+            found = _clause_duration_unit(clause)
+            if found:
+                return found
+    if re.search(r"\b(average|avg|mean)\b", question.lower()):
+        return None
+    return _duration_display_unit(question)
+
+
+def _avg_duration_unit_from_question(question: str) -> str | None:
+    """Unit for average session duration when named in the question."""
+    for clause in _duration_clauses(question):
+        if re.search(r"\b(average|avg|mean)\b", clause) or re.search(
+            r"\bsession\s+durations?\b", clause
+        ):
+            found = _clause_duration_unit(clause)
+            if found:
+                return found
     return None
 
 
@@ -2038,10 +2079,11 @@ def _asks_for_session_count(question: str) -> bool:
 def _duration_in_units(question: str, sql: str | None) -> str | None:
     """Show duration in minutes/seconds/hours. duration is stored as milliseconds."""
     unit = _duration_display_unit(question)
+    sum_unit = _sum_duration_unit_from_question(question)
+    avg_unit_asked = _avg_duration_unit_from_question(question)
     wants_sessions = _asks_for_session_count(question)
     wants_average = _asks_for_average_duration(question)
-    names_average = bool(re.search(r"\b(average|avg|mean)\b", question.lower()))
-    if (not unit and not wants_sessions and not wants_average) or not sql:
+    if (not unit and not sum_unit and not avg_unit_asked and not wants_sessions and not wants_average) or not sql:
         return None
     text = re.sub(r"\s+", " ", sql).strip()
     select = re.search(r"(?is)\bSELECT\b(.*?)\bFROM\b", text)
@@ -2072,10 +2114,9 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
             and not wants_average
         ):
             return None
-        # "average ... in minutes" must not rewrite total/max duration or its ORDER BY alias.
-        if unit and has_sum_duration and not names_average:
-            expression = _sum_duration_unit_expression(unit)
-            alias = f"total_duration_{unit}"
+        if sum_unit and has_sum_duration:
+            expression = _sum_duration_unit_expression(sum_unit)
+            alias = f"total_duration_{sum_unit}"
             if not re.search(rf"(?i)\bas {alias}\b", head):
                 head = re.sub(
                     r"(?i)ROUND\(\s*SUM\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+|"
@@ -2092,9 +2133,9 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
                     rest,
                     count=1,
                 )
-        if unit and has_max_duration and not names_average:
-            expression = _max_duration_unit_expression(unit)
-            alias = f"max_duration_{unit}"
+        if sum_unit and has_max_duration:
+            expression = _max_duration_unit_expression(sum_unit)
+            alias = f"max_duration_{sum_unit}"
             if not re.search(rf"(?i)\bas {alias}\b", head):
                 head = re.sub(
                     r"(?i)ROUND\(\s*MAX\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+|"
@@ -2111,8 +2152,8 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
                     rest,
                     count=1,
                 )
-        if wants_average or (unit and has_avg_duration and names_average):
-            avg_unit = unit or _duration_unit_on_sql(text)
+        if wants_average or (has_avg_duration and avg_unit_asked):
+            avg_unit = avg_unit_asked or _duration_unit_on_sql(text)
             expression = _avg_duration_unit_expression(avg_unit)
             avg_alias = expression.rsplit(" AS ", 1)[-1]
             if has_avg_duration:
@@ -2126,7 +2167,7 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
                         head,
                         count=1,
                     )
-            else:
+            elif wants_average:
                 head = f"{head.rstrip()}, {expression}"
             if re.search(r"(?i)order\s+by\s+(?:average_session_duration|avg_duration)(?:_\w+)?\b", rest):
                 rest = re.sub(
@@ -2203,7 +2244,8 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_download = wants_split or _has_call(sql, r"sum\s*\(\s*s2c_byte_num\s*\)")
     keep_total = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
     duration_unit = _duration_display_unit(question)
-    names_average = bool(re.search(r"\b(average|avg|mean)\b", folded))
+    sum_unit = _sum_duration_unit_from_question(question)
+    avg_unit_asked = _avg_duration_unit_from_question(question)
     keep_sum_duration = bool(
         re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", sql)
     )
@@ -2248,12 +2290,8 @@ def _present_measures(question: str, sql: str) -> str | None:
     key = _group_key(sql) or "app_label"
     columns = [_grouped_expression(sql, key)]
     if keep_sum_duration:
-        if (
-            duration_unit
-            and not names_average
-            and not re.search(rf"(?i)\bas total_duration_{duration_unit}\b", sql)
-        ):
-            columns.append(_sum_duration_unit_expression(duration_unit))
+        if sum_unit and not re.search(rf"(?i)\bas total_duration_{sum_unit}\b", sql):
+            columns.append(_sum_duration_unit_expression(sum_unit))
         else:
             duration_match = re.search(
                 r"(?i)(ROUND\(\s*SUM\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
@@ -2264,12 +2302,8 @@ def _present_measures(question: str, sql: str) -> str | None:
             if duration_match:
                 columns.append(duration_match.group(1))
     if keep_max_duration:
-        if (
-            duration_unit
-            and not names_average
-            and not re.search(rf"(?i)\bas max_duration_{duration_unit}\b", sql)
-        ):
-            columns.append(_max_duration_unit_expression(duration_unit))
+        if sum_unit and not re.search(rf"(?i)\bas max_duration_{sum_unit}\b", sql):
+            columns.append(_max_duration_unit_expression(sum_unit))
         else:
             max_match = re.search(
                 r"(?i)(ROUND\(\s*MAX\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
@@ -2287,8 +2321,8 @@ def _present_measures(question: str, sql: str) -> str | None:
             r"|AVG\(\s*duration\s*\))",
             sql,
         )
-        if names_average and duration_unit:
-            columns.append(_avg_duration_unit_expression(duration_unit))
+        if avg_unit_asked:
+            columns.append(_avg_duration_unit_expression(avg_unit_asked))
         elif avg_match:
             columns.append(avg_match.group(1))
         else:
@@ -2448,11 +2482,13 @@ def _volume_alias(columns: list[str]) -> str | None:
 
 
 def _grouped_expression(sql: str, alias: str) -> str:
-    """Keep CASE ... END AS city. The alias alone is not a column of the table."""
+    """Keep CASE ... END AS city / LOWER(app_label) AS app_label. The alias alone may not be enough."""
     match = re.search(rf"(?is)\bSELECT\s+(.+?)\s+AS\s+{re.escape(alias)}\b", sql)
-    if not match:
-        return alias
-    return f"{match.group(1).strip()} AS {alias}"
+    if match:
+        return f"{match.group(1).strip()} AS {alias}"
+    if alias == "app_label" and re.search(r"(?i)LOWER\s*\(\s*app_label\s*\)", sql):
+        return "LOWER(app_label) AS app_label"
+    return alias
 
 
 def _wants_user_count(question: str) -> bool:
@@ -2471,8 +2507,23 @@ def _wants_user_count(question: str) -> bool:
 
 
 def _group_key(sql: str) -> str | None:
-    match = re.search(r"\bgroup\s+by\s+([a-z0-9_]+)", sql, flags=re.IGNORECASE)
-    return match.group(1).lower() if match else None
+    """Return the result alias for GROUP BY, including LOWER(app_label) → app_label."""
+    match = re.search(
+        r"\bgroup\s+by\s+(LOWER\s*\(\s*[a-z0-9_]+\s*\)|[a-z0-9_]+)",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    key = re.sub(r"\s+", "", match.group(1))
+    lower = re.match(r"(?i)LOWER\(([a-z0-9_]+)\)$", key)
+    if lower:
+        column = lower.group(1).lower()
+        if re.search(rf"(?i)LOWER\s*\(\s*{column}\s*\)\s+AS\s+(\w+)\b", sql):
+            alias = re.search(rf"(?i)LOWER\s*\(\s*{column}\s*\)\s+AS\s+(\w+)\b", sql)
+            return alias.group(1).lower() if alias else column
+        return column
+    return key.lower()
 
 
 def asked_unit(question: str) -> str | None:
