@@ -2125,6 +2125,46 @@ def main() -> None:
     ):
         raise SystemExit(f"GB conversion re-ranked by traffic: {volume_gb}")
     prepare(volume_gb, 200, allow_full_scan=True)
+    hours_and_volume = resolve_followup(
+        "show the duration in hours. Also show the traffic volume. The volume should be displayed in GB",
+        [{"question": "top apps by duration", "sql": app_duration}],
+    )
+    combo_folded = (hours_and_volume or "").lower()
+    if (
+        not hours_and_volume
+        or "as total_duration_hours" not in combo_folded
+        or "as traffic_volume_gb" not in combo_folded
+        or "/ 1073741824" not in hours_and_volume
+        or "order by total_duration_hours" not in combo_folded
+        or "order by traffic_volume" in combo_folded
+    ):
+        raise SystemExit(f"hours+volume in GB dropped volume or re-ranked: {hours_and_volume}")
+    prepare(hours_and_volume, 200, allow_full_scan=True)
+    hours_flows_only = (
+        "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
+        "COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 20"
+    )
+    missing_volume = resolve_followup(
+        "the traffic volume is missing",
+        [
+            {
+                "question": "show the duration in hours. Also show the traffic volume. The volume should be displayed in GB",
+                "sql": hours_flows_only,
+            }
+        ],
+    )
+    missing_folded = (missing_volume or "").lower()
+    if (
+        not missing_volume
+        or "as total_duration_hours" not in missing_folded
+        or "as traffic_volume_gb" not in missing_folded
+        or "/ 1073741824" not in missing_volume
+        or "order by total_duration_hours" not in missing_folded
+    ):
+        raise SystemExit(f"missing traffic volume was not restored in GB: {missing_volume}")
+    prepare(missing_volume, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

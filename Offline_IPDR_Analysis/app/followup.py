@@ -123,11 +123,17 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     if valid_only:
         return valid_only
     duration_unit = _duration_in_units(question, previous)
-    if duration_unit:
-        return duration_unit
-    presented = _present_measures(question, previous)
+    # Duration conversion runs first; then add volume/split on the same turn when asked together.
+    measure_question = question
+    if history and not _unit_of(question) and re.search(r"\b(traffic|volume)\b", question.lower()):
+        prior_ask = str(history[-1].get("question") or "")
+        if _unit_of(prior_ask):
+            measure_question = f"{prior_ask}. {question}"
+    presented = _present_measures(measure_question, duration_unit or previous)
     if presented:
         return presented
+    if duration_unit:
+        return duration_unit
     if not previous or "group by subscriber_id" not in previous.lower():
         return None
     revised = _revise(question, history)
@@ -2087,7 +2093,12 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_duration = bool(
         re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", sql)
     )
-    corresponding = bool(re.search(r"\b(also|corresponding|beside|as well|respective)\b", folded))
+    corresponding = bool(
+        re.search(
+            r"\b(also|corresponding|beside|as well|respective|missing|forgot|without)\b",
+            folded,
+        )
+    )
     if wants_volume and not wants_split and (corresponding or not (keep_upload or keep_download)):
         keep_total = True
     if wants_split and not re.search(r"\b(also|as well|total)\b", folded):
