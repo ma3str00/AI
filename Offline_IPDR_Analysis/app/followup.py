@@ -77,6 +77,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
+    apps_duration = _apps_by_duration(question)
+    if apps_duration:
+        return apps_duration
     apps = _apps_of_one_subscriber(question, history)
     if apps:
         return apps
@@ -1182,6 +1185,45 @@ def _flows_by_operator(question: str) -> str | None:
     )
 
 
+def _apps_by_duration(question: str) -> str | None:
+    """Rank applications by session duration. Default is total time, not average."""
+    folded = question.lower()
+    if not re.search(r"\b(apps?|applications?|app_labels?)\b", folded):
+        return None
+    if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded):
+        return None
+    ranked = bool(re.search(r"\b(top|list|lists?|highest|longest|most)\b", folded))
+    by_duration = bool(re.search(r"\b(durations?|session\s+durations?)\b", folded))
+    if not ranked or not by_duration:
+        return None
+    # Traffic rankings are handled elsewhere.
+    if re.search(r"\b(bytes|traffic|volume|upload|download)\b", folded) and not re.search(
+        r"\b(durations?|session\s+durations?)\b", folded
+    ):
+        return None
+    limit = _limit_in(question) or 20
+    wants_avg = bool(re.search(r"\b(average|avg|mean)\b", folded))
+    wants_max = bool(
+        re.search(r"\b(max|maximum)\b", folded)
+        or re.search(r"\blongest\s+single\b", folded)
+    )
+    if wants_avg:
+        measure = "AVG(duration) AS avg_duration"
+        order = "avg_duration"
+    elif wants_max:
+        measure = "MAX(duration) AS max_duration"
+        order = "max_duration"
+    else:
+        # "longest/highest session duration" means total time on the app, not AVG.
+        measure = "SUM(duration) AS total_duration, COUNT(*) AS flows"
+        order = "total_duration"
+    return (
+        f"SELECT app_label, {measure} FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
 def _top_flows(question: str, history: list[dict] | None = None) -> str | None:
     """Rank individual flows, usually by duration. Not a GROUP BY ranking."""
     folded = question.lower()
@@ -1662,6 +1704,8 @@ _NOT_SUBSCRIBER = {
     "duration", "durations", "timing", "timings", "session", "sessions",
     "minute", "minutes", "second", "seconds", "hour", "hours", "flow", "flows",
     "bytes", "traffic", "volume", "order", "ordered", "sort", "sorted",
+    "average", "avg", "mean", "longest", "highest", "maximum", "minimum", "max", "min",
+    "shortest", "lowest", "median",
 }
 
 

@@ -2296,6 +2296,44 @@ def main() -> None:
     ):
         raise SystemExit(f"LOWER(app_label) ranking follow-up broke: {lower_combo}")
     prepare(lower_combo, 200, allow_full_scan=True)
+    longest_apps = resolve_followup(
+        "list down the top 25 applications with the longest session duration",
+        [],
+    )
+    longest_folded = (longest_apps or "").lower()
+    if (
+        not longest_apps
+        or "sum(duration) as total_duration" not in longest_folded
+        or "avg(duration)" in longest_folded
+        or "order by total_duration" not in longest_folded
+        or "limit 25" not in longest_folded
+        or "group by app_label" not in longest_folded
+    ):
+        raise SystemExit(f"longest session duration used AVG instead of SUM: {longest_apps}")
+    prepare(longest_apps, 200, allow_full_scan=True)
+    max_apps = resolve_followup("top 20 apps max duration", [])
+    max_folded = (max_apps or "").lower()
+    if (
+        not max_apps
+        or "max(duration) as max_duration" not in max_folded
+        or "order by max_duration" not in max_folded
+        or "limit 20" not in max_folded
+    ):
+        raise SystemExit(f"max duration ranking was wrong: {max_apps}")
+    prepare(max_apps, 200, allow_full_scan=True)
+    avg_apps = resolve_followup(
+        "top 10 applications by average session duration",
+        [],
+    )
+    avg_apps_folded = (avg_apps or "").lower()
+    if (
+        not avg_apps
+        or "avg(duration) as avg_duration" not in avg_apps_folded
+        or "order by avg_duration" not in avg_apps_folded
+        or "limit 10" not in avg_apps_folded
+    ):
+        raise SystemExit(f"average session duration ranking was wrong: {avg_apps}")
+    prepare(avg_apps, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
