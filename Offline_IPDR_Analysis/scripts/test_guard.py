@@ -389,7 +389,7 @@ def main() -> None:
         not split
         or "sum(c2s_byte_num) as upload_traffic" not in split.lower()
         or "sum(s2c_byte_num) as download_traffic" not in split.lower()
-        or "count(*) as flow_count" not in split.lower()
+        or ("count(*) as flow_count" not in split.lower() and "count(*) as flows" not in split.lower())
         or "c2s_byte_num + s2c_byte_num" in split.lower()
     ):
         raise SystemExit(f"upload and download were combined: {split}")
@@ -397,13 +397,18 @@ def main() -> None:
         "I want to see the upload and download traffic volume separately",
         [{"question": "flows", "sql": split}],
     )
-    if not kept or "flow_count" not in kept.lower():
+    if not kept or ("flow_count" not in kept.lower() and " as flows" not in kept.lower()):
         raise SystemExit(f"splitting upload and download dropped the flows: {kept}")
     terabytes = resolve_followup(
         "show the volume in Terabytes",
         [{"question": "separately", "sql": kept}],
     )
-    if not terabytes or "/ 1099511627776" not in terabytes or "upload_traffic_tb" not in terabytes.lower() or "flow_count" not in terabytes.lower():
+    if (
+        not terabytes
+        or "/ 1099511627776" not in terabytes
+        or "upload_traffic_tb" not in terabytes.lower()
+        or ("flow_count" not in terabytes.lower() and " as flows" not in terabytes.lower())
+    ):
         raise SystemExit(f"terabytes used the wrong divisor: {terabytes}")
     if "/ 1073741824" in terabytes or "/ 1048576" in terabytes:
         raise SystemExit(f"terabytes was calculated as gigabytes or megabytes: {terabytes}")
@@ -411,7 +416,12 @@ def main() -> None:
         "the upload & download should also be displayed in Gigabytes",
         [{"question": "terabytes", "sql": terabytes}],
     )
-    if not gigabytes or "/ 1073741824" not in gigabytes or "upload_traffic_gb" not in gigabytes.lower() or "flow_count" not in gigabytes.lower():
+    if (
+        not gigabytes
+        or "/ 1073741824" not in gigabytes
+        or "upload_traffic_gb" not in gigabytes.lower()
+        or ("flow_count" not in gigabytes.lower() and " as flows" not in gigabytes.lower())
+    ):
         raise SystemExit(f"gigabytes used the wrong divisor or dropped flows: {gigabytes}")
     if "/ 1048576" in gigabytes:
         raise SystemExit(f"gigabytes was calculated as megabytes: {gigabytes}")
@@ -423,7 +433,7 @@ def main() -> None:
         not users
         or "count(distinct case when" not in users.lower()
         or " as users" not in users.lower()
-        or "flow_count" not in users.lower()
+        or ("flow_count" not in users.lower() and " as flows" not in users.lower())
         or "upload_traffic_gb" not in users.lower()
         or "group by app_label" not in users.lower()
     ):
@@ -2071,6 +2081,28 @@ def main() -> None:
     ):
         raise SystemExit(f"flow count replaced the duration ranking: {with_flows}")
     prepare(with_flows, 200, allow_full_scan=True)
+    hours_sessions = (
+        "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
+        "COUNT(*) AS sessions FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 10"
+    )
+    with_volume = resolve_followup(
+        "also show the respective traffic volume",
+        [{"question": "duration hours with sessions", "sql": hours_sessions}],
+    )
+    volume_folded = (with_volume or "").lower()
+    if (
+        not with_volume
+        or "as total_duration_hours" not in volume_folded
+        or "as sessions" not in volume_folded
+        or "c2s_byte_num + s2c_byte_num" not in volume_folded
+        or "as traffic_volume" not in volume_folded
+        or "order by total_duration_hours" not in volume_folded
+        or "group by app_label" not in volume_folded
+    ):
+        raise SystemExit(f"traffic volume dropped duration ranking: {with_volume}")
+    prepare(with_volume, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

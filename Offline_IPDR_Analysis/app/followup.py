@@ -2067,10 +2067,18 @@ def _present_measures(question: str, sql: str) -> str | None:
     wants_split = "upload" in folded and "download" in folded
     wants_flows = bool(re.search(r"\bflows?\b", folded)) or "flow count" in folded or "removed the flow" in folded
     asks_sort = bool(re.search(r"\b(order|ordered|sort|sorted)\b", folded))
-    wants_volume = "volume" in folded or "traffic" in folded
-    if not (wants_split or wants_flows or unit or asks_sort or wants_users):
+    # "traffic volume" / bare "volume" adds total bytes. Plain "traffic" in a unit change does not.
+    wants_volume = bool(
+        re.search(r"\btraffic\s+volumes?\b", folded)
+        or (
+            re.search(r"\bvolumes?\b", folded)
+            and "upload" not in folded
+            and "download" not in folded
+        )
+    )
+    if not (wants_split or wants_flows or unit or asks_sort or wants_users or wants_volume):
         return None
-    if wants_flows and not wants_split and not unit and _group_key(sql) == "subscriber_id":
+    if wants_flows and not wants_split and not unit and not wants_volume and _group_key(sql) == "subscriber_id":
         return None
     keep_flows = wants_flows or _has_call(sql, r"count\s*\(\s*\*\s*\)")
     keep_upload = wants_split or _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\)")
@@ -2079,7 +2087,9 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_duration = bool(
         re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", sql)
     )
-    corresponding = bool(re.search(r"\b(also|corresponding|beside|as well)\b", folded))
+    corresponding = bool(re.search(r"\b(also|corresponding|beside|as well|respective)\b", folded))
+    if wants_volume and not wants_split and (corresponding or not (keep_upload or keep_download)):
+        keep_total = True
     if wants_split and not re.search(r"\b(also|as well|total)\b", folded):
         keep_total = False
     names_upload = "upload" in folded
@@ -2112,7 +2122,13 @@ def _present_measures(question: str, sql: str) -> str | None:
         if duration_match:
             columns.append(duration_match.group(1))
     if keep_flows:
-        columns.append("COUNT(*) AS flow_count")
+        count_match = re.search(r"(?i)COUNT\s*\(\s*\*\s*\)\s+AS\s+(\w+)", sql)
+        if count_match:
+            columns.append(f"COUNT(*) AS {count_match.group(1)}")
+        elif re.search(r"\bsessions?\b", folded) and not re.search(r"\bflows?\b", folded):
+            columns.append("COUNT(*) AS sessions")
+        else:
+            columns.append("COUNT(*) AS flow_count")
     if keep_upload:
         columns.append(_byte_column("SUM(c2s_byte_num)", "upload_traffic", upload_unit))
     if keep_download:
@@ -2133,7 +2149,7 @@ def _present_measures(question: str, sql: str) -> str | None:
     order = _requested_order(folded, columns)
     if order is None and wants_flows and "by flow" in folded and not corresponding:
         order = "flow_count"
-    if order is None and wants_volume:
+    if order is None and wants_volume and not corresponding:
         order = _volume_alias(columns)
     if order is None:
         order = _kept_order(sql, columns)
