@@ -1977,6 +1977,41 @@ def _max_duration_unit_expression(unit: str) -> str:
     return "ROUND(MAX(duration) / 1000, 2) AS max_duration_seconds"
 
 
+def _avg_duration_unit_expression(unit: str | None) -> str:
+    if unit == "minutes":
+        return "ROUND(AVG(duration) / 60000, 2) AS average_session_duration_minutes"
+    if unit == "hours":
+        return "ROUND(AVG(duration) / 3600000, 2) AS average_session_duration_hours"
+    if unit == "seconds":
+        return "ROUND(AVG(duration) / 1000, 2) AS average_session_duration_seconds"
+    return "ROUND(AVG(duration), 2) AS average_session_duration"
+
+
+def _asks_for_average_duration(question: str) -> bool:
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b(average|avg|mean)\s+(?:session\s+)?durations?\b|"
+            r"\baverage\s+sessions?\b|"
+            r"\bsession\s+durations?\b.*\b(average|avg|mean)\b|"
+            r"\b(average|avg|mean)\b.*\bsession\s+durations?\b",
+            folded,
+        )
+    )
+
+
+def _duration_unit_on_sql(sql: str) -> str | None:
+    """Infer display unit already used on an aggregate duration column."""
+    folded = sql.lower()
+    if re.search(r"\b(?:total|max|average_session|avg)_duration_hours\b|/\s*3600000\b", folded):
+        return "hours"
+    if re.search(r"\b(?:total|max|average_session|avg)_duration_minutes\b|/\s*60000\b", folded):
+        return "minutes"
+    if re.search(r"\b(?:total|max|average_session|avg)_duration_seconds\b|/\s*1000\b", folded):
+        return "seconds"
+    return None
+
+
 def _asks_for_session_count(question: str) -> bool:
     """Add COUNT(*) beside the current ranking. Flows and sessions are the same rows here."""
     folded = question.lower()
@@ -2004,7 +2039,9 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
     """Show duration in minutes/seconds/hours. duration is stored as milliseconds."""
     unit = _duration_display_unit(question)
     wants_sessions = _asks_for_session_count(question)
-    if (not unit and not wants_sessions) or not sql:
+    wants_average = _asks_for_average_duration(question)
+    names_average = bool(re.search(r"\b(average|avg|mean)\b", question.lower()))
+    if (not unit and not wants_sessions and not wants_average) or not sql:
         return None
     text = re.sub(r"\s+", " ", sql).strip()
     select = re.search(r"(?is)\bSELECT\b(.*?)\bFROM\b", text)
@@ -2020,9 +2057,23 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
         has_max_duration = bool(
             re.search(r"(?i)max\s*\(\s*duration\s*\)|\bas max_duration(?:_\w+)?\b", head)
         )
-        if not has_sum_duration and not has_max_duration and not wants_sessions:
+        has_avg_duration = bool(
+            re.search(
+                r"(?i)avg\s*\(\s*duration\s*\)|\bas average_session_duration(?:_\w+)?\b|"
+                r"\bas avg_duration(?:_\w+)?\b",
+                head,
+            )
+        )
+        if (
+            not has_sum_duration
+            and not has_max_duration
+            and not has_avg_duration
+            and not wants_sessions
+            and not wants_average
+        ):
             return None
-        if unit and has_sum_duration:
+        # "average ... in minutes" must not rewrite total/max duration or its ORDER BY alias.
+        if unit and has_sum_duration and not names_average:
             expression = _sum_duration_unit_expression(unit)
             alias = f"total_duration_{unit}"
             if not re.search(rf"(?i)\bas {alias}\b", head):
@@ -2034,14 +2085,14 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
                     head,
                     count=1,
                 )
-            if re.search(r"(?i)order\s+by\s+total_duration\b", rest):
+            if re.search(r"(?i)order\s+by\s+total_duration(?:_\w+)?\b", rest):
                 rest = re.sub(
                     r"(?i)order\s+by\s+total_duration(?:_\w+)?\b",
                     f"ORDER BY {alias}",
                     rest,
                     count=1,
                 )
-        if unit and has_max_duration:
+        if unit and has_max_duration and not names_average:
             expression = _max_duration_unit_expression(unit)
             alias = f"max_duration_{unit}"
             if not re.search(rf"(?i)\bas {alias}\b", head):
@@ -2053,10 +2104,34 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
                     head,
                     count=1,
                 )
-            if re.search(r"(?i)order\s+by\s+max_duration\b", rest):
+            if re.search(r"(?i)order\s+by\s+max_duration(?:_\w+)?\b", rest):
                 rest = re.sub(
                     r"(?i)order\s+by\s+max_duration(?:_\w+)?\b",
                     f"ORDER BY {alias}",
+                    rest,
+                    count=1,
+                )
+        if wants_average or (unit and has_avg_duration and names_average):
+            avg_unit = unit or _duration_unit_on_sql(text)
+            expression = _avg_duration_unit_expression(avg_unit)
+            avg_alias = expression.rsplit(" AS ", 1)[-1]
+            if has_avg_duration:
+                if not re.search(rf"(?i)\bas {avg_alias}\b", head):
+                    head = re.sub(
+                        r"(?i)ROUND\(\s*AVG\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+|"
+                        r"ROUND\(\s*AVG\(\s*duration\s*\)\s*,\s*\d+\s*\)\s+AS\s+\w+|"
+                        r"AVG\(\s*duration\s*\)\s+AS\s+\w+|"
+                        r"AVG\(\s*duration\s*\)",
+                        expression,
+                        head,
+                        count=1,
+                    )
+            else:
+                head = f"{head.rstrip()}, {expression}"
+            if re.search(r"(?i)order\s+by\s+(?:average_session_duration|avg_duration)(?:_\w+)?\b", rest):
+                rest = re.sub(
+                    r"(?i)order\s+by\s+(?:average_session_duration|avg_duration)(?:_\w+)?\b",
+                    f"ORDER BY {avg_alias}",
                     rest,
                     count=1,
                 )
@@ -2074,7 +2149,7 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
         if changed:
             return re.sub(r"\s+", " ", f"{text[: select.start(1)]}{head} {rest.lstrip()}").strip()
         # Count already present on a duration ranking: keep it, do not rebuild via _present_measures.
-        if (has_sum_duration or has_max_duration) and wants_sessions:
+        if (has_sum_duration or has_max_duration or has_avg_duration) and wants_sessions:
             return text
         return None
 
@@ -2128,12 +2203,20 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_download = wants_split or _has_call(sql, r"sum\s*\(\s*s2c_byte_num\s*\)")
     keep_total = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
     duration_unit = _duration_display_unit(question)
+    names_average = bool(re.search(r"\b(average|avg|mean)\b", folded))
     keep_sum_duration = bool(
         re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", sql)
     )
     keep_max_duration = bool(
         re.search(r"(?i)max\s*\(\s*duration\s*\)|\bas max_duration(?:_\w+)?\b", sql)
     )
+    keep_avg_duration = bool(
+        re.search(
+            r"(?i)avg\s*\(\s*duration\s*\)|\bas average_session_duration(?:_\w+)?\b|"
+            r"\bas avg_duration(?:_\w+)?\b",
+            sql,
+        )
+    ) or _asks_for_average_duration(question)
     corresponding = bool(
         re.search(
             r"\b(also|corresponding|beside|as well|respective|missing|forgot|without)\b",
@@ -2165,7 +2248,11 @@ def _present_measures(question: str, sql: str) -> str | None:
     key = _group_key(sql) or "app_label"
     columns = [_grouped_expression(sql, key)]
     if keep_sum_duration:
-        if duration_unit and not re.search(rf"(?i)\bas total_duration_{duration_unit}\b", sql):
+        if (
+            duration_unit
+            and not names_average
+            and not re.search(rf"(?i)\bas total_duration_{duration_unit}\b", sql)
+        ):
             columns.append(_sum_duration_unit_expression(duration_unit))
         else:
             duration_match = re.search(
@@ -2177,7 +2264,11 @@ def _present_measures(question: str, sql: str) -> str | None:
             if duration_match:
                 columns.append(duration_match.group(1))
     if keep_max_duration:
-        if duration_unit and not re.search(rf"(?i)\bas max_duration_{duration_unit}\b", sql):
+        if (
+            duration_unit
+            and not names_average
+            and not re.search(rf"(?i)\bas max_duration_{duration_unit}\b", sql)
+        ):
             columns.append(_max_duration_unit_expression(duration_unit))
         else:
             max_match = re.search(
@@ -2188,6 +2279,20 @@ def _present_measures(question: str, sql: str) -> str | None:
             )
             if max_match:
                 columns.append(max_match.group(1))
+    if keep_avg_duration:
+        avg_match = re.search(
+            r"(?i)(ROUND\(\s*AVG\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
+            r"|ROUND\(\s*AVG\(\s*duration\s*\)\s*,\s*\d+\s*\)\s+AS\s+\w+"
+            r"|AVG\(\s*duration\s*\)\s+AS\s+\w+"
+            r"|AVG\(\s*duration\s*\))",
+            sql,
+        )
+        if names_average and duration_unit:
+            columns.append(_avg_duration_unit_expression(duration_unit))
+        elif avg_match:
+            columns.append(avg_match.group(1))
+        else:
+            columns.append(_avg_duration_unit_expression(_duration_unit_on_sql(sql)))
     if keep_flows:
         count_match = re.search(r"(?i)COUNT\s*\(\s*\*\s*\)\s+AS\s+(\w+)", sql)
         if count_match:
@@ -2488,6 +2593,10 @@ def _kept_order(sql: str, columns: list[str]) -> str | None:
     if current.startswith("max_duration"):
         for alias in aliases:
             if alias == "max_duration" or alias.startswith("max_duration_"):
+                return alias
+    if current.startswith("average_session_duration") or current.startswith("avg_duration"):
+        for alias in aliases:
+            if alias.startswith("average_session_duration") or alias.startswith("avg_duration"):
                 return alias
     return None
 

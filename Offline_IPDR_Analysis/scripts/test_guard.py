@@ -2227,6 +2227,52 @@ def main() -> None:
     ):
         raise SystemExit(f"missing traffic volume was not restored in GB: {missing_volume}")
     prepare(missing_volume, 200, allow_full_scan=True)
+    with_avg = (
+        "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
+        "COUNT(*) AS flows, ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1073741824, 2) AS traffic_volume_gb, "
+        "ROUND(AVG(duration), 2) AS average_session_duration FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 20"
+    )
+    avg_minutes = resolve_followup(
+        "show the average session duration in minutes",
+        [{"question": "also display the average session duration", "sql": with_avg}],
+    )
+    avg_folded = (avg_minutes or "").lower()
+    if (
+        not avg_minutes
+        or "as average_session_duration_minutes" not in avg_folded
+        or "/ 60000" not in avg_minutes
+        or "as total_duration_hours" not in avg_folded
+        or "as traffic_volume_gb" not in avg_folded
+        or "order by total_duration_hours" not in avg_folded
+        or "order by total_duration_minutes" in avg_folded
+    ):
+        raise SystemExit(f"average minutes broke the duration ranking: {avg_minutes}")
+    prepare(avg_minutes, 200, allow_full_scan=True)
+    added_avg = resolve_followup(
+        "also display the average session duration",
+        [
+            {
+                "question": "hours and volume",
+                "sql": (
+                    "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
+                    "COUNT(*) AS flows, ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1073741824, 2) AS traffic_volume_gb "
+                    "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+                    "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 20"
+                ),
+            }
+        ],
+    )
+    added_folded = (added_avg or "").lower()
+    if (
+        not added_avg
+        or "avg(duration)" not in added_folded
+        or "as total_duration_hours" not in added_folded
+        or "order by total_duration_hours" not in added_folded
+    ):
+        raise SystemExit(f"average session duration was not added: {added_avg}")
+    prepare(added_avg, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
