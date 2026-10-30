@@ -1948,22 +1948,79 @@ def _duration_unit_expression(unit: str) -> str:
     return "ROUND(duration / 1000, 2) AS duration_seconds"
 
 
+def _sum_duration_unit_expression(unit: str) -> str:
+    if unit == "minutes":
+        return "ROUND(SUM(duration) / 60000, 2) AS total_duration_minutes"
+    if unit == "hours":
+        return "ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours"
+    return "ROUND(SUM(duration) / 1000, 2) AS total_duration_seconds"
+
+
+def _asks_for_session_count(question: str) -> bool:
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"number\s+of\s+sessions?|"
+            r"session\s+counts?|"
+            r"corresponding\s+(?:number\s+of\s+)?sessions?|"
+            r"also\s+(?:show|display|include|add)\s+(?:the\s+)?(?:corresponding\s+)?(?:number\s+of\s+)?sessions?"
+            r")\b",
+            folded,
+        )
+    )
+
+
 def _duration_in_units(question: str, sql: str | None) -> str | None:
-    """Show flow duration in minutes/seconds/hours. duration is stored as milliseconds."""
+    """Show duration in minutes/seconds/hours. duration is stored as milliseconds."""
     unit = _duration_display_unit(question)
-    if not unit or not sql:
+    wants_sessions = _asks_for_session_count(question)
+    if (not unit and not wants_sessions) or not sql:
         return None
-    if re.search(r"\bgroup\s+by\b", sql, flags=re.IGNORECASE):
-        return None
-    expression = _duration_unit_expression(unit)
-    alias = f"duration_{unit}"
     text = re.sub(r"\s+", " ", sql).strip()
-    if re.search(rf"(?i)\bas {alias}\b", text):
-        return text
     select = re.search(r"(?is)\bSELECT\b(.*?)\bFROM\b", text)
     if not select:
         return None
     head = select.group(1)
+    rest = text[select.end(1) :]
+
+    if re.search(r"\bgroup\s+by\b", sql, flags=re.IGNORECASE):
+        has_sum_duration = bool(
+            re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", head)
+        )
+        if not has_sum_duration and not wants_sessions:
+            return None
+        if unit and has_sum_duration:
+            expression = _sum_duration_unit_expression(unit)
+            alias = f"total_duration_{unit}"
+            if not re.search(rf"(?i)\bas {alias}\b", head):
+                head = re.sub(
+                    r"(?i)ROUND\(\s*SUM\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+|"
+                    r"SUM\(\s*duration\s*\)\s+AS\s+\w+|"
+                    r"SUM\(\s*duration\s*\)",
+                    expression,
+                    head,
+                    count=1,
+                )
+            if re.search(r"(?i)order\s+by\s+total_duration\b", rest):
+                rest = re.sub(
+                    r"(?i)order\s+by\s+total_duration(?:_\w+)?\b",
+                    f"ORDER BY {alias}",
+                    rest,
+                    count=1,
+                )
+        if wants_sessions and not re.search(
+            r"(?i)\bas sessions\b|\bas flow_count\b|\bas flows\b|count\s*\(\s*\*\s*\)", head
+        ):
+            head = f"{head.rstrip()}, COUNT(*) AS sessions"
+        return re.sub(r"\s+", " ", f"{text[: select.start(1)]}{head} {rest.lstrip()}").strip()
+
+    if not unit:
+        return None
+    expression = _duration_unit_expression(unit)
+    alias = f"duration_{unit}"
+    if re.search(rf"(?i)\bas {alias}\b", text):
+        return text
     if re.search(r"(?i)\bROUND\(\s*duration\s*/\s*\d+", head) or re.search(
         r"(?i)(?<![a-z0-9_])duration(?![a-z0-9_])", head
     ):
@@ -1974,7 +2031,7 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
             head,
             count=1,
         )
-        return re.sub(r"\s+", " ", text[: select.start(1)] + head + text[select.end(1) :]).strip()
+        return re.sub(r"\s+", " ", f"{text[: select.start(1)]}{head} {rest.lstrip()}").strip()
     return re.sub(r"(?i)\bFROM\b", f", {expression} FROM", text, count=1)
 
 

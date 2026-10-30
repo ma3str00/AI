@@ -564,6 +564,22 @@ def _followup_notice(question: str, sql: str = "") -> str:
             "start_time and end_time are whole Unix seconds only, so end_time - start_time "
             "can differ from duration by up to about one second."
         )
+    if "sum(duration)" in compact and "group by app_label" in compact:
+        unit = (
+            "hours"
+            if "as total_duration_hours" in compact
+            else "minutes"
+            if "as total_duration_minutes" in compact
+            else "seconds"
+            if "as total_duration_seconds" in compact
+            else "milliseconds"
+        )
+        sessions = " sessions is COUNT(*), one flow per session row." if "as sessions" in compact else ""
+        return (
+            f"This ranks applications by total session duration in {unit}. "
+            "The stored duration column is milliseconds."
+            + sessions
+        )
     shows_clock = "as start_gmt5" in compact or (
         "start_time" in compact and "end_time" in compact
     )

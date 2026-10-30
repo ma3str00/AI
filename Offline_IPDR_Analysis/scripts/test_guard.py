@@ -2032,6 +2032,26 @@ def main() -> None:
     ):
         raise SystemExit(f"ISP was not added beside the flow list: {with_isp}")
     prepare(with_isp, 200, allow_full_scan=True)
+    app_duration = (
+        "SELECT app_label, SUM(duration) AS total_duration FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration DESC LIMIT 10"
+    )
+    duration_hours = resolve_followup(
+        "show the duration in hours. Also show the corresponding number of sessions",
+        [{"question": "top apps by session duration", "sql": app_duration}],
+    )
+    hours_folded = (duration_hours or "").lower()
+    if (
+        not duration_hours
+        or "as total_duration_hours" not in hours_folded
+        or "sum(duration) / 3600000" not in hours_folded
+        or "as sessions" not in hours_folded
+        or "group by app_label" not in hours_folded
+        or "order by total_duration_hours" not in hours_folded
+    ):
+        raise SystemExit(f"app duration was not converted to hours with sessions: {duration_hours}")
+    prepare(duration_hours, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")
