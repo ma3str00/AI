@@ -2103,6 +2103,28 @@ def main() -> None:
     ):
         raise SystemExit(f"traffic volume dropped duration ranking: {with_volume}")
     prepare(with_volume, 200, allow_full_scan=True)
+    hours_flows_volume = (
+        "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
+        "COUNT(*) AS flows, SUM(c2s_byte_num + s2c_byte_num) AS traffic_volume "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 10"
+    )
+    volume_gb = resolve_followup(
+        "show the traffic volume in Gigabytes",
+        [{"question": "with traffic volume", "sql": hours_flows_volume}],
+    )
+    gb_folded = (volume_gb or "").lower()
+    if (
+        not volume_gb
+        or "as total_duration_hours" not in gb_folded
+        or "as flows" not in gb_folded
+        or "as traffic_volume_gb" not in gb_folded
+        or "/ 1073741824" not in volume_gb
+        or "order by total_duration_hours" not in gb_folded
+        or "order by traffic_volume" in gb_folded
+    ):
+        raise SystemExit(f"GB conversion re-ranked by traffic: {volume_gb}")
+    prepare(volume_gb, 200, allow_full_scan=True)
 
     if not sql_needs_full_scan(access_times):
         raise SystemExit("SELECT FROM_UNIXTIME(start_time) was treated as a time filter")

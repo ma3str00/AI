@@ -2149,7 +2149,9 @@ def _present_measures(question: str, sql: str) -> str | None:
     order = _requested_order(folded, columns)
     if order is None and wants_flows and "by flow" in folded and not corresponding:
         order = "flow_count"
-    if order is None and wants_volume and not corresponding:
+    # Converting an existing volume column to GB/MB must keep the current ranking.
+    already_has_volume = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
+    if order is None and wants_volume and not corresponding and not (unit and already_has_volume):
         order = _volume_alias(columns)
     if order is None:
         order = _kept_order(sql, columns)
@@ -2404,8 +2406,18 @@ def _kept_order(sql: str, columns: list[str]) -> str | None:
     current = match.group(1).lower()
     if current in aliases:
         return current
-    if current in {"flows", "flow_count"} and "flow_count" in aliases:
-        return "flow_count"
+    if current in {"flows", "flow_count"}:
+        for name in ("flow_count", "flows", "sessions"):
+            if name in aliases:
+                return name
+    if current.startswith("traffic_volume") or current in {"total_bytes", "total_traffic"}:
+        for alias in aliases:
+            if alias == "traffic_volume" or alias.startswith("traffic_volume_"):
+                return alias
+    if current.startswith("total_duration"):
+        for alias in aliases:
+            if alias == "total_duration" or alias.startswith("total_duration_"):
+                return alias
     return None
 
 
