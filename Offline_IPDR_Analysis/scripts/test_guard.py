@@ -2339,15 +2339,17 @@ def main() -> None:
     if (
         not social
         or "like '%media%'" in social_folded
+        or "like '%imo%'" in social_folded
         or "like '%facebook%'" not in social_folded
         or "like '%whatsapp%'" not in social_folded
         or "like '%youtube%'" not in social_folded
+        or "regexp '(^|[^a-z0-9])imo([^a-z0-9]|$)'" not in social_folded
         or "order by flows" not in social_folded
         or "group by app_label" not in social_folded
     ):
         raise SystemExit(f"social media used a bad media LIKE: {social}")
     prepare(social, 200, allow_full_scan=True)
-    from app.app_map import classes_for_stem, class_from_question, class_label_predicate
+    from app.app_map import classes_for_stem, class_from_question, class_label_predicate, _stem_label_predicate
 
     if class_from_question("most used social media applications") != "social_media":
         raise SystemExit("social media class was not detected")
@@ -2355,6 +2357,16 @@ def main() -> None:
         raise SystemExit(f"whatsapp should be messaging + social_media: {classes_for_stem('whatsapp')}")
     if "social_media" not in classes_for_stem("youtube") or "video_streaming" not in classes_for_stem("youtube"):
         raise SystemExit(f"youtube should be video + social_media: {classes_for_stem('youtube')}")
+    imo_pred = _stem_label_predicate("imo")
+    if "regexp" not in imo_pred.lower():
+        raise SystemExit(f"imo stem should use REGEXP boundaries: {imo_pred}")
+    # Simulate MySQL-style token boundaries used in the REGEXP.
+    if re.search(r"(^|[^a-z0-9])imo([^a-z0-9]|$)", "huaweimobilecloud"):
+        raise SystemExit("imo REGEXP still matches HuaweiMobileCloud")
+    if not re.search(r"(^|[^a-z0-9])imo([^a-z0-9]|$)", "imo") or not re.search(
+        r"(^|[^a-z0-9])imo([^a-z0-9]|$)", "imo_voip"
+    ):
+        raise SystemExit("imo REGEXP should still match IMO labels")
     dating = resolve_followup("top dating apps by traffic", [])
     dating_folded = (dating or "").lower()
     if (

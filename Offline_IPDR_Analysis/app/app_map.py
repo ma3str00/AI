@@ -420,12 +420,24 @@ def classes_for_stem(stem: str) -> list[str]:
     )
 
 
+def _stem_label_predicate(stem: str) -> str:
+    """Match an app_label token. Short stems use boundaries so 'imo' ≠ HuaweiMobileCloud."""
+    folded = re.sub(r"[^a-z0-9_]+", "", stem.lower())
+    if not folded:
+        return "1=0"
+    # 3-letter stems are common inside unrelated labels (huawei + mobile → …eimo…).
+    if len(folded) <= 3:
+        safe = re.escape(folded)
+        return f"LOWER(app_label) REGEXP '(^|[^a-z0-9]){safe}([^a-z0-9]|$)'"
+    return f"LOWER(app_label) LIKE '%{folded}%'"
+
+
 def class_label_predicate(class_id: str) -> str | None:
     """SQL boolean for labels that belong to a conceptual class."""
     stems = stems_for_class(class_id)
     if not stems:
         return None
-    parts = [f"LOWER(app_label) LIKE '%{stem.lower()}%'" for stem in stems]
+    parts = [_stem_label_predicate(stem) for stem in stems]
     if len(parts) == 1:
         return parts[0]
     return "(" + " OR ".join(parts) + ")"
