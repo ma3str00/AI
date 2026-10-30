@@ -1935,7 +1935,12 @@ def _only_valid_users(question: str, sql: str | None) -> str | None:
 
 def _duration_display_unit(question: str) -> str | None:
     folded = question.lower()
-    if not re.search(r"\b(durations?|sessions?|how long)\b", folded):
+    mentions_duration = bool(re.search(r"\b(durations?|sessions?|how long|times?)\b", folded))
+    # "the time is still being displayed in ms" — convert off milliseconds.
+    complains_ms = bool(re.search(r"\b(ms|milliseconds?)\b", folded)) and bool(
+        re.search(r"\b(still|displayed|showing|shown|being)\b", folded)
+    )
+    if not mentions_duration and not complains_ms:
         return None
     if re.search(r"\bminutes?\b", folded):
         return "minutes"
@@ -1943,6 +1948,8 @@ def _duration_display_unit(question: str) -> str | None:
         return "hours"
     if re.search(r"\bseconds?\b", folded) and "millisecond" not in folded:
         return "seconds"
+    if complains_ms:
+        return "hours"
     return None
 
 

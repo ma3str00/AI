@@ -2160,6 +2160,48 @@ def main() -> None:
     ):
         raise SystemExit(f"hours+volume in GB dropped volume or re-ranked: {hours_and_volume}")
     prepare(hours_and_volume, 200, allow_full_scan=True)
+    time_in_hours = resolve_followup(
+        "show the time in hours. Also display the corresponding traffic volume in GB",
+        [
+            {
+                "question": "top apps by duration",
+                "sql": (
+                    "SELECT app_label, SUM(duration) AS total_duration, COUNT(*) AS flows "
+                    "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+                    "GROUP BY app_label ORDER BY total_duration DESC LIMIT 20"
+                ),
+            }
+        ],
+    )
+    time_folded = (time_in_hours or "").lower()
+    if (
+        not time_in_hours
+        or "as total_duration_hours" not in time_folded
+        or "sum(duration) as total_duration," in time_folded
+        or "as traffic_volume_gb" not in time_folded
+        or "order by total_duration_hours" not in time_folded
+    ):
+        raise SystemExit(f"time in hours left duration in ms: {time_in_hours}")
+    prepare(time_in_hours, 200, allow_full_scan=True)
+    still_ms = (
+        "SELECT app_label, SUM(duration) AS total_duration, COUNT(*) AS flows, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1073741824, 2) AS traffic_volume_gb "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY total_duration DESC LIMIT 20"
+    )
+    fixed_ms = resolve_followup(
+        "the time is still being displayed in ms",
+        [{"question": "show the time in hours. Also display the corresponding traffic volume in GB", "sql": still_ms}],
+    )
+    fixed_folded = (fixed_ms or "").lower()
+    if (
+        not fixed_ms
+        or "as total_duration_hours" not in fixed_folded
+        or "as traffic_volume_gb" not in fixed_folded
+        or "order by total_duration_hours" not in fixed_folded
+    ):
+        raise SystemExit(f"still-in-ms complaint did not convert duration: {fixed_ms}")
+    prepare(fixed_ms, 200, allow_full_scan=True)
     hours_flows_only = (
         "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
         "COUNT(*) AS flows FROM ntc_ssl_logs "
