@@ -2125,6 +2125,26 @@ def main() -> None:
     ):
         raise SystemExit(f"GB conversion re-ranked by traffic: {volume_gb}")
     prepare(volume_gb, 200, allow_full_scan=True)
+    max_duration = (
+        "SELECT app_label, MAX(duration) AS max_duration FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY max_duration DESC LIMIT 20"
+    )
+    max_hours_volume = resolve_followup(
+        "show the duration in hours. Also show the traffic volume. The volume should be represented in GB",
+        [{"question": "top 20 apps max duration", "sql": max_duration}],
+    )
+    max_folded = (max_hours_volume or "").lower()
+    if (
+        not max_hours_volume
+        or "as max_duration_hours" not in max_folded
+        or "as traffic_volume_gb" not in max_folded
+        or "/ 1073741824" not in max_hours_volume
+        or "order by max_duration_hours" not in max_folded
+        or "order by traffic_volume" in max_folded
+    ):
+        raise SystemExit(f"max duration hours+volume dropped the ranking: {max_hours_volume}")
+    prepare(max_hours_volume, 200, allow_full_scan=True)
     hours_and_volume = resolve_followup(
         "show the duration in hours. Also show the traffic volume. The volume should be displayed in GB",
         [{"question": "top apps by duration", "sql": app_duration}],

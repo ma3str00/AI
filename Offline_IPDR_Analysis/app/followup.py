@@ -1962,6 +1962,14 @@ def _sum_duration_unit_expression(unit: str) -> str:
     return "ROUND(SUM(duration) / 1000, 2) AS total_duration_seconds"
 
 
+def _max_duration_unit_expression(unit: str) -> str:
+    if unit == "minutes":
+        return "ROUND(MAX(duration) / 60000, 2) AS max_duration_minutes"
+    if unit == "hours":
+        return "ROUND(MAX(duration) / 3600000, 2) AS max_duration_hours"
+    return "ROUND(MAX(duration) / 1000, 2) AS max_duration_seconds"
+
+
 def _asks_for_session_count(question: str) -> bool:
     """Add COUNT(*) beside the current ranking. Flows and sessions are the same rows here."""
     folded = question.lower()
@@ -2002,7 +2010,10 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
         has_sum_duration = bool(
             re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", head)
         )
-        if not has_sum_duration and not wants_sessions:
+        has_max_duration = bool(
+            re.search(r"(?i)max\s*\(\s*duration\s*\)|\bas max_duration(?:_\w+)?\b", head)
+        )
+        if not has_sum_duration and not has_max_duration and not wants_sessions:
             return None
         if unit and has_sum_duration:
             expression = _sum_duration_unit_expression(unit)
@@ -2023,6 +2034,25 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
                     rest,
                     count=1,
                 )
+        if unit and has_max_duration:
+            expression = _max_duration_unit_expression(unit)
+            alias = f"max_duration_{unit}"
+            if not re.search(rf"(?i)\bas {alias}\b", head):
+                head = re.sub(
+                    r"(?i)ROUND\(\s*MAX\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+|"
+                    r"MAX\(\s*duration\s*\)\s+AS\s+\w+|"
+                    r"MAX\(\s*duration\s*\)",
+                    expression,
+                    head,
+                    count=1,
+                )
+            if re.search(r"(?i)order\s+by\s+max_duration\b", rest):
+                rest = re.sub(
+                    r"(?i)order\s+by\s+max_duration(?:_\w+)?\b",
+                    f"ORDER BY {alias}",
+                    rest,
+                    count=1,
+                )
         if wants_sessions and not re.search(
             r"(?i)\bas sessions\b|\bas flow_count\b|\bas flows\b|count\s*\(\s*\*\s*\)", head
         ):
@@ -2037,7 +2067,7 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
         if changed:
             return re.sub(r"\s+", " ", f"{text[: select.start(1)]}{head} {rest.lstrip()}").strip()
         # Count already present on a duration ranking: keep it, do not rebuild via _present_measures.
-        if has_sum_duration and wants_sessions:
+        if (has_sum_duration or has_max_duration) and wants_sessions:
             return text
         return None
 
@@ -2090,8 +2120,12 @@ def _present_measures(question: str, sql: str) -> str | None:
     keep_upload = wants_split or _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\)")
     keep_download = wants_split or _has_call(sql, r"sum\s*\(\s*s2c_byte_num\s*\)")
     keep_total = _has_call(sql, r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)")
-    keep_duration = bool(
+    duration_unit = _duration_display_unit(question)
+    keep_sum_duration = bool(
         re.search(r"(?i)sum\s*\(\s*duration\s*\)|\bas total_duration(?:_\w+)?\b", sql)
+    )
+    keep_max_duration = bool(
+        re.search(r"(?i)max\s*\(\s*duration\s*\)|\bas max_duration(?:_\w+)?\b", sql)
     )
     corresponding = bool(
         re.search(
@@ -2123,15 +2157,30 @@ def _present_measures(question: str, sql: str) -> str | None:
         total_unit = _existing_unit(sql, "total")
     key = _group_key(sql) or "app_label"
     columns = [_grouped_expression(sql, key)]
-    if keep_duration:
-        duration_match = re.search(
-            r"(?i)(ROUND\(\s*SUM\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
-            r"|SUM\(\s*duration\s*\)\s+AS\s+\w+"
-            r"|SUM\(\s*duration\s*\))",
-            sql,
-        )
-        if duration_match:
-            columns.append(duration_match.group(1))
+    if keep_sum_duration:
+        if duration_unit and not re.search(rf"(?i)\bas total_duration_{duration_unit}\b", sql):
+            columns.append(_sum_duration_unit_expression(duration_unit))
+        else:
+            duration_match = re.search(
+                r"(?i)(ROUND\(\s*SUM\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
+                r"|SUM\(\s*duration\s*\)\s+AS\s+\w+"
+                r"|SUM\(\s*duration\s*\))",
+                sql,
+            )
+            if duration_match:
+                columns.append(duration_match.group(1))
+    if keep_max_duration:
+        if duration_unit and not re.search(rf"(?i)\bas max_duration_{duration_unit}\b", sql):
+            columns.append(_max_duration_unit_expression(duration_unit))
+        else:
+            max_match = re.search(
+                r"(?i)(ROUND\(\s*MAX\(\s*duration\s*\)\s*/\s*\d+(?:\.\d+)?\s*,\s*\d+\s*\)\s+AS\s+\w+"
+                r"|MAX\(\s*duration\s*\)\s+AS\s+\w+"
+                r"|MAX\(\s*duration\s*\))",
+                sql,
+            )
+            if max_match:
+                columns.append(max_match.group(1))
     if keep_flows:
         count_match = re.search(r"(?i)COUNT\s*\(\s*\*\s*\)\s+AS\s+(\w+)", sql)
         if count_match:
@@ -2428,6 +2477,10 @@ def _kept_order(sql: str, columns: list[str]) -> str | None:
     if current.startswith("total_duration"):
         for alias in aliases:
             if alias == "total_duration" or alias.startswith("total_duration_"):
+                return alias
+    if current.startswith("max_duration"):
+        for alias in aliases:
+            if alias == "max_duration" or alias.startswith("max_duration_"):
                 return alias
     return None
 
