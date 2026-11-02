@@ -1355,7 +1355,8 @@ def _asks_isp_breakdown(question: str) -> bool:
         folded,
     ):
         return True
-    return bool(re.search(r"\b(?:isp|operator|provider|asn|network)-?wise\b", folded))
+    # Accept "ISP-wise", "ISP wise", and "ISPwise".
+    return bool(re.search(r"\b(?:isp|operator|provider|asn|network)[\s\-]?wise\b", folded))
 
 
 def _top_app_per_isp(question: str, history: list[dict] | None = None) -> str | None:

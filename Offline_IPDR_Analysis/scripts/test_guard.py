@@ -2519,6 +2519,18 @@ def main() -> None:
     ):
         raise SystemExit(f"top social platform per operator was wrong: {top_per_op}")
     prepare(top_per_op, 200, allow_full_scan=True)
+    isp_wise_top = resolve_followup("ISP wise top social media platforms", [])
+    isp_wise_folded = (isp_wise_top or "").lower()
+    if (
+        not isp_wise_top
+        or "row_number()" not in isp_wise_folded
+        or "partition by client_asn" not in isp_wise_folded
+        or "group by client_asn, app_label" not in isp_wise_folded
+        or "like '%facebook%'" not in isp_wise_folded
+        or "rn <= 1" not in isp_wise_folded
+    ):
+        raise SystemExit(f"ISP wise top social platforms stayed global: {isp_wise_top}")
+    prepare(isp_wise_top, 200, allow_full_scan=True)
     fb_multinet = resolve_followup("show the facebook usage on multinet", [])
     fb_multi_folded = (fb_multinet or "").lower()
     if (
