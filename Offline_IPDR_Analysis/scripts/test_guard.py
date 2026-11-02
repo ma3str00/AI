@@ -2698,6 +2698,19 @@ def main() -> None:
     ):
         raise SystemExit(f"IM traffic-volume clarify produced wrong SQL: {im_sql}")
     prepare(im_sql, 200, allow_full_scan=True)
+    isp_im = resolve_intent("rank the ISPs by IM usage", [])
+    isp_im_sql = (build_sql(isp_im) if isp_im else "") or ""
+    isp_im_folded = isp_im_sql.lower()
+    if (
+        not isp_im
+        or isp_im.grain != "usage_by_isp"
+        or isp_im.category != "im"
+        or "group by client_asn" not in isp_im_folded
+        or "lower(app_category) = 'im'" not in isp_im_folded
+        or "group by app_label" in isp_im_folded
+    ):
+        raise SystemExit(f"rank ISPs by IM usage should group by client_asn: {isp_im_sql}")
+    prepare(isp_im_sql, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
