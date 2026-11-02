@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -54,6 +55,7 @@ class Question(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     history: list[Turn] = Field(default_factory=list, max_length=24)
     engine: str = ""
+    debug: bool = False
 
 
 class LearnRequest(BaseModel):
@@ -143,24 +145,79 @@ def _status(text: str) -> dict:
     return {"type": "status", "text": text}
 
 
-def _model_timing_status(llama: LlamaServer | None) -> str | None:
-    """Explain wall-clock HTTP wait vs Ollama's own total_duration when both exist."""
+def _fmt_s(value: object | None) -> str:
+    if value is None:
+        return "?"
+    try:
+        return f"{float(value):.3f}s"
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _model_timing_lines(llama: LlamaServer | None, *, debug: bool) -> list[str]:
+    """Break down the latest model call so tunnel vs GPU can be compared."""
     if llama is None:
-        return None
+        return []
     stats = getattr(llama, "last_call", None) or {}
     wall = stats.get("wall_s")
     model = stats.get("model_s")
-    if wall is None and model is None:
-        return None
-    if wall is not None and model is not None:
-        wait = max(0.0, float(wall) - float(model))
-        return (
-            f"Model finished in {float(model):.1f}s; "
-            f"HTTP/tunnel wait was {wait:.1f}s (wall {float(wall):.1f}s)"
+    if not debug:
+        if wall is None and model is None:
+            return []
+        if wall is not None and model is not None:
+            wait = max(0.0, float(wall) - float(model))
+            return [
+                f"Model finished in {float(model):.1f}s; "
+                f"HTTP wait beyond model time was {wait:.1f}s (wall {float(wall):.1f}s)"
+            ]
+        if wall is not None:
+            return [f"Model call took {float(wall):.1f}s wall-clock"]
+        return [f"Model reported {float(model):.1f}s"]
+
+    lines: list[str] = []
+    if stats.get("error"):
+        lines.append(f"Model HTTP error: {stats['error']}")
+    lines.append(
+        "Model HTTP: "
+        f"wall {_fmt_s(wall)}, "
+        f"TTFB {_fmt_s(stats.get('ttfb_s'))}, "
+        f"body {_fmt_s(stats.get('body_read_s'))}, "
+        f"httpx.elapsed {_fmt_s(stats.get('http_elapsed_s'))}"
+    )
+    lines.append(
+        "Model payload: "
+        f"request {stats.get('request_bytes', '?')} B, "
+        f"response {stats.get('response_bytes', '?')} B, "
+        f"status {stats.get('status_code', '?')}"
+    )
+    if model is not None or stats.get("eval_s") is not None:
+        lines.append(
+            "Ollama timings: "
+            f"total {_fmt_s(model)}, "
+            f"load {_fmt_s(stats.get('load_s'))}, "
+            f"prompt_eval {_fmt_s(stats.get('prompt_eval_s'))}, "
+            f"eval {_fmt_s(stats.get('eval_s'))}, "
+            f"tokens prompt={stats.get('prompt_tokens', '?')} "
+            f"eval={stats.get('eval_tokens', '?')}"
         )
-    if wall is not None:
-        return f"Model call took {float(wall):.1f}s wall-clock"
-    return f"Model reported {float(model):.1f}s"
+        if stats.get("unaccounted_s") is not None:
+            lines.append(
+                f"Wall minus Ollama total_duration: {_fmt_s(stats.get('unaccounted_s'))} "
+                "(network/proxy/queue outside Ollama's clock)"
+            )
+    return lines
+
+
+def _probe_timing_lines(stats: dict) -> list[str]:
+    if stats.get("probe_error"):
+        return [f"Link probe failed in {_fmt_s(stats.get('probe_wall_s'))}: {stats['probe_error']}"]
+    return [
+        "Link probe (/v1/models): "
+        f"wall {_fmt_s(stats.get('probe_wall_s'))}, "
+        f"TTFB {_fmt_s(stats.get('probe_ttfb_s'))}, "
+        f"body {_fmt_s(stats.get('probe_body_s'))}, "
+        f"status {stats.get('probe_status', '?')}"
+    ]
 
 
 def _done(result: dict) -> dict:
@@ -248,6 +305,9 @@ def _ask_events(body: Question):
         yield _done(_clarify(clarification))
         return
     full_scan = use_full_scan(question, history, missing_time_means_all())
+    debug = bool(body.debug)
+    if debug:
+        yield _status("Selecting prompt examples")
     examples = _select_examples(index, question, history, full_scan)
     hints = mapping.hints(question)
     where = "on the Kaggle GPU" if llama and llama.kind == "ollama" else "on the local CPU"
@@ -258,28 +318,42 @@ def _ask_events(body: Question):
             yield _status(f"Asking {engine_label} {where}")
         else:
             yield _status(f"The SQL was rejected. Asking {engine_label} again.")
+        if debug and llama is not None and attempt == 0:
+            yield _status("Probing model link (GET /v1/models)")
+            probe = llama.probe_latency()
+            for line in _probe_timing_lines(probe):
+                yield _status(line)
+        if debug:
+            yield _status("Building the model prompt")
+        prompt_started = time.perf_counter()
+        messages = sql_messages(
+            question,
+            examples,
+            hints,
+            config.session_time_zone,
+            error,
+            previous_sql,
+            full_scan=full_scan,
+            history=history,
+            missing_time_means_all=missing_time_means_all(),
+        )
+        if debug:
+            yield _status(f"Prompt ready in {time.perf_counter() - prompt_started:.3f}s")
+            yield _status("Waiting on model HTTP POST")
         try:
             raw = llama.chat(
-                sql_messages(
-                    question,
-                    examples,
-                    hints,
-                    config.session_time_zone,
-                    error,
-                    previous_sql,
-                    full_scan=full_scan,
-                    history=history,
-                    missing_time_means_all=missing_time_means_all(),
-                ),
+                messages,
                 json_mode=True,
                 temperature=0,
             )
         except LlamaError as exc:
+            if debug:
+                for line in _model_timing_lines(llama, debug=True):
+                    yield _status(line)
             yield _done(_failed(str(exc)))
             return
-        timing = _model_timing_status(llama)
-        if timing:
-            yield _status(timing)
+        for line in _model_timing_lines(llama, debug=debug):
+            yield _status(line)
         try:
             parsed = _parse_json(raw)
         except ValueError as exc:

@@ -1017,7 +1017,12 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({question: text, history: prior, engine: menu.value || "local"})
+      body: JSON.stringify({
+        question: text,
+        history: prior,
+        engine: menu.value || "local",
+        debug: debugMode
+      })
     });
     const type = response.headers.get("content-type") || "";
     if (!type.includes("ndjson")) {

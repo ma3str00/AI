@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import re
 import time
+from typing import Any
 
 import httpx
 
 
 class LlamaError(Exception):
     pass
+
+
+def _ns_to_s(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value) / 1e9
+    except (TypeError, ValueError):
+        return None
 
 
 class LlamaServer:
@@ -35,8 +45,8 @@ class LlamaServer:
         self.kind = kind
         self.num_ctx = num_ctx
         self.keep_alive = keep_alive
-        # Filled by the latest chat(): wall HTTP seconds vs Ollama-reported GPU seconds.
-        self.last_call: dict[str, float | None] = {"wall_s": None, "model_s": None}
+        # Filled by the latest chat() / probe_latency().
+        self.last_call: dict[str, Any] = {}
 
     def chat(self, messages: list[dict], *, json_mode: bool, temperature: float) -> str:
         max_tokens = self.sql_max_tokens if json_mode else self.explain_max_tokens
@@ -49,12 +59,49 @@ class LlamaServer:
                     messages, json_mode=False, temperature=temperature, max_tokens=max_tokens
                 )
             else:
-                self.last_call = {"wall_s": time.perf_counter() - started, "model_s": None}
+                self.last_call = {
+                    **(self.last_call or {}),
+                    "wall_s": time.perf_counter() - started,
+                    "error": str(exc),
+                }
                 raise
-        wall_s = time.perf_counter() - started
-        model_s = self.last_call.get("model_s")
-        self.last_call = {"wall_s": wall_s, "model_s": model_s}
+        self.last_call = {
+            **(self.last_call or {}),
+            "wall_s": time.perf_counter() - started,
+        }
         return content
+
+    def probe_latency(self) -> dict[str, Any]:
+        """Cheap round-trip to the model host (not a generation)."""
+        url = f"{self.base_url}/v1/models"
+        started = time.perf_counter()
+        marks: dict[str, float] = {"start": started}
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.send(
+                    client.build_request("GET", url),
+                    stream=True,
+                )
+                marks["headers"] = time.perf_counter()
+                body = response.read()
+                marks["body"] = time.perf_counter()
+                response.close()
+        except httpx.HTTPError as exc:
+            self.last_call = {
+                "probe_error": str(exc),
+                "probe_wall_s": time.perf_counter() - started,
+            }
+            return self.last_call
+        self.last_call = {
+            "probe_url": url,
+            "probe_status": response.status_code,
+            "probe_bytes": len(body),
+            "probe_wall_s": marks["body"] - started,
+            "probe_ttfb_s": marks["headers"] - started,
+            "probe_body_s": marks["body"] - marks["headers"],
+            "probe_http_elapsed_s": response.elapsed.total_seconds() if response.elapsed else None,
+        }
+        return self.last_call
 
     def healthy(self) -> tuple[bool, str]:
         if self.kind == "ollama":
@@ -107,15 +154,12 @@ class LlamaServer:
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
-        try:
-            response = httpx.post(
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                timeout=self.timeout,
-            )
-        except httpx.HTTPError as exc:
-            raise LlamaError(f"Cannot reach llama-server at {self.base_url}. {exc}") from exc
-        return self._content_from_openai(response, json_mode=json_mode)
+        return self._post_json(
+            f"{self.base_url}/v1/chat/completions",
+            payload,
+            openai=True,
+            json_mode=json_mode,
+        )
 
     def _ollama_chat(self, messages: list[dict], *, json_mode: bool, temperature: float, max_tokens: int) -> str:
         # Native /api/chat supports keep_alive and num_ctx. The OpenAI path does not.
@@ -141,44 +185,56 @@ class LlamaServer:
                 payload["keep_alive"] = text
         if json_mode:
             payload["format"] = "json"
-        try:
-            response = httpx.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=self.timeout,
-            )
-        except httpx.HTTPError as exc:
-            self.last_call = {"wall_s": None, "model_s": None}
-            raise LlamaError(f"Cannot reach Ollama at {self.base_url}. {exc}") from exc
-        if response.status_code != 200:
-            detail = response.text[:500]
-            if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():
-                raise LlamaError(
-                    "The Kaggle tunnel is down, so Ollama never received this question. "
-                    "Restart ollama and the Cloudflare tunnel on the notebook, or choose Local 7B."
-                )
-            if json_mode and response.status_code == 400:
-                raise LlamaError(f"response_format was rejected: {detail}")
-            raise LlamaError(f"Ollama returned HTTP {response.status_code}: {detail}")
-        try:
-            body = response.json()
-        except ValueError as exc:
-            raise LlamaError("Ollama returned a non-JSON answer.") from exc
-        total_ns = body.get("total_duration")
-        try:
-            model_s = float(total_ns) / 1e9 if total_ns is not None else None
-        except (TypeError, ValueError):
-            model_s = None
-        self.last_call = {"wall_s": None, "model_s": model_s}
-        message = body.get("message") or {}
-        content = (message.get("content") or "").strip()
-        if not content:
-            raise LlamaError("Ollama returned an empty answer.")
-        return content
+        return self._post_json(
+            f"{self.base_url}/api/chat",
+            payload,
+            openai=False,
+            json_mode=json_mode,
+        )
 
-    def _content_from_openai(self, response: httpx.Response, *, json_mode: bool) -> str:
+    def _post_json(self, url: str, payload: dict, *, openai: bool, json_mode: bool) -> str:
+        started = time.perf_counter()
+        marks: dict[str, float] = {"start": started}
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                request = client.build_request("POST", url, json=payload)
+                marks["request_built"] = time.perf_counter()
+                response = client.send(request, stream=True)
+                marks["headers"] = time.perf_counter()
+                raw = response.read()
+                marks["body"] = time.perf_counter()
+                response.close()
+        except httpx.HTTPError as exc:
+            self.last_call = {
+                "wall_s": time.perf_counter() - started,
+                "url": url,
+                "error": str(exc),
+                "request_build_s": (marks.get("request_built") or started) - started,
+            }
+            host = "Ollama" if not openai else "llama-server"
+            raise LlamaError(f"Cannot reach {host} at {self.base_url}. {exc}") from exc
+
+        http_elapsed = response.elapsed.total_seconds() if response.elapsed else None
+        self.last_call = {
+            "url": url,
+            "status_code": response.status_code,
+            "request_bytes": len(request.content or b""),
+            "response_bytes": len(raw),
+            "request_build_s": marks["request_built"] - started,
+            "ttfb_s": marks["headers"] - started,
+            "body_read_s": marks["body"] - marks["headers"],
+            "http_elapsed_s": http_elapsed,
+            "wall_s": marks["body"] - started,
+            "model_s": None,
+            "load_s": None,
+            "prompt_eval_s": None,
+            "eval_s": None,
+            "prompt_tokens": None,
+            "eval_tokens": None,
+            "unaccounted_s": None,
+        }
         if response.status_code != 200:
-            detail = response.text[:500]
+            detail = raw.decode("utf-8", errors="replace")[:500]
             if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():
                 raise LlamaError(
                     "The Kaggle tunnel is down, so Ollama never received this question. "
@@ -186,8 +242,43 @@ class LlamaServer:
                 )
             if json_mode and response.status_code == 400:
                 raise LlamaError(f"response_format was rejected: {detail}")
-            raise LlamaError(f"llama-server returned HTTP {response.status_code}: {detail}")
-        body = response.json()
+            host = "Ollama" if not openai else "llama-server"
+            raise LlamaError(f"{host} returned HTTP {response.status_code}: {detail}")
+        try:
+            body = httpx.Response(200, content=raw).json()
+        except ValueError as exc:
+            raise LlamaError("Model returned a non-JSON answer.") from exc
+        if not openai:
+            self._store_ollama_timings(body)
+            message = body.get("message") or {}
+            content = (message.get("content") or "").strip()
+            if not content:
+                raise LlamaError("Ollama returned an empty answer.")
+            return content
+        return self._content_from_openai_body(body)
+
+    def _store_ollama_timings(self, body: dict) -> None:
+        model_s = _ns_to_s(body.get("total_duration"))
+        load_s = _ns_to_s(body.get("load_duration"))
+        prompt_eval_s = _ns_to_s(body.get("prompt_eval_duration"))
+        eval_s = _ns_to_s(body.get("eval_duration"))
+        wall_s = self.last_call.get("wall_s")
+        unaccounted = None
+        if wall_s is not None and model_s is not None:
+            unaccounted = max(0.0, float(wall_s) - float(model_s))
+        self.last_call.update(
+            {
+                "model_s": model_s,
+                "load_s": load_s,
+                "prompt_eval_s": prompt_eval_s,
+                "eval_s": eval_s,
+                "prompt_tokens": body.get("prompt_eval_count"),
+                "eval_tokens": body.get("eval_count"),
+                "unaccounted_s": unaccounted,
+            }
+        )
+
+    def _content_from_openai_body(self, body: dict) -> str:
         choices = body.get("choices") or []
         if not choices:
             raise LlamaError("llama-server returned no choices.")
