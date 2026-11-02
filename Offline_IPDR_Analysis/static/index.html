@@ -33,13 +33,41 @@
     background: var(--header);
     color: #f4f1ea;
     padding: 22px 20px 20px;
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: flex-start;
   }
+  header.top .brand { min-width: 0; }
   header.top h1 {
     font: 600 30px/1.1 Georgia, "Times New Roman", serif;
     margin: 0 0 6px;
     letter-spacing: -0.03em;
   }
   header.top p { margin: 0; max-width: 68ch; color: #d5e4de; }
+  header.top .debug-toggle {
+    flex: 0 0 auto;
+    background: transparent;
+    color: #d5e4de;
+    border: 1px solid rgba(213, 228, 222, 0.45);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font: 13px/1.2 "Segoe UI", sans-serif;
+    white-space: nowrap;
+  }
+  header.top .debug-toggle.on {
+    background: rgba(183, 216, 206, 0.18);
+    color: #f4f1ea;
+    border-color: #b7d8ce;
+  }
+  .steps li .step-time {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .bubble.debug-log { border-style: dashed; }
   main { max-width: 1080px; margin: 0 auto; padding: 22px 20px 72px; }
   h2 { font-size: 13px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .status { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
@@ -141,8 +169,11 @@
 </head>
 <body>
 <header class="top">
-  <h1>IPDR assistant</h1>
-  <p>Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and the assistant learns from that answer.</p>
+  <div class="brand">
+    <h1>IPDR assistant</h1>
+    <p>Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and the assistant learns from that answer.</p>
+  </div>
+  <button type="button" class="debug-toggle" id="debug-toggle" aria-pressed="false">Debug off</button>
 </header>
 <main>
   <div class="status" id="status"></div>
@@ -744,28 +775,67 @@ function lineChart(rows, fields, tooltip) {
   return svg;
 }
 
+let debugMode = localStorage.getItem("ipdr-debug") === "1";
+
+function formatStepMs(ms) {
+  if (ms < 1000) return Math.round(ms) + " ms";
+  return (ms / 1000).toFixed(ms >= 10000 ? 0 : 1) + " s";
+}
+
+function syncDebugToggle() {
+  const button = document.getElementById("debug-toggle");
+  if (!button) return;
+  button.classList.toggle("on", debugMode);
+  button.setAttribute("aria-pressed", debugMode ? "true" : "false");
+  button.textContent = debugMode ? "Debug on" : "Debug off";
+}
+
 function startProgress() {
   const bubble = document.createElement("div");
-  bubble.className = "bubble";
+  bubble.className = "bubble" + (debugMode ? " debug-log" : "");
   const who = document.createElement("div");
   who.className = "who";
-  who.textContent = "Assistant";
+  who.textContent = debugMode ? "Debug steps" : "Assistant";
   const list = document.createElement("ol");
   list.className = "steps";
   bubble.append(who, list);
   transcript.append(bubble);
   bubble.scrollIntoView({block: "nearest"});
+  let lastAt = performance.now();
+  let currentItem = null;
+  function stampPrevious() {
+    if (!currentItem) return;
+    const elapsed = performance.now() - lastAt;
+    let time = currentItem.querySelector(".step-time");
+    if (!time) {
+      time = document.createElement("span");
+      time.className = "step-time";
+      currentItem.append(time);
+    }
+    time.textContent = formatStepMs(elapsed);
+  }
   return {
     add(text) {
+      stampPrevious();
       for (const item of list.querySelectorAll("li")) item.classList.remove("current");
       const step = document.createElement("li");
       step.className = "current";
-      step.textContent = text;
+      const label = document.createElement("span");
+      label.textContent = text;
+      step.append(label);
       list.append(step);
+      currentItem = step;
+      lastAt = performance.now();
     },
     finish() {
+      stampPrevious();
       for (const item of list.querySelectorAll("li")) item.classList.remove("current");
-      bubble.remove();
+      if (debugMode) {
+        who.textContent = "Debug steps";
+        bubble.classList.add("debug-log");
+      } else {
+        bubble.remove();
+      }
     }
   };
 }
@@ -1001,6 +1071,12 @@ form.addEventListener("submit", async (event) => {
 });
 
 document.getElementById("reset").addEventListener("click", resetConversation);
+document.getElementById("debug-toggle").addEventListener("click", () => {
+  debugMode = !debugMode;
+  localStorage.setItem("ipdr-debug", debugMode ? "1" : "0");
+  syncDebugToggle();
+});
+syncDebugToggle();
 
 loadHealth();
 loadStarters();

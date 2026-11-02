@@ -2610,6 +2610,39 @@ def main() -> None:
     ):
         raise SystemExit(f"clarify reply dropped TikTok/Jazz filters: {jazz_total}")
     prepare(jazz_total, 200, allow_full_scan=True)
+    game_per_isp = resolve_followup("highest used game on each ISP", [])
+    game_folded = (game_per_isp or "").lower()
+    if (
+        not game_per_isp
+        or "row_number()" not in game_folded
+        or "partition by client_asn" not in game_folded
+        or "lower(app_category) = 'game'" not in game_folded
+        or "rn <= 1" not in game_folded
+        or "group by client_asn, app_label" not in game_folded
+    ):
+        raise SystemExit(f"highest game per ISP was not top-1 windowed: {game_per_isp}")
+    prepare(game_per_isp, 200, allow_full_scan=True)
+    telenor_ig = (
+        "SELECT SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%instagram%' "
+        "AND (LOWER(client_asn) LIKE '%telenor%') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 LIMIT 200"
+    )
+    zong_same = resolve_followup(
+        "show me the same for zong",
+        [{"question": "the total Instagram traffic and flow count on Telenor", "sql": telenor_ig}],
+    )
+    zong_folded = (zong_same or "").lower()
+    if (
+        not zong_same
+        or "like '%instagram%'" not in zong_folded
+        or "like '%zong%'" not in zong_folded
+        or "telenor" in zong_folded
+        or "ufone" in zong_folded
+    ):
+        raise SystemExit(f"same for zong did not replace the ISP cleanly: {zong_same}")
+    prepare(zong_same, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

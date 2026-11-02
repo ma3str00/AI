@@ -877,18 +877,22 @@ def _same_request_other_isp(question: str, history: list[dict]) -> str | None:
     if not _asks_same_result(question) and re.search(r"\b(top|highest|maximum|most)\b", folded):
         return None
     previous = _last_sql(history)
-    key = _group_key(previous or "")
-    if not previous or key not in {"subscriber_id", "app_label", "app_category", "requested_server", "city"}:
+    if not previous or "client_asn" not in previous.lower():
         return None
-    if "client_asn" not in previous.lower() and not _asks_same_result(question):
-        return None
-    text = _strip_column_group(re.sub(r"\s+", " ", previous).strip(), "client_asn")
-    text = re.sub(
-        r"(?i)\bGROUP BY\b",
-        f"AND {column_predicate('client_asn', isps[-1])} GROUP BY",
-        text,
-        count=1,
+    key = _group_key(previous)
+    is_aggregate = key is None and bool(
+        re.search(r"(?i)\b(sum|count|avg|max|min)\s*\(", previous)
     )
+    if key not in {"subscriber_id", "app_label", "app_category", "requested_server", "city"} and not is_aggregate:
+        return None
+    predicate = column_predicate("client_asn", isps[-1])
+    text = _strip_column_group(re.sub(r"\s+", " ", previous).strip(), "client_asn")
+    if re.search(r"(?i)\bGROUP BY\b", text):
+        text = re.sub(r"(?i)\bGROUP BY\b", f"AND {predicate} GROUP BY", text, count=1)
+    elif re.search(r"(?i)\bLIMIT\b", text):
+        text = re.sub(r"(?i)\bLIMIT\b", f"AND {predicate} LIMIT", text, count=1)
+    else:
+        text = f"{text} AND {predicate}"
     if key == "subscriber_id" and not re.search(r"(?i)\bas client_asn\b", text):
         text = re.sub(r"(?i)\bFROM\b", ", " + _address_expression("client_asn") + " FROM", text, count=1)
     limit = _limit_in(question)
@@ -1344,7 +1348,7 @@ def _asks_isp_breakdown(question: str) -> bool:
     """True when the user wants usage broken down by ISP / operator / network, not by app."""
     folded = question.lower()
     if re.search(
-        r"\b(?:per|by|across|against|for each|against each|grouped by)\s+(?:the\s+)?"
+        r"\b(?:per|by|across|against|for each|against each|on each|grouped by)\s+(?:the\s+)?"
         r"(?:isps?|operators?|providers?|asns?|client\s*asns?|networks?)\b",
         folded,
     ):

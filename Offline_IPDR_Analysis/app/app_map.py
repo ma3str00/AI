@@ -36,6 +36,7 @@ CATEGORY_PHRASES = (
     ("voice call", "voip"),
     ("gaming", "game"),
     ("games", "game"),
+    ("game", "game"),
     ("email", "email"),
     ("streaming", "streaming"),
     ("browsing", "web_browsing"),

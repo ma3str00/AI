@@ -143,13 +143,16 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
                 source="clarify_top_users_on_isp",
             )
 
-    # Top app/platform per ISP/operator (including "ISP wise").
+    # Top app/platform/game per ISP/operator (including "ISP wise" / "on each ISP").
     if _asks_isp_breakdown(question):
         wants_top = bool(re.search(r"\b(top|most\s+used|highest|best)\b", folded))
-        names_item = bool(re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?)\b", folded))
-        if wants_top and names_item and not re.search(r"\b(websites?|domains?)\b", folded):
-            class_id = class_from_question(question)
-            category = None if class_id else category_from_question(question)
+        names_item = bool(
+            re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?|games?)\b", folded)
+        )
+        class_id = class_from_question(question)
+        category = None if class_id else category_from_question(question)
+        has_subject = bool(names_item or class_id or category or _app_stem_in_question(question))
+        if wants_top and has_subject and not re.search(r"\b(websites?|domains?)\b", folded):
             filters = _subject_filters(question, history, class_id=class_id, category=category)
             if not filters:
                 return None
@@ -157,6 +160,9 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
             top_match = re.search(r"\btop\s+(\d+)\b", folded)
             if top_match:
                 top_n = max(1, min(int(top_match.group(1)), 20))
+            # "highest used" without an explicit flow/byte word → traffic volume.
+            if measure == "flows" and re.search(r"\b(highest|most)\s+used\b", folded):
+                measure = "total_mb"
             return Intent(
                 grain=GRAIN_TOP_APP_PER_ISP,
                 where=filters,
