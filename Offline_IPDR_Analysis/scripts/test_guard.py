@@ -2490,6 +2490,20 @@ def main() -> None:
     ):
         raise SystemExit(f"VPN per ISP excluding SSL missed the NOT LIKE: {vpn_isp_ex}")
     prepare(vpn_isp_ex, 200, allow_full_scan=True)
+    social_network = resolve_followup(
+        "network-wise usage pattern of social media platforms",
+        [],
+    )
+    social_network_folded = (social_network or "").lower()
+    if (
+        not social_network
+        or "group by client_asn" not in social_network_folded
+        or "group by app_label" in social_network_folded
+        or "like '%facebook%'" not in social_network_folded
+        or "like '%tiktok%'" not in social_network_folded
+    ):
+        raise SystemExit(f"network-wise social media did not group by ISP: {social_network}")
+    prepare(social_network, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

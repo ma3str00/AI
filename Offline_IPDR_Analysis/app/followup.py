@@ -1341,15 +1341,15 @@ def _apps_by_duration(question: str) -> str | None:
 
 
 def _asks_isp_breakdown(question: str) -> bool:
-    """True when the user wants usage broken down by ISP / operator, not by app."""
+    """True when the user wants usage broken down by ISP / operator / network, not by app."""
     folded = question.lower()
     if re.search(
         r"\b(?:per|by|across|against|for each|grouped by)\s+(?:the\s+)?"
-        r"(?:isps?|operators?|providers?|asns?|client\s*asns?)\b",
+        r"(?:isps?|operators?|providers?|asns?|client\s*asns?|networks?)\b",
         folded,
     ):
         return True
-    return bool(re.search(r"\b(?:isp|operator|provider|asn)-?wise\b", folded))
+    return bool(re.search(r"\b(?:isp|operator|provider|asn|network)-?wise\b", folded))
 
 
 def _app_exclusions_from_sql(sql: str) -> list[str]:
