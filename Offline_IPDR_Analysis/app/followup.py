@@ -1214,7 +1214,11 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
     folded = question.lower()
     previous = _last_sql(history or [])
     asks_timeline = bool(
-        re.search(r"\b(timeline|over time|trend|hourly|daily|by hour|by day)\b", folded)
+        re.search(
+            r"\b(timeline|over time|trend|hourly|daily|minutely|by hour|by day|"
+            r"by minute|per minute|each minute|every minute|against each minute)\b",
+            folded,
+        )
     )
     # "show all the timestamps" after a day-bucket timeline → hourly chart, not raw flow rows.
     asks_finer = bool(
@@ -1224,8 +1228,14 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
             folded,
         )
     )
+    asks_minute = bool(
+        re.search(
+            r"\b(minutely|by minute|per minute|each minute|every minute|against each minute)\b",
+            folded,
+        )
+    )
     prior_is_timeline = bool(
-        re.search(r"(?i)\bas (?:day_gmt5|hour_gmt5)\b", previous or "")
+        re.search(r"(?i)\bas (?:day_gmt5|hour_gmt5|minute_gmt5)\b", previous or "")
     )
     if not asks_timeline and not (asks_finer and (prior_is_timeline or previous)):
         return None
@@ -1234,9 +1244,15 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
     ):
         return None
     # Default hourly so a single calendar day still draws a usable line chart.
-    daily = bool(re.search(r"\b(daily|by day|per day|each day)\b", folded)) and not asks_finer
-    hourly = not daily
-    if daily:
+    daily = (
+        bool(re.search(r"\b(daily|by day|per day|each day)\b", folded))
+        and not asks_finer
+        and not asks_minute
+    )
+    if asks_minute:
+        bucket = "FROM_UNIXTIME(FLOOR(start_time / 60) * 60) AS minute_gmt5"
+        alias = "minute_gmt5"
+    elif daily:
         bucket = "DATE(FROM_UNIXTIME(start_time)) AS day_gmt5"
         alias = "day_gmt5"
     else:

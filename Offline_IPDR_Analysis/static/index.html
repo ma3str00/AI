@@ -107,6 +107,31 @@
   .chart-row .choices { display: flex; flex-wrap: wrap; gap: 6px; }
   .chart-row button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .chart-svg { width: 100%; height: auto; display: block; }
+  .chart-plot { position: relative; }
+  .chart-tooltip {
+    position: absolute;
+    z-index: 5;
+    min-width: 10rem;
+    max-width: 18rem;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: rgba(255, 252, 247, 0.97);
+    box-shadow: 0 10px 28px rgba(27, 25, 20, 0.12);
+    color: var(--ink);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 10px));
+    transition: opacity 0.12s ease;
+  }
+  .chart-tooltip.visible { opacity: 1; }
+  .chart-tooltip strong { display: block; margin-bottom: 2px; }
+  .chart-hit { cursor: pointer; transition: opacity 0.12s ease, filter 0.12s ease; }
+  .chart-svg.is-hovering .chart-hit { opacity: 0.32; }
+  .chart-svg.is-hovering .chart-hit.is-active { opacity: 1; filter: brightness(1.08); }
+  .chart-hit.is-active { stroke: #1b1914; stroke-width: 2; }
   .chart-note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
   details.sql, details.chart, details.table { margin-top: 12px; }
   details.sql summary, details.chart summary, details.table summary { cursor: pointer; color: var(--muted); font-size: 14px; }
@@ -243,8 +268,8 @@ const LABEL_COLUMNS = new Set([
 ]);
 
 const TIME_COLUMNS = new Set([
-  "start_time", "end_time", "recv_time", "hour_gmt5", "day_gmt5", "hour", "day", "date",
-  "bucket", "time_bucket", "period", "start_gmt5", "end_gmt5"
+  "start_time", "end_time", "recv_time", "hour_gmt5", "day_gmt5", "minute_gmt5",
+  "hour", "day", "date", "minute", "bucket", "time_bucket", "period", "start_gmt5", "end_gmt5"
 ]);
 
 function numberValue(value) {
@@ -261,9 +286,23 @@ function timeColumn(columns) {
 
 function isTimelineQuestion(question, sql, columns) {
   const text = String(question || "").toLowerCase();
-  if (/\b(timeline|over time|trend|hourly|daily|by hour|by day|timestamps?)\b/.test(text)) return true;
-  if (/\bgroup\s+by\s+(day_gmt5|hour_gmt5|date|hour|day)\b/i.test(String(sql || ""))) return true;
+  if (/\b(timeline|over time|trend|hourly|daily|minutely|by hour|by day|by minute|per minute|each minute|every minute|against each minute|timestamps?)\b/.test(text)) return true;
+  if (/\bgroup\s+by\s+(day_gmt5|hour_gmt5|minute_gmt5|date|hour|day|minute)\b/i.test(String(sql || ""))) return true;
   return !!timeColumn(columns);
+}
+
+function timeSortKey(value) {
+  if (value == null || value === "") return Number.POSITIVE_INFINITY;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value;
+  }
+  const text = String(value).trim();
+  if (/^\d{10}$/.test(text)) return Number(text) * 1000;
+  if (/^\d{13}$/.test(text)) return Number(text);
+  const parsed = Date.parse(text.includes("T") ? text : text.replace(" ", "T"));
+  if (!Number.isNaN(parsed)) return parsed;
+  return text;
 }
 
 function numericColumns(columns, rows) {
@@ -334,11 +373,10 @@ function chartFields(columns, rows, question, sql) {
 function chartRows(rows, measure, fields) {
   if (fields && fields.timeline) {
     return rows.slice().sort((left, right) => {
-      const a = left[fields.label];
-      const b = right[fields.label];
+      const a = timeSortKey(left[fields.label]);
+      const b = timeSortKey(right[fields.label]);
+      if (typeof a === "number" && typeof b === "number") return a - b;
       if (a === b) return 0;
-      if (a == null) return -1;
-      if (b == null) return 1;
       return a < b ? -1 : 1;
     }).slice(0, 200);
   }
@@ -405,6 +443,9 @@ function chartCard(columns, rows, question, sql, kind) {
   const pieButton = choiceButton("Pie");
   const lineButton = choiceButton("Line");
   const plot = document.createElement("div");
+  plot.className = "chart-plot";
+  const tooltip = document.createElement("div");
+  tooltip.className = "chart-tooltip";
   const note = document.createElement("p");
   note.className = "chart-note";
   let currentKind = kind === "pie" ? "pie" : kind === "line" || fields.timeline ? "line" : "bar";
@@ -416,12 +457,14 @@ function chartCard(columns, rows, question, sql, kind) {
     barButton.classList.toggle("active", nextKind === "bar");
     pieButton.classList.toggle("active", nextKind === "pie");
     lineButton.classList.toggle("active", nextKind === "line");
+    tooltip.classList.remove("visible");
+    tooltip.replaceChildren();
     const chart = nextKind === "pie"
-      ? pieChart(shown, fields)
+      ? pieChart(shown, fields, tooltip)
       : nextKind === "line"
-        ? lineChart(shown, fields)
-        : barChart(shown, fields);
-    plot.replaceChildren(chart);
+        ? lineChart(shown, fields, tooltip)
+        : barChart(shown, fields, tooltip);
+    plot.replaceChildren(chart, tooltip);
     if (fields.timeline || nextKind === "line") {
       note.textContent = rows.length > shown.length
         ? "Timeline of " + shown.length + " of " + rows.length + " buckets, by " + label + "."
@@ -457,7 +500,58 @@ function controlRow(name, buttons) {
   return row;
 }
 
-function barChart(rows, fields) {
+function tooltipHtml(fields, row, value, extra) {
+  const title = document.createElement("strong");
+  title.textContent = String(row[fields.label] ?? "");
+  const body = document.createElement("div");
+  body.textContent = measureLabel(fields.measure) + ": " + String(value);
+  const parts = [title, body];
+  if (extra) {
+    const more = document.createElement("div");
+    more.textContent = extra;
+    parts.push(more);
+  }
+  return parts;
+}
+
+function positionTooltip(tooltip, event, plot) {
+  const bounds = plot.getBoundingClientRect();
+  const x = Math.min(Math.max(event.clientX - bounds.left, 24), bounds.width - 24);
+  const y = Math.min(Math.max(event.clientY - bounds.top, 12), bounds.height - 12);
+  tooltip.style.left = x + "px";
+  tooltip.style.top = y + "px";
+}
+
+function bindChartHover(svg, tooltip, hits) {
+  const plot = tooltip.parentElement;
+  function hide() {
+    svg.classList.remove("is-hovering");
+    for (const hit of hits) {
+      hit.el.classList.remove("is-active");
+      if (hit.activate) hit.activate(false);
+    }
+    tooltip.classList.remove("visible");
+  }
+  for (const hit of hits) {
+    hit.el.classList.add("chart-hit");
+    hit.el.addEventListener("pointerenter", (event) => {
+      svg.classList.add("is-hovering");
+      for (const other of hits) {
+        const on = other === hit;
+        other.el.classList.toggle("is-active", on);
+        if (other.activate) other.activate(on);
+      }
+      tooltip.replaceChildren(...hit.content());
+      tooltip.classList.add("visible");
+      positionTooltip(tooltip, event, plot);
+    });
+    hit.el.addEventListener("pointermove", (event) => positionTooltip(tooltip, event, plot));
+    hit.el.addEventListener("pointerleave", hide);
+  }
+  svg.addEventListener("pointerleave", hide);
+}
+
+function barChart(rows, fields, tooltip) {
   const width = 720;
   const rowHeight = 28;
   const labelWidth = 168;
@@ -467,6 +561,7 @@ function barChart(rows, fields) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("class", "chart-svg");
+  const hits = [];
   rows.forEach((row, index) => {
     const value = values[index];
     const y = 8 + index * rowHeight;
@@ -491,17 +586,23 @@ function barChart(rows, fields) {
     amount.setAttribute("font-size", "12");
     amount.textContent = String(row[fields.measure]);
     svg.append(label, rect, amount);
+    hits.push({
+      el: rect,
+      content: () => tooltipHtml(fields, row, row[fields.measure])
+    });
   });
+  bindChartHover(svg, tooltip, hits);
   return svg;
 }
 
-function pieChart(rows, fields) {
+function pieChart(rows, fields, tooltip) {
   const values = rows.map((row) => Math.max(0, numberValue(row[fields.measure]) || 0));
   const total = values.reduce((sum, value) => sum + value, 0) || 1;
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 720 280");
   svg.setAttribute("class", "chart-svg");
   let angle = -Math.PI / 2;
+  const hits = [];
   values.forEach((value, index) => {
     const slice = (value / total) * Math.PI * 2;
     const end = angle + slice;
@@ -529,8 +630,13 @@ function pieChart(rows, fields) {
     swatch.setAttribute("rx", "2");
     swatch.setAttribute("fill", CHART_COLORS[index % CHART_COLORS.length]);
     svg.append(swatch, legend);
+    hits.push({
+      el: path,
+      content: () => tooltipHtml(fields, rows[index], rows[index][fields.measure], share + "% of total")
+    });
     angle = end;
   });
+  bindChartHover(svg, tooltip, hits);
   return svg;
 }
 
@@ -546,7 +652,7 @@ function formatTick(value) {
   return text.slice(0, 16);
 }
 
-function lineChart(rows, fields) {
+function lineChart(rows, fields, tooltip) {
   const width = 720;
   const height = 280;
   const left = 56;
@@ -589,13 +695,24 @@ function lineChart(rows, fields) {
     path.setAttribute("stroke-width", "2.5");
     svg.append(path);
   }
+  const hits = [];
   points.forEach((point) => {
     const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     dot.setAttribute("cx", String(point.x));
     dot.setAttribute("cy", String(point.y));
-    dot.setAttribute("r", "3");
+    dot.setAttribute("r", "3.5");
     dot.setAttribute("fill", CHART_COLORS[0]);
+    // Fat transparent stroke widens the hover target without cluttering the line.
+    dot.setAttribute("stroke", "transparent");
+    dot.setAttribute("stroke-width", "16");
     svg.append(dot);
+    hits.push({
+      el: dot,
+      content: () => tooltipHtml(fields, point.row, point.row[fields.measure]),
+      activate(on) {
+        dot.setAttribute("r", on ? "6.5" : "3.5");
+      }
+    });
   });
   const tickIndexes = points.length <= 8
     ? points.map((_, index) => index)
@@ -619,6 +736,7 @@ function lineChart(rows, fields) {
   topLabel.setAttribute("font-size", "11");
   topLabel.textContent = String(max);
   svg.append(topLabel);
+  bindChartHover(svg, tooltip, hits);
   return svg;
 }
 
@@ -678,7 +796,7 @@ function addAnswerBubble(asked, data) {
       data.sql,
       /\bpie\b/i.test(asked)
         ? "pie"
-        : /\b(timeline|over time|trend|line|timestamps?|hourly)\b/i.test(asked)
+        : /\b(timeline|over time|trend|line|timestamps?|hourly|minutely|per minute|each minute|by minute)\b/i.test(asked)
           ? "line"
           : "bar"
     ));

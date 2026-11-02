@@ -2371,6 +2371,26 @@ def main() -> None:
     ):
         raise SystemExit(f"timestamp follow-up did not switch to hourly buckets: {finer}")
     prepare(finer, 200, allow_full_scan=True)
+    fb_hourly = (
+        "SELECT FROM_UNIXTIME(FLOOR(start_time / 3600) * 3600) AS hour_gmt5, COUNT(*) AS flows, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND LOWER(app_label) = 'facebook' GROUP BY hour_gmt5 ORDER BY hour_gmt5 ASC LIMIT 200"
+    )
+    minute_fb = resolve_followup(
+        "I want to see traffic against each minute",
+        [{"question": "show me the timeline of facebook usage", "sql": fb_hourly}],
+    )
+    minute_folded = (minute_fb or "").lower()
+    if (
+        not minute_fb
+        or "minute_gmt5" not in minute_folded
+        or "group by minute_gmt5" not in minute_folded
+        or "order by minute_gmt5" not in minute_folded
+        or "lower(app_label) = 'facebook'" not in minute_folded
+    ):
+        raise SystemExit(f"minute timeline follow-up was wrong: {minute_fb}")
+    prepare(minute_fb, 200, allow_full_scan=True)
     social = resolve_followup("show the most used social media applications", [])
     social_folded = (social or "").lower()
     if (
