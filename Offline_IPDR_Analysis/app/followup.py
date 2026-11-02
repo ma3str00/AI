@@ -88,6 +88,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_duration = _apps_by_duration(question)
     if apps_duration:
         return apps_duration
+    top_per_isp = _top_app_per_isp(question, history)
+    if top_per_isp:
+        return top_per_isp
     by_isp = _usage_by_isp(question, history)
     if by_isp:
         return by_isp
@@ -1344,12 +1347,78 @@ def _asks_isp_breakdown(question: str) -> bool:
     """True when the user wants usage broken down by ISP / operator / network, not by app."""
     folded = question.lower()
     if re.search(
-        r"\b(?:per|by|across|against|for each|grouped by)\s+(?:the\s+)?"
+        r"\b(?:per|by|across|against|for each|against each|grouped by)\s+(?:the\s+)?"
         r"(?:isps?|operators?|providers?|asns?|client\s*asns?|networks?)\b",
         folded,
     ):
         return True
     return bool(re.search(r"\b(?:isp|operator|provider|asn|network)-?wise\b", folded))
+
+
+def _top_app_per_isp(question: str, history: list[dict] | None = None) -> str | None:
+    """Top app/platform within each ISP (ROW_NUMBER), e.g. social media against each operator."""
+    if not _asks_isp_breakdown(question):
+        return None
+    folded = question.lower()
+    wants_top = bool(re.search(r"\b(top|most\s+used|highest|best)\b", folded))
+    names_item = bool(re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?)\b", folded))
+    if not wants_top or not names_item:
+        return None
+    if re.search(r"\b(websites?|domains?)\b", folded):
+        return None
+    previous = _last_sql(history or [])
+    where = [
+        "IFNULL(client_asn, '') <> ''",
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+    ]
+    category = category_from_question(question)
+    class_id = class_from_question(question)
+    if category:
+        where.append(f"LOWER(app_category) = '{category}'")
+    elif class_id:
+        predicate = class_label_predicate(class_id)
+        if predicate:
+            where.append(predicate)
+    elif previous:
+        cat = re.search(r"(?i)LOWER\(app_category\)\s*=\s*'([^']+)'", previous)
+        if cat:
+            where.append(f"LOWER(app_category) = '{cat.group(1)}'")
+        else:
+            or_block = re.search(
+                r"(?i)(\((?:LOWER\(app_label\)\s+LIKE\s+'[^']+'\s*OR\s*)+"
+                r"LOWER\(app_label\)\s+(?:LIKE\s+'[^']+'|REGEXP\s+'[^']+')\))",
+                previous,
+            )
+            if or_block:
+                where.append(or_block.group(1))
+    else:
+        return None
+    where.extend(_merge_app_exclusions(question, previous))
+    top_n = 1
+    top_match = re.search(r"\btop\s+(\d+)\b", folded)
+    if top_match:
+        top_n = max(1, min(int(top_match.group(1)), 20))
+    by_volume = bool(re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded))
+    window_order = (
+        "SUM(c2s_byte_num + s2c_byte_num) DESC"
+        if by_volume
+        else "COUNT(*) DESC"
+    )
+    outer_order = "total_mb" if by_volume else "flows"
+    isp_limit = _limit_in(question) or 20
+    return (
+        "SELECT client_asn, app_label, flows, total_bytes, total_mb FROM ("
+        "SELECT client_asn, app_label, COUNT(*) AS flows, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+        f"ROW_NUMBER() OVER (PARTITION BY client_asn ORDER BY {window_order}) AS rn "
+        "FROM ntc_ssl_logs WHERE "
+        f"{' AND '.join(where)} "
+        "GROUP BY client_asn, app_label"
+        f") ranked WHERE rn <= {int(top_n)} "
+        f"ORDER BY {outer_order} DESC LIMIT {int(isp_limit)}"
+    )
 
 
 def _app_exclusions_from_sql(sql: str) -> list[str]:

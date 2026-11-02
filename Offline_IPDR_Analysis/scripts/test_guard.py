@@ -2504,6 +2504,21 @@ def main() -> None:
     ):
         raise SystemExit(f"network-wise social media did not group by ISP: {social_network}")
     prepare(social_network, 200, allow_full_scan=True)
+    top_per_op = resolve_followup(
+        "top used social media platform against each operator",
+        [{"question": "network-wise usage pattern of social media platforms", "sql": social_network}],
+    )
+    top_per_folded = (top_per_op or "").lower()
+    if (
+        not top_per_op
+        or "row_number()" not in top_per_folded
+        or "partition by client_asn" not in top_per_folded
+        or "like '%facebook%'" not in top_per_folded
+        or "rn <= 1" not in top_per_folded
+        or "group by client_asn, app_label" not in top_per_folded
+    ):
+        raise SystemExit(f"top social platform per operator was wrong: {top_per_op}")
+    prepare(top_per_op, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
