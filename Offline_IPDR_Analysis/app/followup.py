@@ -84,6 +84,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     sites = _websites_of_one_subscriber(question, history)
     if sites:
         return sites
+    apps_usage = _apps_by_usage(question)
+    if apps_usage:
+        return apps_usage
     apps_duration = _apps_by_duration(question)
     if apps_duration:
         return apps_duration
@@ -1192,6 +1195,36 @@ def _flows_by_operator(question: str) -> str | None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+def _apps_by_usage(question: str) -> str | None:
+    """Rank applications by flow count or traffic without calling the model."""
+    folded = question.lower()
+    if not re.search(r"\b(apps?|applications?|app_labels?)\b", folded):
+        return None
+    if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded):
+        return None
+    if class_from_question(question):
+        return None
+    if re.search(r"\b(durations?|session\s+durations?)\b", folded):
+        return None
+    ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display)\b", folded))
+    by_flows = bool(
+        re.search(r"\b(flow\s+counts?|by\s+flows?|number\s+of\s+flows?)\b", folded)
+        or (re.search(r"\bflows?\b", folded) and re.search(r"\b(most\s+used|popular)\b", folded))
+    )
+    by_traffic = bool(re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded))
+    most_used = bool(re.search(r"\b(most\s+used|popular|widely\s+used)\b", folded))
+    if not ranked or not (by_flows or by_traffic or most_used):
+        return None
+    limit = _limit_in(question) or 20
+    order = "total_mb" if by_traffic and not by_flows else "flows"
+    return (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
 

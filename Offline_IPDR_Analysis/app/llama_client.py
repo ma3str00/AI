@@ -141,11 +141,24 @@ class LlamaServer:
             detail = response.text[:500]
             if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():
                 raise LlamaError(
-                    "The Kaggle tunnel is down, so Ollama never received this question. "
-                    "Restart ollama and the Cloudflare tunnel on the notebook, or choose Local 7B."
+                    "The Colab/Kaggle Cloudflare tunnel is down, so Ollama never received this question. "
+                    "Restart ollama and the tunnel on the notebook, or choose Local 7B."
+                )
+            if response.status_code == 524 or "524: a timeout occurred" in detail.lower():
+                raise LlamaError(
+                    "Cloudflare timed out (524) while waiting for Ollama. "
+                    "Usually the model is still loading on CPU, which takes longer than the tunnel allows. "
+                    "Use a Colab GPU runtime, warm the model with a short /api/chat first, "
+                    "and set OLLAMA_KEEP_ALIVE=-1 so it stays loaded."
                 )
             if json_mode and response.status_code == 400:
                 raise LlamaError(f"response_format was rejected: {detail}")
+            # Cloudflare often returns a full HTML error page; keep the GUI readable.
+            if "<html" in detail.lower() or "<!doctype" in detail.lower():
+                raise LlamaError(
+                    f"Ollama returned HTTP {response.status_code} via the tunnel "
+                    "(HTML error page). Check that the Colab tunnel is up and the model is loaded."
+                )
             raise LlamaError(f"Ollama returned HTTP {response.status_code}: {detail}")
         try:
             body = response.json()
@@ -162,8 +175,20 @@ class LlamaServer:
             detail = response.text[:500]
             if response.status_code == 530 or "cloudflare tunnel error" in detail.lower():
                 raise LlamaError(
-                    "The Kaggle tunnel is down, so Ollama never received this question. "
-                    "Restart ollama and the Cloudflare tunnel on the notebook, or choose Local 7B."
+                    "The Colab/Kaggle Cloudflare tunnel is down, so Ollama never received this question. "
+                    "Restart ollama and the tunnel on the notebook, or choose Local 7B."
+                )
+            if response.status_code == 524 or "524: a timeout occurred" in detail.lower():
+                raise LlamaError(
+                    "Cloudflare timed out (524) while waiting for Ollama. "
+                    "Usually the model is still loading on CPU, which takes longer than the tunnel allows. "
+                    "Use a Colab GPU runtime, warm the model with a short /api/chat first, "
+                    "and set OLLAMA_KEEP_ALIVE=-1 so it stays loaded."
+                )
+            if "<html" in detail.lower() or "<!doctype" in detail.lower():
+                raise LlamaError(
+                    f"Ollama returned HTTP {response.status_code} via the tunnel "
+                    "(HTML error page). Check that the Colab tunnel is up and the model is loaded."
                 )
             if json_mode and response.status_code == 400:
                 raise LlamaError(f"response_format was rejected: {detail}")

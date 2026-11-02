@@ -2296,6 +2296,16 @@ def main() -> None:
     ):
         raise SystemExit(f"LOWER(app_label) ranking follow-up broke: {lower_combo}")
     prepare(lower_combo, 200, allow_full_scan=True)
+    by_flows = resolve_followup("show me the most used applications by flow count", [])
+    by_flows_folded = (by_flows or "").lower()
+    if (
+        not by_flows
+        or "count(*) as flows" not in by_flows_folded
+        or "order by flows" not in by_flows_folded
+        or "group by app_label" not in by_flows_folded
+    ):
+        raise SystemExit(f"most used apps by flow count was not resolved locally: {by_flows}")
+    prepare(by_flows, 200, allow_full_scan=True)
     longest_apps = resolve_followup(
         "list down the top 25 applications with the longest session duration",
         [],
