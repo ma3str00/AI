@@ -2440,10 +2440,33 @@ def main() -> None:
     ):
         raise SystemExit(f"social media used a bad media LIKE: {social}")
     prepare(social, 200, allow_full_scan=True)
-    from app.app_map import classes_for_stem, class_from_question, class_label_predicate, _stem_label_predicate
+    from app.app_map import (
+        category_from_question,
+        classes_for_stem,
+        class_from_question,
+        class_label_predicate,
+        _stem_label_predicate,
+    )
 
     if class_from_question("most used social media applications") != "social_media":
         raise SystemExit("social media class was not detected")
+    if category_from_question("usage pattern of VPN apps") != "tunneling":
+        raise SystemExit("VPN apps did not map to Tunneling category")
+    if class_from_question("usage pattern of VPN apps") is not None:
+        raise SystemExit("VPN apps must not use the conceptual class stem map")
+    if category_from_question("nordvpn users") is not None:
+        raise SystemExit("nordvpn must not match the bare vpn category phrase")
+    vpn_apps = resolve_followup("usage pattern of VPN apps", [])
+    vpn_folded = (vpn_apps or "").lower()
+    if (
+        not vpn_apps
+        or "lower(app_category) = 'tunneling'" not in vpn_folded
+        or "group by app_label" not in vpn_folded
+        or "nordvpn" in vpn_folded
+        or "like '%vpn%'" in vpn_folded
+    ):
+        raise SystemExit(f"VPN usage pattern did not use Tunneling category: {vpn_apps}")
+    prepare(vpn_apps, 200, allow_full_scan=True)
     if "social_media" not in classes_for_stem("whatsapp") or "messaging" not in classes_for_stem("whatsapp"):
         raise SystemExit(f"whatsapp should be messaging + social_media: {classes_for_stem('whatsapp')}")
     if "social_media" not in classes_for_stem("youtube") or "video_streaming" not in classes_for_stem("youtube"):

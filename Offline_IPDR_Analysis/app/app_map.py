@@ -17,9 +17,21 @@ CATEGORY_PHRASES = (
     ("http video", "http_video"),
     ("video streaming", "streaming"),
     ("p2p", "p2p_download"),
+    # Longer VPN phrases first so "vpn apps" hits Tunneling, not a stem class.
+    ("vpn applications", "tunneling"),
+    ("vpn application", "tunneling"),
+    ("vpn apps", "tunneling"),
+    ("proxy apps", "tunneling"),
+    ("proxy applications", "tunneling"),
+    ("tunnel apps", "tunneling"),
+    ("tunnel applications", "tunneling"),
+    ("tunneling apps", "tunneling"),
+    ("tunneling applications", "tunneling"),
+    ("vpns", "tunneling"),
     ("vpn", "tunneling"),
     ("proxy", "tunneling"),
     ("tunnel", "tunneling"),
+    ("tunneling", "tunneling"),
     ("voip", "voip"),
     ("voice call", "voip"),
     ("gaming", "game"),
@@ -145,18 +157,7 @@ APP_CLASSES: dict[str, dict[str, tuple[str, ...]]] = {
             "amazons3", "huaweicloud", "megashare", "megaupload",
         ),
     },
-    "vpn": {
-        "phrases": (
-            "vpn apps",
-            "vpn applications",
-            "proxy apps",
-            "tunnel apps",
-        ),
-        "stems": (
-            "nordvpn", "expressvpn", "protonvpn", "psiphon", "hotspotvpn",
-            "icloudprivaterelay",
-        ),
-    },
+    # VPN / proxy / tunnel use DPI app_category Tunneling (see CATEGORY_PHRASES), not stems.
     "shopping": {
         "phrases": (
             "shopping apps",
@@ -305,14 +306,11 @@ class AppMap:
                 "Mobile means mcc, mnc, lac, cid, or usr_loc_info is filled. "
                 "Fixed-line means a valid subscriber_id with those cell fields empty."
             )
-        categories = []
-        for phrase, category in CATEGORY_PHRASES:
-            if phrase in folded and category not in categories:
-                categories.append(category)
-        if categories:
-            listed = ", ".join(f"'{item}'" for item in categories)
+        category = category_from_question(question)
+        if category:
             lines.append(
-                f"Category wording in the question maps to LOWER(app_category) IN ({listed})."
+                f"Category wording in the question maps to LOWER(app_category) = '{category}'. "
+                "For VPN/proxy/tunnel that means Tunneling — filter by app_category, then GROUP BY app_label."
             )
         class_id = class_from_question(question)
         if class_id:
@@ -384,11 +382,27 @@ def label_token_known(token: str) -> bool:
     return folded in _active.label_tokens or folded in _active.exact_labels
 
 
+def category_from_question(question: str) -> str | None:
+    """Return the DPI app_category named in the question, if any.
+
+    Uses word boundaries so 'vpn' does not match inside 'nordvpn'.
+    Longer phrases win (e.g. 'vpn apps' over 'vpn').
+    """
+    folded = re.sub(r"\s+", " ", question.lower()).strip()
+    best: tuple[int, str] | None = None
+    for phrase, category in CATEGORY_PHRASES:
+        if re.search(rf"\b{re.escape(phrase)}\b", folded):
+            score = len(phrase)
+            if best is None or score > best[0]:
+                best = (score, category)
+    return best[1] if best else None
+
+
 def class_from_question(question: str) -> str | None:
     """Return the conceptual app class named in the question, if any.
 
     Phrases that already map to DPI app_category (CATEGORY_PHRASES) are left to
-    that path so 'cloud storage' / 'video streaming' keep using app_category.
+    that path so 'vpn apps' / 'cloud storage' / 'video streaming' keep using app_category.
     """
     folded = re.sub(r"\s+", " ", question.lower()).strip()
     dpi_phrases = {phrase for phrase, _ in CATEGORY_PHRASES}

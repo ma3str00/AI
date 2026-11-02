@@ -7,6 +7,7 @@ import re
 from app.app_map import (
     CATEGORY_PHRASES,
     CLASS_PHRASE_STOPWORDS,
+    category_from_question,
     class_from_question,
     class_label_predicate,
     exact_app_label,
@@ -90,6 +91,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_class = _apps_by_class(question)
     if apps_class:
         return apps_class
+    apps_category = _apps_by_category(question)
+    if apps_category:
+        return apps_category
     timeline = _usage_timeline(question, history)
     if timeline:
         return timeline
@@ -1342,7 +1346,7 @@ def _apps_by_class(question: str) -> str | None:
     if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded):
         return None
     names_apps = bool(re.search(r"\b(apps?|applications?|protocols?)\b", folded))
-    ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display)\b", folded))
+    ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display|usage|pattern)\b", folded))
     if not names_apps and not ranked:
         return None
     predicate = class_label_predicate(class_id)
@@ -1359,6 +1363,33 @@ def _apps_by_class(question: str) -> str | None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
         "FROM ntc_ssl_logs WHERE "
         f"{predicate} AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+def _apps_by_category(question: str) -> str | None:
+    """Rank apps inside a DPI app_category (VPN/proxy/tunnel → Tunneling)."""
+    # Conceptual classes own overlapping phrases; they run first in resolve_followup.
+    if class_from_question(question):
+        return None
+    category = category_from_question(question)
+    if not category:
+        return None
+    folded = question.lower()
+    if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded):
+        return None
+    names_apps = bool(re.search(r"\b(apps?|applications?|protocols?)\b", folded))
+    ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display|usage|pattern)\b", folded))
+    if not names_apps and not ranked:
+        return None
+    limit = _limit_in(question) or 20
+    order = "total_mb" if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) else "flows"
+    return (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"LOWER(app_category) = '{category}' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
@@ -1639,9 +1670,9 @@ def _add_shown_columns(question: str, history: list[dict]) -> str | None:
 def _subject_filter(folded: str) -> str | None:
     for phrase, _column in _DISPLAY_COLUMNS:
         folded = re.sub(rf"\b{re.escape(phrase)}\b", " ", folded)
-    for phrase, category in CATEGORY_PHRASES:
-        if re.search(rf"\b{re.escape(phrase)}\b", folded):
-            return f"LOWER(app_category) = '{category}'"
+    category = category_from_question(folded)
+    if category:
+        return f"LOWER(app_category) = '{category}'"
     class_id = class_from_question(folded)
     if class_id:
         return class_label_predicate(class_id)
