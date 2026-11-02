@@ -88,6 +88,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_duration = _apps_by_duration(question)
     if apps_duration:
         return apps_duration
+    by_isp = _usage_by_isp(question, history)
+    if by_isp:
+        return by_isp
     apps_class = _apps_by_class(question)
     if apps_class:
         return apps_class
@@ -1337,8 +1340,99 @@ def _apps_by_duration(question: str) -> str | None:
     )
 
 
+def _asks_isp_breakdown(question: str) -> bool:
+    """True when the user wants usage broken down by ISP / operator, not by app."""
+    folded = question.lower()
+    if re.search(
+        r"\b(?:per|by|across|against|for each|grouped by)\s+(?:the\s+)?"
+        r"(?:isps?|operators?|providers?|asns?|client\s*asns?)\b",
+        folded,
+    ):
+        return True
+    return bool(re.search(r"\b(?:isp|operator|provider|asn)-?wise\b", folded))
+
+
+def _app_exclusions_from_sql(sql: str) -> list[str]:
+    """Keep app_label NOT LIKE filters such as 'exclude ssl'."""
+    return [
+        f"app_label NOT LIKE '{match.group(1)}'"
+        for match in re.finditer(
+            r"(?i)\bapp_label\s+NOT\s+LIKE\s+'([^']+)'",
+            sql or "",
+        )
+    ]
+
+
+def _usage_by_isp(question: str, history: list[dict] | None = None) -> str | None:
+    """Usage / traffic / flow pattern grouped by ISP (client_asn)."""
+    if not _asks_isp_breakdown(question):
+        return None
+    folded = question.lower()
+    # Subscriber rankings and website lists are handled elsewhere.
+    if re.search(r"\b(websites?|domains?)\b", folded):
+        return None
+    if re.search(r"\b(users?|subscribers?)\b", folded) and not re.search(
+        r"\b(usage|pattern|traffic|volume|flows?|bytes)\b", folded
+    ):
+        return None
+    # Blocked/allowed flow-by-operator stays on _flows_by_operator.
+    if mentions(question, "blocked") or mentions(question, "allowed"):
+        if not re.search(r"\b(usage|pattern)\b", folded) and not category_from_question(question):
+            return None
+    previous = _last_sql(history or [])
+    has_usage = bool(
+        re.search(r"\b(usage|pattern|traffic|volume|flows?|bytes|mb|gb|tb|show|display|top)\b", folded)
+    )
+    if not has_usage and not previous:
+        return None
+    where = [
+        "IFNULL(client_asn, '') <> ''",
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+    ]
+    category = category_from_question(question)
+    class_id = class_from_question(question)
+    if category:
+        where.append(f"LOWER(app_category) = '{category}'")
+    elif class_id:
+        predicate = class_label_predicate(class_id)
+        if predicate:
+            where.append(predicate)
+    elif previous:
+        cat = re.search(
+            r"(?i)LOWER\(app_category\)\s*=\s*'([^']+)'",
+            previous,
+        )
+        if cat:
+            where.append(f"LOWER(app_category) = '{cat.group(1)}'")
+        else:
+            class_pred = None
+            # Preserve a prior multi-stem class OR-group when present.
+            or_block = re.search(
+                r"(?i)(\((?:LOWER\(app_label\)\s+LIKE\s+'[^']+'\s*OR\s*)+LOWER\(app_label\)\s+(?:LIKE\s+'[^']+'|REGEXP\s+'[^']+')\))",
+                previous,
+            )
+            if or_block:
+                class_pred = or_block.group(1)
+            if class_pred:
+                where.append(class_pred)
+    if previous:
+        where.extend(_app_exclusions_from_sql(previous))
+    limit = _limit_in(question) or 20
+    order = "total_mb" if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) else "flows"
+    return (
+        "SELECT client_asn, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"{' AND '.join(where)} "
+        f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
 def _apps_by_class(question: str) -> str | None:
     """Rank apps in a conceptual multi-label class (e.g. social media), not LIKE '%media%'."""
+    if _asks_isp_breakdown(question):
+        return None
     class_id = class_from_question(question)
     if not class_id:
         return None
@@ -1369,6 +1463,8 @@ def _apps_by_class(question: str) -> str | None:
 
 def _apps_by_category(question: str) -> str | None:
     """Rank apps inside a DPI app_category (VPN/proxy/tunnel → Tunneling)."""
+    if _asks_isp_breakdown(question):
+        return None
     # Conceptual classes own overlapping phrases; they run first in resolve_followup.
     if class_from_question(question):
         return None

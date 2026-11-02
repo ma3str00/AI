@@ -2467,6 +2467,36 @@ def main() -> None:
     ):
         raise SystemExit(f"VPN usage pattern did not use Tunneling category: {vpn_apps}")
     prepare(vpn_apps, 200, allow_full_scan=True)
+    vpn_isp = resolve_followup("show me the VPN usage pattern per ISP", [])
+    vpn_isp_folded = (vpn_isp or "").lower()
+    if (
+        not vpn_isp
+        or "group by client_asn" not in vpn_isp_folded
+        or "lower(app_category) = 'tunneling'" not in vpn_isp_folded
+        or "group by app_label" in vpn_isp_folded
+    ):
+        raise SystemExit(f"VPN usage per ISP did not group by client_asn: {vpn_isp}")
+    prepare(vpn_isp, 200, allow_full_scan=True)
+    vpn_no_ssl = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_category) = 'tunneling' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND app_label NOT LIKE '%ssl%' GROUP BY app_label ORDER BY flows DESC LIMIT 20"
+    )
+    vpn_isp_kept = resolve_followup(
+        "show me the VPN usage pattern per ISP",
+        [{"question": "exclude ssl", "sql": vpn_no_ssl}],
+    )
+    vpn_isp_kept_folded = (vpn_isp_kept or "").lower()
+    if (
+        not vpn_isp_kept
+        or "group by client_asn" not in vpn_isp_kept_folded
+        or "not like '%ssl%'" not in vpn_isp_kept_folded
+        or "lower(app_category) = 'tunneling'" not in vpn_isp_kept_folded
+    ):
+        raise SystemExit(f"VPN per ISP dropped the SSL exclusion: {vpn_isp_kept}")
+    prepare(vpn_isp_kept, 200, allow_full_scan=True)
     if "social_media" not in classes_for_stem("whatsapp") or "messaging" not in classes_for_stem("whatsapp"):
         raise SystemExit(f"whatsapp should be messaging + social_media: {classes_for_stem('whatsapp')}")
     if "social_media" not in classes_for_stem("youtube") or "video_streaming" not in classes_for_stem("youtube"):
