@@ -2519,6 +2519,17 @@ def main() -> None:
     ):
         raise SystemExit(f"top social platform per operator was wrong: {top_per_op}")
     prepare(top_per_op, 200, allow_full_scan=True)
+    fb_multinet = resolve_followup("show the facebook usage on multinet", [])
+    fb_multi_folded = (fb_multinet or "").lower()
+    if (
+        not fb_multinet
+        or "like '%facebook%'" not in fb_multi_folded
+        or "like '%multinet%'" not in fb_multi_folded
+        or "group by subscriber_id" not in fb_multi_folded
+        or "client_asn" not in fb_multi_folded
+    ):
+        raise SystemExit(f"facebook usage on multinet missed the ISP filter: {fb_multinet}")
+    prepare(fb_multinet, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

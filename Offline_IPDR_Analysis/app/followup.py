@@ -94,6 +94,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     by_isp = _usage_by_isp(question, history)
     if by_isp:
         return by_isp
+    app_on_isp = _app_usage_on_isp(question, history)
+    if app_on_isp:
+        return app_on_isp
     apps_class = _apps_by_class(question)
     if apps_class:
         return apps_class
@@ -1491,6 +1494,74 @@ def _merge_app_exclusions(question: str, previous: str | None = None) -> list[st
         seen.add(key)
         merged.append(clause)
     return merged
+
+
+def _app_stem_in_question(question: str, skip: set[str] | None = None) -> str | None:
+    """Application named in the question, ignoring ISP/city tokens."""
+    skip = set(skip or ())
+    for isp in mentioned_isps(question):
+        skip.update(alias.lower() for alias in isp.aliases)
+    for city in mentioned_cities(question):
+        skip.update(alias.lower() for alias in city.aliases)
+    skip |= set(_NOT_AN_APP)
+    stripped = without_named(question)
+    return (
+        _named_app_label(question)
+        or known_app_token(stripped, skip)
+        or _exact_app_word(stripped)
+    )
+
+
+def _app_usage_on_isp(question: str, history: list[dict] | None = None) -> str | None:
+    """'{app} usage on {isp}' ranks identified users of that app on that ISP."""
+    if _asks_isp_breakdown(question):
+        return None
+    folded = question.lower()
+    isps = mentioned_isps(question)
+    if not isps:
+        return None
+    # City / area rankings stay on _top_people so Multan+PTCL keeps the loc filter.
+    if (
+        mentioned_cities(question)
+        or mentioned_areas(question)
+        or mentioned_provinces(question)
+        or street_before_city(question)
+    ):
+        return None
+    if re.search(r"\b(top|highest|most)\b", folded) and re.search(r"\b(users?|subscribers?)\b", folded):
+        return None
+    if class_from_question(question):
+        return None
+    if category_from_question(question):
+        # 'VPN usage on Multinet' is category+ISP, not a single app stem.
+        return None
+    app = _app_stem_in_question(question)
+    if not app:
+        return None
+    if not re.search(r"\b(usage|traffic|volume|bytes|show|display|list)\b", folded):
+        return None
+    # Prefer place phrasing: on/from Multinet.
+    if not re.search(r"\b(?:on|from|for|at|via)\b", folded):
+        return None
+    where = [
+        f"LOWER(app_label) LIKE '%{app.lower().replace(chr(39), '')}%'",
+        column_predicate("client_asn", isps[-1]),
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+    ]
+    where.extend(_merge_app_exclusions(question, _last_sql(history or [])))
+    limit = _limit_in(question) or 20
+    order = "flows" if re.search(r"\b(flows?|flow count|hits)\b", folded) else "total_bytes"
+    return (
+        "SELECT subscriber_id, "
+        + _address_expression("client_asn")
+        + ", SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+        "COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"{' AND '.join(where)} "
+        f"GROUP BY subscriber_id ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
 
 
 def _usage_by_isp(question: str, history: list[dict] | None = None) -> str | None:
