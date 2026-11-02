@@ -73,6 +73,20 @@ class Intent:
         return ", ".join(bits)
 
 
+def _pending_usage_clarify_question(history: list[dict]) -> str | None:
+    """Prior question that produced the totals-vs-users clarify prompt."""
+    if not history:
+        return None
+    last = history[-1]
+    if (last.get("sql") or "").strip():
+        return None
+    note = (last.get("explanation") or "").lower()
+    if "do you want the total" not in note or "ranked by usage" not in note:
+        return None
+    prior = (last.get("question") or "").strip()
+    return prior or None
+
+
 def resolve_intent(question: str, history: list[dict] | None = None) -> Intent | None:
     """Parse a structured intent for the high-value ISP/app follow-up family."""
     history = history or []
@@ -94,6 +108,40 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
     ):
         measure = "flows"
     limit = _limit_in(question) or 20
+
+    # Answer to "totals or top users?" — keep slots from the clarified question.
+    pending = _pending_usage_clarify_question(history)
+    if pending:
+        prior_history = history[:-1]
+        where = _app_isp_where(pending, prior_history)
+        if not where:
+            # Reply may say "on that ISP"; merge reply text for ISP resolution.
+            where = _app_isp_where(f"{pending} {question}", prior_history)
+        app = _app_stem_in_question(pending) or _app_stem_in_question(question)
+        if where and (
+            _asks_aggregate_total(question)
+            or re.search(r"\btotals?\b", folded)
+            or ("total" in folded and "flow count" in folded)
+        ):
+            return Intent(
+                grain=GRAIN_AGGREGATE_TOTAL,
+                where=where,
+                app=app,
+                measure=measure,
+                limit=1,
+                ambiguous=False,
+                source="clarify_aggregate_app_on_isp",
+            )
+        if where and re.search(r"\b(users?|subscribers?|ranked)\b", folded):
+            return Intent(
+                grain=GRAIN_TOP_USERS,
+                where=where,
+                app=app,
+                measure=measure,
+                limit=limit,
+                ambiguous=False,
+                source="clarify_top_users_on_isp",
+            )
 
     # Top app/platform per ISP/operator (including "ISP wise").
     if _asks_isp_breakdown(question):

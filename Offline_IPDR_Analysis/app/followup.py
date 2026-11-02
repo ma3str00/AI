@@ -1183,6 +1183,9 @@ def _flows_by_operator(question: str) -> str | None:
         return None
     if named_subscriber(question):
         return None
+    # Named apps (tiktok/facebook/…) belong on the intent path, not a bare ISP ranking.
+    if _app_stem_in_question(question) or known_app_token(question, _NOT_AN_APP):
+        return None
     if not re.search(r"\b(operators?|isps?|providers?|asns?)\b", folded) and "client asn" not in folded:
         return None
     if not re.search(r"\b(flows?|flow count|traffic|volume|bytes)\b", folded) and not mentions(question, "blocked") and not mentions(question, "allowed"):
@@ -1524,11 +1527,23 @@ def _asks_aggregate_total(question: str) -> bool:
     )
 
 
+def _isp_from_history_questions(history: list[dict] | None) -> list:
+    """Find an ISP named in a recent user question (for 'on that ISP' replies)."""
+    for turn in reversed(history or []):
+        found = mentioned_isps(turn.get("question") or "")
+        if found:
+            return found
+    return []
+
+
 def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str] | None:
     """Shared app + ISP (+ exclusion) filters for usage-on-operator asks."""
-    previous = _last_sql(history or [])
+    history = history or []
+    previous = _last_sql(history)
     folded = question.lower()
     isps = mentioned_isps(question)
+    if not isps and re.search(r"\b(?:that|this|same)\s+(?:isp|operator|provider|network)\b", folded):
+        isps = _isp_from_history_questions(history)
     app = _app_stem_in_question(question)
     # Inherit the prior app only for grain rewrites ("I meant the total…"), not a fresh ISP ranking.
     if not app and previous and re.search(
@@ -1537,6 +1552,12 @@ def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str
         like = re.search(r"(?i)LOWER\(app_label\)\s+LIKE\s+'%([^%']+)%'", previous)
         if like:
             app = like.group(1)
+    if not app and re.search(r"\b(i meant|meant the|total|usage|traffic|volume|flow counts?)\b", folded):
+        for turn in reversed(history):
+            prior_app = _app_stem_in_question(turn.get("question") or "")
+            if prior_app:
+                app = prior_app
+                break
     if not app:
         return None
     where = [f"LOWER(app_label) LIKE '%{app.lower().replace(chr(39), '')}%'"]

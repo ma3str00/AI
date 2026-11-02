@@ -2585,6 +2585,31 @@ def main() -> None:
     clarify = apply_referee_decision(usage_intent, {"action": "clarify", "clarify": "Users or totals?"})
     if clarify != "Users or totals?":
         raise SystemExit(f"referee clarify failed: {clarify}")
+    jazz_clarify_history = [
+        {
+            "question": "tiktok usage on jazz",
+            "sql": "",
+            "explanation": (
+                "Do you want the total tiktok traffic and flow count on that ISP, "
+                "or the top tiktok users ranked by usage?"
+            ),
+        }
+    ]
+    jazz_total = resolve_followup(
+        "total TikTok traffic and flow count on that ISP",
+        jazz_clarify_history,
+    )
+    jazz_folded = (jazz_total or "").lower()
+    if (
+        not jazz_total
+        or "like '%tiktok%'" not in jazz_folded
+        or "like '%jazz%'" not in jazz_folded
+        or "group by client_asn" in jazz_folded
+        or "group by subscriber_id" in jazz_folded
+        or "count(*) as flows" not in jazz_folded
+    ):
+        raise SystemExit(f"clarify reply dropped TikTok/Jazz filters: {jazz_total}")
+    prepare(jazz_total, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
