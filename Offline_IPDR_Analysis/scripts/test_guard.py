@@ -2477,6 +2477,19 @@ def main() -> None:
     ):
         raise SystemExit(f"VPN usage per ISP did not group by client_asn: {vpn_isp}")
     prepare(vpn_isp, 200, allow_full_scan=True)
+    vpn_isp_ex = resolve_followup(
+        "per ISP usage pattern of VPN apps excluding SSL",
+        [],
+    )
+    vpn_isp_ex_folded = (vpn_isp_ex or "").lower()
+    if (
+        not vpn_isp_ex
+        or "group by client_asn" not in vpn_isp_ex_folded
+        or "lower(app_category) = 'tunneling'" not in vpn_isp_ex_folded
+        or "not like '%ssl%'" not in vpn_isp_ex_folded
+    ):
+        raise SystemExit(f"VPN per ISP excluding SSL missed the NOT LIKE: {vpn_isp_ex}")
+    prepare(vpn_isp_ex, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

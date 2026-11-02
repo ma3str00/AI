@@ -1363,6 +1363,67 @@ def _app_exclusions_from_sql(sql: str) -> list[str]:
     ]
 
 
+_EXCLUDE_APP_STOP = frozenset(
+    {
+        "unidentified",
+        "invalid",
+        "fixed",
+        "mobile",
+        "apps",
+        "applications",
+        "protocols",
+        "users",
+        "subscribers",
+        "isps",
+        "operators",
+        "cities",
+        "vpn",
+        "proxy",
+        "tunnel",
+        "tunneling",
+        "the",
+        "all",
+        "those",
+        "these",
+        "them",
+    }
+)
+
+
+def _app_exclusions_from_question(question: str) -> list[str]:
+    """Parse 'excluding SSL' / 'exclude ssl' / 'without HTTP' into NOT LIKE filters."""
+    folded = question.lower()
+    out: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(
+        r"\b(?:exclud(?:e|ing)|without|except|minus)\s+(?:the\s+)?"
+        r"([a-z0-9][a-z0-9_.-]{1,40})(?:\s*(?:,|and|/|&)\s*([a-z0-9][a-z0-9_.-]{1,40}))?",
+        folded,
+    ):
+        for token in match.groups():
+            if not token or token in _EXCLUDE_APP_STOP:
+                continue
+            pattern = f"%{token}%"
+            clause = f"app_label NOT LIKE '{pattern}'"
+            if clause not in seen:
+                seen.add(clause)
+                out.append(clause)
+    return out
+
+
+def _merge_app_exclusions(question: str, previous: str | None = None) -> list[str]:
+    """Exclusions from this question win ties with ones carried from prior SQL."""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for clause in _app_exclusions_from_question(question) + _app_exclusions_from_sql(previous or ""):
+        key = clause.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(clause)
+    return merged
+
+
 def _usage_by_isp(question: str, history: list[dict] | None = None) -> str | None:
     """Usage / traffic / flow pattern grouped by ISP (client_asn)."""
     if not _asks_isp_breakdown(question):
@@ -1416,8 +1477,7 @@ def _usage_by_isp(question: str, history: list[dict] | None = None) -> str | Non
                 class_pred = or_block.group(1)
             if class_pred:
                 where.append(class_pred)
-    if previous:
-        where.extend(_app_exclusions_from_sql(previous))
+    where.extend(_merge_app_exclusions(question, previous))
     limit = _limit_in(question) or 20
     order = "total_mb" if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) else "flows"
     return (
@@ -1452,11 +1512,17 @@ def _apps_by_class(question: str) -> str | None:
     else:
         # "most used" / default → session/flow count
         order = "flows"
+    where = [
+        predicate,
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+        *_merge_app_exclusions(question),
+    ]
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
         "FROM ntc_ssl_logs WHERE "
-        f"{predicate} AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"{' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
@@ -1480,12 +1546,17 @@ def _apps_by_category(question: str) -> str | None:
         return None
     limit = _limit_in(question) or 20
     order = "total_mb" if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) else "flows"
+    where = [
+        f"LOWER(app_category) = '{category}'",
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+        *_merge_app_exclusions(question),
+    ]
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
         "FROM ntc_ssl_logs WHERE "
-        f"LOWER(app_category) = '{category}' "
-        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        f"{' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
