@@ -1215,8 +1215,9 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
     previous = _last_sql(history or [])
     asks_timeline = bool(
         re.search(
-            r"\b(timeline|over time|trend|hourly|daily|minutely|by hour|by day|"
-            r"by minute|per minute|each minute|every minute|against each minute)\b",
+            r"\b(timeline|time\s*graphs?|time\s*charts?|over time|trend|hourly|daily|"
+            r"minutely|by hour|by day|by minute|per minute|each minute|every minute|"
+            r"against each minute)\b",
             folded,
         )
     )

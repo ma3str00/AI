@@ -2391,6 +2391,40 @@ def main() -> None:
     ):
         raise SystemExit(f"minute timeline follow-up was wrong: {minute_fb}")
     prepare(minute_fb, 200, allow_full_scan=True)
+    social_sql = (
+        "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE (LOWER(app_label) LIKE '%facebook%' OR LOWER(app_label) LIKE '%youtube%') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY app_label ORDER BY flows DESC LIMIT 20"
+    )
+    yt_time_graph = resolve_followup(
+        "show me time graph of youtube usage",
+        [{"question": "show me the usage pattern of social media platforms", "sql": social_sql}],
+    )
+    yt_folded = (yt_time_graph or "").lower()
+    if (
+        not yt_time_graph
+        or "hour_gmt5" not in yt_folded
+        or "youtube" not in yt_folded
+        or "like '%facebook%'" in yt_folded
+        or "group by app_label" in yt_folded
+        or "group by hour_gmt5" not in yt_folded
+    ):
+        raise SystemExit(f"youtube time graph kept the social ranking: {yt_time_graph}")
+    prepare(yt_time_graph, 200, allow_full_scan=True)
+    yt_timeline_graph = resolve_followup(
+        "show me timeline graph of youtube usage",
+        [{"question": "show me the usage pattern of social media platforms", "sql": social_sql}],
+    )
+    yt_tl_folded = (yt_timeline_graph or "").lower()
+    if (
+        not yt_timeline_graph
+        or "hour_gmt5" not in yt_tl_folded
+        or "youtube" not in yt_tl_folded
+        or "like '%facebook%'" in yt_tl_folded
+    ):
+        raise SystemExit(f"youtube timeline graph was wrong: {yt_timeline_graph}")
+    prepare(yt_timeline_graph, 200, allow_full_scan=True)
     social = resolve_followup("show the most used social media applications", [])
     social_folded = (social or "").lower()
     if (
