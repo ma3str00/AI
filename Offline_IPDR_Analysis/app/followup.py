@@ -767,6 +767,17 @@ def _means_hits(text: str) -> bool:
     return mentions(text, "hit")
 
 
+def _exact_app_word(text: str) -> str | None:
+    """Short exact labels such as ssl that known_app_token skips (length < 4)."""
+    best: str | None = None
+    for token in re.findall(r"[a-z0-9][a-z0-9_.-]{1,40}", text.lower()):
+        if token in _NOT_AN_APP:
+            continue
+        if exact_app_label(token) and (best is None or len(token) >= len(best)):
+            best = token
+    return best
+
+
 def _named_app_label(text: str) -> str | None:
     """The application named as a filter, as in 'against app type HTTP' or 'ssl app'."""
     folded = text.lower()
@@ -1216,7 +1227,11 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
         bucket = "FROM_UNIXTIME(FLOOR(start_time / 3600) * 3600) AS hour_gmt5"
         alias = "hour_gmt5"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
-    app = _named_app_label(question) or known_app_token(question, _NOT_AN_APP)
+    app = (
+        _named_app_label(question)
+        or known_app_token(question, _NOT_AN_APP)
+        or _exact_app_word(question)
+    )
     if not app and history:
         previous = _last_sql(history)
         prior_app = _app_predicate_from_sql(previous or "")
