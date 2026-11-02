@@ -47,6 +47,8 @@ class LlamaServer:
         self.keep_alive = keep_alive
         # Filled by the latest chat() / probe_latency().
         self.last_call: dict[str, Any] = {}
+        # Reuse one client so retries do not pay a fresh TLS/tunnel handshake each time.
+        self._client = httpx.Client(timeout=timeout)
 
     def chat(self, messages: list[dict], *, json_mode: bool, temperature: float) -> str:
         max_tokens = self.sql_max_tokens if json_mode else self.explain_max_tokens
@@ -77,15 +79,14 @@ class LlamaServer:
         started = time.perf_counter()
         marks: dict[str, float] = {"start": started}
         try:
-            with httpx.Client(timeout=10.0) as client:
-                response = client.send(
-                    client.build_request("GET", url),
-                    stream=True,
-                )
-                marks["headers"] = time.perf_counter()
-                body = response.read()
-                marks["body"] = time.perf_counter()
-                response.close()
+            response = self._client.send(
+                self._client.build_request("GET", url),
+                stream=True,
+            )
+            marks["headers"] = time.perf_counter()
+            body = response.read()
+            marks["body"] = time.perf_counter()
+            response.close()
         except httpx.HTTPError as exc:
             self.last_call = {
                 "probe_error": str(exc),
@@ -196,14 +197,13 @@ class LlamaServer:
         started = time.perf_counter()
         marks: dict[str, float] = {"start": started}
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                request = client.build_request("POST", url, json=payload)
-                marks["request_built"] = time.perf_counter()
-                response = client.send(request, stream=True)
-                marks["headers"] = time.perf_counter()
-                raw = response.read()
-                marks["body"] = time.perf_counter()
-                response.close()
+            request = self._client.build_request("POST", url, json=payload)
+            marks["request_built"] = time.perf_counter()
+            response = self._client.send(request, stream=True)
+            marks["headers"] = time.perf_counter()
+            raw = response.read()
+            marks["body"] = time.perf_counter()
+            response.close()
         except httpx.HTTPError as exc:
             self.last_call = {
                 "wall_s": time.perf_counter() - started,

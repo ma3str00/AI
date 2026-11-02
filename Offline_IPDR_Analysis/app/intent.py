@@ -23,6 +23,7 @@ from app.followup import (
 )
 from app.places import (
     asks_same_city,
+    city_from_loc,
     column_predicate,
     mentioned_areas,
     mentioned_cities,
@@ -35,6 +36,7 @@ GRAIN_AGGREGATE_TOTAL = "aggregate_total"
 GRAIN_TOP_USERS = "top_users"
 GRAIN_USAGE_BY_ISP = "usage_by_isp"
 GRAIN_TOP_APP_PER_ISP = "top_app_per_isp"
+GRAIN_TOP_APP_PER_CITY = "top_app_per_city"
 GRAIN_APPS_BY_CLASS = "apps_by_class"
 GRAIN_APPS_BY_CATEGORY = "apps_by_category"
 
@@ -43,6 +45,7 @@ _GRAIN_LABELS = {
     GRAIN_TOP_USERS: "top subscribers/users ranked by usage",
     GRAIN_USAGE_BY_ISP: "totals grouped by ISP/operator",
     GRAIN_TOP_APP_PER_ISP: "top application within each ISP",
+    GRAIN_TOP_APP_PER_CITY: "top application within each city",
     GRAIN_APPS_BY_CLASS: "applications in a conceptual class, ranked",
     GRAIN_APPS_BY_CATEGORY: "applications in a DPI category, ranked",
 }
@@ -83,6 +86,78 @@ def _asks_place_breakdown(folded: str) -> bool:
     ):
         return True
     return bool(re.search(r"\b(?:city|area|town|district|province)[\s\-]?wise\b", folded))
+
+
+def _top_app_per_city_intent(
+    question: str,
+    history: list[dict],
+    folded: str,
+    measure: str,
+    limit: int,
+) -> Intent | None:
+    """Top app/platform within each city from loc (ROW_NUMBER), e.g. social media in each city."""
+    wants_top = bool(re.search(r"\b(top|most\s+used|highest|best|rank)\b", folded))
+    names_item = bool(
+        re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?|games?)\b", folded)
+    )
+    class_id = class_from_question(question)
+    category = None if class_id else category_from_question(question)
+    has_subject = bool(names_item or class_id or category or _app_stem_in_question(question))
+    if not (wants_top and has_subject) or re.search(r"\b(websites?|domains?)\b", folded):
+        return None
+    filters = _subject_filters(question, history, class_id=class_id, category=category)
+    if not filters:
+        return None
+    if not any(re.search(r"\bloc\b", part, flags=re.IGNORECASE) for part in filters):
+        filters.append("IFNULL(loc, '') <> ''")
+    top_n = 1
+    top_match = re.search(r"\btop\s+(\d+)\b", folded)
+    if top_match:
+        top_n = max(1, min(int(top_match.group(1)), 20))
+    if measure == "flows" and re.search(r"\b(highest|most)\s+used\b", folded):
+        measure = "total_mb"
+    subject = (
+        "social media apps"
+        if class_id == "social_media"
+        else (
+            "IM platforms"
+            if category == "im" or class_id == "messaging"
+            else (
+                f"{category} apps"
+                if category
+                else (f"{class_id.replace('_', ' ')} apps" if class_id else "apps")
+            )
+        )
+    )
+    if not _explicit_measure(folded) and not re.search(r"\b(highest|most)\s+used\b", folded):
+        return Intent(
+            grain=GRAIN_TOP_APP_PER_CITY,
+            where=filters,
+            app=_app_stem_in_question(question),
+            class_id=class_id,
+            category=category,
+            measure="total_mb",
+            top_n=top_n,
+            limit=limit,
+            ambiguous=True,
+            clarify_prompt=(
+                f"Do you want the top {subject} in each city based on traffic volume "
+                "or number of flows?"
+            ),
+            source="top_app_per_city_measure",
+        )
+    return Intent(
+        grain=GRAIN_TOP_APP_PER_CITY,
+        where=filters,
+        app=_app_stem_in_question(question),
+        class_id=class_id,
+        category=category,
+        measure=measure,
+        top_n=top_n,
+        limit=limit,
+        ambiguous=False,
+        source="top_app_per_city",
+    )
 
 
 def _pending_usage_clarify_question(history: list[dict]) -> str | None:
@@ -137,17 +212,6 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
     """Parse a structured intent for the high-value ISP/app follow-up family."""
     history = history or []
     folded = question.lower()
-    if (
-        mentioned_cities(question)
-        or mentioned_areas(question)
-        or mentioned_provinces(question)
-        or street_before_city(question)
-        or asks_same_city(question)
-        or re.search(r"\bsame\s+city\b", folded)
-        or _asks_place_breakdown(folded)
-    ):
-        # City/area breakdowns stay off this ISP/app intent path (LLM / older handlers).
-        return None
 
     # "based on traffic volume" after a clarify — redo the prior question with that measure.
     pending_open = _pending_open_clarify_question(history)
@@ -164,6 +228,25 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
     ):
         measure = "flows"
     limit = _limit_in(question) or 20
+
+    # Top apps/platforms in each city — deterministic window SQL (do not send to the LLM).
+    if _asks_place_breakdown(folded):
+        city_intent = _top_app_per_city_intent(question, history, folded, measure, limit)
+        if city_intent is not None:
+            return city_intent
+        # Other city/area shapes stay on the LLM / older follow-up path.
+        return None
+
+    if (
+        mentioned_cities(question)
+        or mentioned_areas(question)
+        or mentioned_provinces(question)
+        or street_before_city(question)
+        or asks_same_city(question)
+        or re.search(r"\bsame\s+city\b", folded)
+    ):
+        # Named city/area rankings stay on the older follow-up path.
+        return None
 
     # Answer to "totals or top users?" — keep slots from the clarified question.
     pending = _pending_usage_clarify_question(history)
@@ -424,6 +507,31 @@ def build_sql(intent: Intent) -> str:
             f"ROW_NUMBER() OVER (PARTITION BY client_asn ORDER BY {window_order}) AS rn "
             f"FROM ntc_ssl_logs WHERE {' AND '.join(filters)} "
             "GROUP BY client_asn, app_label"
+            f") ranked WHERE rn <= {int(intent.top_n)} "
+            f"ORDER BY {outer_order} DESC LIMIT {int(intent.limit)}"
+        )
+    if intent.grain == GRAIN_TOP_APP_PER_CITY:
+        filters = list(intent.where)
+        if not any(re.search(r"\bloc\b", part, flags=re.IGNORECASE) for part in filters):
+            filters.append("IFNULL(loc, '') <> ''")
+        window_order = (
+            "SUM(c2s_byte_num + s2c_byte_num) DESC"
+            if order in {"total_mb", "total_bytes"}
+            else "COUNT(*) DESC"
+        )
+        outer_order = "total_mb" if order in {"total_mb", "total_bytes"} else "flows"
+        city_expr = city_from_loc()
+        where_sql = " AND ".join(filters)
+        return (
+            "SELECT city, app_label, flows, total_bytes, total_mb FROM ("
+            "SELECT city, app_label, COUNT(*) AS flows, "
+            "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+            "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+            f"ROW_NUMBER() OVER (PARTITION BY city ORDER BY {window_order}) AS rn FROM ("
+            f"SELECT {city_expr} AS city, app_label, c2s_byte_num, s2c_byte_num "
+            f"FROM ntc_ssl_logs WHERE {where_sql}"
+            ") labeled WHERE city IS NOT NULL "
+            "GROUP BY city, app_label"
             f") ranked WHERE rn <= {int(intent.top_n)} "
             f"ORDER BY {outer_order} DESC LIMIT {int(intent.limit)}"
         )

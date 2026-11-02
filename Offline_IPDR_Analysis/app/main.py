@@ -254,7 +254,10 @@ def _ask_events(body: Question):
     intent_rejected = False
     if intent:
         # Measure-only asks (traffic vs flows) go straight to the user — no LLM referee.
-        if intent.ambiguous and intent.source == "top_app_per_isp_measure":
+        if intent.ambiguous and intent.source in {
+            "top_app_per_isp_measure",
+            "top_app_per_city_measure",
+        }:
             yield _done(_clarify(intent.clarify_prompt or "Traffic volume or number of flows?"))
             return
         if intent.ambiguous and llama is not None:

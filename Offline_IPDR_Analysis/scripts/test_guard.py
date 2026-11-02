@@ -2744,13 +2744,35 @@ def main() -> None:
     ):
         raise SystemExit(f"social apps on Jazz dropped the ISP filter: {jazz_social_sql}")
     prepare(jazz_social_sql, 200, allow_full_scan=True)
-    city_apps = resolve_intent("top social media apps in each city", [])
-    city_follow = resolve_followup("top social media apps in each city", [])
-    if city_apps is not None or city_follow is not None:
-        raise SystemExit(
-            "per-city social apps should fall through to the LLM, "
-            f"got intent={city_apps} followup={city_follow}"
-        )
+    city_ask = resolve_intent("top social media apps in each city", [])
+    if (
+        not city_ask
+        or city_ask.source != "top_app_per_city_measure"
+        or city_ask.grain != "top_app_per_city"
+        or not city_ask.ambiguous
+    ):
+        raise SystemExit(f"per-city social apps should ask traffic vs flows: {city_ask}")
+    city_hist = [
+        {
+            "question": "top social media apps in each city",
+            "sql": "",
+            "explanation": city_ask.clarify_prompt or "",
+        }
+    ]
+    city_flows = resolve_intent("based on number of flows", city_hist)
+    city_sql = (build_sql(city_flows) if city_flows else "") or ""
+    city_folded = city_sql.lower()
+    if (
+        not city_flows
+        or city_flows.grain != "top_app_per_city"
+        or city_flows.measure != "flows"
+        or "partition by city" not in city_folded
+        or "row_number()" not in city_folded
+        or "group by app_label" in city_folded
+        or "facebook" not in city_folded
+    ):
+        raise SystemExit(f"per-city social apps SQL was wrong: {city_sql[:500]}")
+    prepare(city_sql, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
