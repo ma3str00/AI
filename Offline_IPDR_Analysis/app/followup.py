@@ -43,6 +43,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
+    excluded = _apply_app_exclusions(question, history)
+    if excluded:
+        return excluded
     other_app = _same_request_other_app(question, history)
     if other_app:
         return other_app
@@ -1493,6 +1496,52 @@ def _merge_app_exclusions(question: str, previous: str | None = None) -> list[st
         seen.add(key)
         merged.append(clause)
     return merged
+
+
+def _exclusion_only_question(question: str) -> bool:
+    """True when the user is only adding app exclusions to the previous result."""
+    folded = question.lower().strip()
+    if not re.search(r"\b(?:exclud(?:e|ing)|without|except|minus)\b", folded):
+        return False
+    stripped = re.sub(
+        r"\b(?:exclud(?:e|ing)|without|except|minus)\s+(?:the\s+)?"
+        r"[a-z0-9][a-z0-9_.-]{1,40}(?:\s*(?:,|and|/|&)\s*[a-z0-9][a-z0-9_.-]{1,40})?",
+        " ",
+        folded,
+    )
+    stripped = re.sub(
+        r"\b(please|now|also|too|again|from|this|the|that|those|these|"
+        r"list|result|query|results|previous|prior|same|ones?|apps?|"
+        r"applications?|platforms?)\b",
+        " ",
+        stripped,
+    )
+    stripped = re.sub(r"[^\w]+", " ", stripped).strip()
+    return not stripped
+
+
+def _apply_app_exclusions(question: str, history: list[dict]) -> str | None:
+    """'exclude youtube' keeps the last SQL and adds app_label NOT LIKE filters."""
+    if not _exclusion_only_question(question):
+        return None
+    previous = _last_sql(history)
+    if not previous:
+        return None
+    existing = {clause.lower() for clause in _app_exclusions_from_sql(previous)}
+    fresh = [clause for clause in _app_exclusions_from_question(question) if clause.lower() not in existing]
+    if not fresh:
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    clause = " AND ".join(fresh)
+    if re.search(r"(?i)\bWHERE\b", text):
+        return re.sub(r"(?i)\bWHERE\b", f"WHERE {clause} AND", text, count=1)
+    if re.search(r"(?i)\bGROUP\s+BY\b", text):
+        return re.sub(r"(?i)\bGROUP\s+BY\b", f"WHERE {clause} GROUP BY", text, count=1)
+    if re.search(r"(?i)\bORDER\s+BY\b", text):
+        return re.sub(r"(?i)\bORDER\s+BY\b", f"WHERE {clause} ORDER BY", text, count=1)
+    if re.search(r"(?i)\bLIMIT\b", text):
+        return re.sub(r"(?i)\bLIMIT\b", f"WHERE {clause} LIMIT", text, count=1)
+    return f"{text} WHERE {clause}"
 
 
 def _app_stem_in_question(question: str, skip: set[str] | None = None) -> str | None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 
 import httpx
 
@@ -34,15 +35,26 @@ class LlamaServer:
         self.kind = kind
         self.num_ctx = num_ctx
         self.keep_alive = keep_alive
+        # Filled by the latest chat(): wall HTTP seconds vs Ollama-reported GPU seconds.
+        self.last_call: dict[str, float | None] = {"wall_s": None, "model_s": None}
 
     def chat(self, messages: list[dict], *, json_mode: bool, temperature: float) -> str:
         max_tokens = self.sql_max_tokens if json_mode else self.explain_max_tokens
+        started = time.perf_counter()
         try:
-            return self._complete(messages, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens)
+            content = self._complete(messages, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens)
         except LlamaError as exc:
             if json_mode and "response_format" in str(exc):
-                return self._complete(messages, json_mode=False, temperature=temperature, max_tokens=max_tokens)
-            raise
+                content = self._complete(
+                    messages, json_mode=False, temperature=temperature, max_tokens=max_tokens
+                )
+            else:
+                self.last_call = {"wall_s": time.perf_counter() - started, "model_s": None}
+                raise
+        wall_s = time.perf_counter() - started
+        model_s = self.last_call.get("model_s")
+        self.last_call = {"wall_s": wall_s, "model_s": model_s}
+        return content
 
     def healthy(self) -> tuple[bool, str]:
         if self.kind == "ollama":
@@ -136,6 +148,7 @@ class LlamaServer:
                 timeout=self.timeout,
             )
         except httpx.HTTPError as exc:
+            self.last_call = {"wall_s": None, "model_s": None}
             raise LlamaError(f"Cannot reach Ollama at {self.base_url}. {exc}") from exc
         if response.status_code != 200:
             detail = response.text[:500]
@@ -151,6 +164,12 @@ class LlamaServer:
             body = response.json()
         except ValueError as exc:
             raise LlamaError("Ollama returned a non-JSON answer.") from exc
+        total_ns = body.get("total_duration")
+        try:
+            model_s = float(total_ns) / 1e9 if total_ns is not None else None
+        except (TypeError, ValueError):
+            model_s = None
+        self.last_call = {"wall_s": None, "model_s": model_s}
         message = body.get("message") or {}
         content = (message.get("content") or "").strip()
         if not content:

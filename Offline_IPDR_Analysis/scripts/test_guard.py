@@ -2643,6 +2643,31 @@ def main() -> None:
     ):
         raise SystemExit(f"same for zong did not replace the ISP cleanly: {zong_same}")
     prepare(zong_same, 200, allow_full_scan=True)
+    stream_per_isp = (
+        "SELECT client_asn, app_label, flows, total_bytes, total_mb FROM ("
+        "SELECT client_asn, app_label, COUNT(*) AS flows, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+        "ROW_NUMBER() OVER (PARTITION BY client_asn ORDER BY COUNT(*) DESC) AS rn "
+        "FROM ntc_ssl_logs WHERE IFNULL(client_asn, '') <> '' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND LOWER(app_category) = 'streaming' "
+        "GROUP BY client_asn, app_label) ranked WHERE rn <= 1 ORDER BY flows DESC LIMIT 20"
+    )
+    exclude_yt = resolve_followup(
+        "exclude youtube",
+        [{"question": "ISP-wise top streaming platforms", "sql": stream_per_isp}],
+    )
+    exclude_folded = (exclude_yt or "").lower()
+    if (
+        not exclude_yt
+        or "app_label not like '%youtube%'" not in exclude_folded
+        or "lower(app_category) = 'streaming'" not in exclude_folded
+        or "row_number()" not in exclude_folded
+        or "partition by client_asn" not in exclude_folded
+    ):
+        raise SystemExit(f"exclude youtube did not keep top-per-ISP streaming SQL: {exclude_yt}")
+    prepare(exclude_yt, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

@@ -143,6 +143,26 @@ def _status(text: str) -> dict:
     return {"type": "status", "text": text}
 
 
+def _model_timing_status(llama: LlamaServer | None) -> str | None:
+    """Explain wall-clock HTTP wait vs Ollama's own total_duration when both exist."""
+    if llama is None:
+        return None
+    stats = getattr(llama, "last_call", None) or {}
+    wall = stats.get("wall_s")
+    model = stats.get("model_s")
+    if wall is None and model is None:
+        return None
+    if wall is not None and model is not None:
+        wait = max(0.0, float(wall) - float(model))
+        return (
+            f"Model finished in {float(model):.1f}s; "
+            f"HTTP/tunnel wait was {wait:.1f}s (wall {float(wall):.1f}s)"
+        )
+    if wall is not None:
+        return f"Model call took {float(wall):.1f}s wall-clock"
+    return f"Model reported {float(model):.1f}s"
+
+
 def _done(result: dict) -> dict:
     return {"type": "done", "result": result}
 
@@ -257,6 +277,9 @@ def _ask_events(body: Question):
         except LlamaError as exc:
             yield _done(_failed(str(exc)))
             return
+        timing = _model_timing_status(llama)
+        if timing:
+            yield _status(timing)
         try:
             parsed = _parse_json(raw)
         except ValueError as exc:
