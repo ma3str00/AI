@@ -2711,6 +2711,26 @@ def main() -> None:
     ):
         raise SystemExit(f"rank ISPs by IM usage should group by client_asn: {isp_im_sql}")
     prepare(isp_im_sql, 200, allow_full_scan=True)
+    top_isps_social = resolve_intent("top ISPs by social media usage", [])
+    top_isps_sql = (build_sql(top_isps_social) if top_isps_social else "") or ""
+    top_isps_folded = top_isps_sql.lower()
+    if (
+        not top_isps_social
+        or top_isps_social.grain != "usage_by_isp"
+        or top_isps_social.class_id != "social_media"
+        or "group by client_asn" not in top_isps_folded
+        or "row_number()" in top_isps_folded
+        or top_isps_social.ambiguous
+    ):
+        raise SystemExit(f"top ISPs by social media should rank ISPs: {top_isps_sql}")
+    prepare(top_isps_sql, 200, allow_full_scan=True)
+    per_isp_social = resolve_intent("top social media apps per ISP", [])
+    if (
+        not per_isp_social
+        or per_isp_social.source != "top_app_per_isp_measure"
+        or not per_isp_social.ambiguous
+    ):
+        raise SystemExit(f"top social media apps per ISP should ask measure: {per_isp_social}")
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

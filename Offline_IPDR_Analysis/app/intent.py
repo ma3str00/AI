@@ -19,6 +19,7 @@ from app.followup import (
     _last_sql,
     _limit_in,
     _merge_app_exclusions,
+    _ranks_isp_entities,
 )
 from app.places import (
     asks_same_city,
@@ -195,7 +196,14 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
         class_id = class_from_question(question)
         category = None if class_id else category_from_question(question)
         has_subject = bool(names_item or class_id or category or _app_stem_in_question(question))
-        if wants_top and has_subject and not re.search(r"\b(websites?|domains?)\b", folded):
+        # "top ISPs by social media" ranks operators; "top social media apps per ISP" ranks apps.
+        ranks_isps = _ranks_isp_entities(question)
+        if (
+            wants_top
+            and has_subject
+            and not ranks_isps
+            and not re.search(r"\b(websites?|domains?)\b", folded)
+        ):
             filters = _subject_filters(question, history, class_id=class_id, category=category)
             if not filters:
                 return None

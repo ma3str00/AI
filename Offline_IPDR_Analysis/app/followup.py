@@ -1347,6 +1347,25 @@ def _apps_by_duration(question: str) -> str | None:
     )
 
 
+def _ranks_isp_entities(question: str) -> bool:
+    """True when ISPs/operators are the ranked rows (not apps within each ISP)."""
+    folded = question.lower()
+    # "top ISPs by social media usage" / "rank the operators for IM"
+    if re.search(
+        r"\b(?:rank|ranking|top|list|compare|show|display)\s+(?:the\s+)?"
+        r"(?:isps?|operators?|providers?|asns?|networks?)\b",
+        folded,
+    ):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:isps?|operators?|providers?|asns?|networks?)\s+"
+            r"(?:ranked|ranking|ordered|sorted)\b",
+            folded,
+        )
+    )
+
+
 def _asks_isp_breakdown(question: str) -> bool:
     """True when the user wants usage broken down by ISP / operator / network, not by app."""
     folded = question.lower()
@@ -1356,18 +1375,7 @@ def _asks_isp_breakdown(question: str) -> bool:
         folded,
     ):
         return True
-    # "rank the ISPs by IM usage" / "top ISPs for streaming" — ISPs are the ranked rows.
-    if re.search(
-        r"\b(?:rank|ranking|top|list|compare|show|display)\s+(?:the\s+)?"
-        r"(?:isps?|operators?|providers?|asns?|networks?)\b",
-        folded,
-    ):
-        return True
-    if re.search(
-        r"\b(?:isps?|operators?|providers?|asns?|networks?)\s+"
-        r"(?:ranked|ranking|ordered|sorted)\b",
-        folded,
-    ):
+    if _ranks_isp_entities(question):
         return True
     # Accept "ISP-wise", "ISP wise", and "ISPwise".
     return bool(re.search(r"\b(?:isp|operator|provider|asn|network)[\s\-]?wise\b", folded))
