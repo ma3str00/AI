@@ -2338,19 +2338,39 @@ def main() -> None:
     timeline_folded = (ssl_timeline or "").lower()
     if (
         not ssl_timeline
-        or "day_gmt5" not in timeline_folded
+        or "hour_gmt5" not in timeline_folded
         or "as flows" not in timeline_folded
         or "as traffic_volume_mb" not in timeline_folded
         or (
             "lower(app_label) = 'ssl'" not in timeline_folded
             and "like '%ssl%'" not in timeline_folded
         )
-        or "group by day_gmt5" not in timeline_folded
-        or "order by day_gmt5" not in timeline_folded
+        or "group by hour_gmt5" not in timeline_folded
+        or "order by hour_gmt5" not in timeline_folded
         or "group by start_time" in timeline_folded
     ):
         raise SystemExit(f"SSL timeline was not bucketed for charting: {ssl_timeline}")
     prepare(ssl_timeline, 200, allow_full_scan=True)
+    daily_tiktok = (
+        "SELECT DATE(FROM_UNIXTIME(start_time)) AS day_gmt5, COUNT(*) AS flows, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb "
+        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND LOWER(app_label) = 'tiktok' GROUP BY day_gmt5 ORDER BY day_gmt5 ASC LIMIT 200"
+    )
+    finer = resolve_followup(
+        "show all the timestamps",
+        [{"question": "show me the timeline of tiktok usage", "sql": daily_tiktok}],
+    )
+    finer_folded = (finer or "").lower()
+    if (
+        not finer
+        or "hour_gmt5" not in finer_folded
+        or "lower(app_label) = 'tiktok'" not in finer_folded
+        or "from_unixtime(start_time) as timestamp" in finer_folded
+        or "group by hour_gmt5" not in finer_folded
+    ):
+        raise SystemExit(f"timestamp follow-up did not switch to hourly buckets: {finer}")
+    prepare(finer, 200, allow_full_scan=True)
     social = resolve_followup("show the most used social media applications", [])
     social_folded = (social or "").lower()
     if (

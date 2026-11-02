@@ -1212,14 +1212,30 @@ def _flows_by_operator(question: str) -> str | None:
 def _usage_timeline(question: str, history: list[dict] | None = None) -> str | None:
     """Bucket flows over time for a chartable timeline (not one row per start_time second)."""
     folded = question.lower()
-    if not re.search(r"\b(timeline|over time|trend|hourly|daily|by hour|by day)\b", folded):
+    previous = _last_sql(history or [])
+    asks_timeline = bool(
+        re.search(r"\b(timeline|over time|trend|hourly|daily|by hour|by day)\b", folded)
+    )
+    # "show all the timestamps" after a day-bucket timeline → hourly chart, not raw flow rows.
+    asks_finer = bool(
+        re.search(
+            r"\b(timestamps?|all the times?|every hour|show hours|by the hour|"
+            r"more detail|finer|break( it)? down|per hour)\b",
+            folded,
+        )
+    )
+    prior_is_timeline = bool(
+        re.search(r"(?i)\bas (?:day_gmt5|hour_gmt5)\b", previous or "")
+    )
+    if not asks_timeline and not (asks_finer and (prior_is_timeline or previous)):
         return None
     if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded) and not re.search(
-        r"\b(apps?|applications?|ssl|timeline|over time|trend)\b", folded
+        r"\b(apps?|applications?|ssl|timeline|over time|trend|timestamps?)\b", folded
     ):
         return None
-    hourly = bool(re.search(r"\b(hourly|by hour|per hour|each hour)\b", folded))
-    daily = bool(re.search(r"\b(daily|by day|per day|each day)\b", folded)) or not hourly
+    # Default hourly so a single calendar day still draws a usable line chart.
+    daily = bool(re.search(r"\b(daily|by day|per day|each day)\b", folded)) and not asks_finer
+    hourly = not daily
     if daily:
         bucket = "DATE(FROM_UNIXTIME(start_time)) AS day_gmt5"
         alias = "day_gmt5"
@@ -1232,19 +1248,24 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
         or known_app_token(question, _NOT_AN_APP)
         or _exact_app_word(question)
     )
-    if not app and history:
-        previous = _last_sql(history)
-        prior_app = _app_predicate_from_sql(previous or "")
+    if not app and previous:
+        prior_app = _app_predicate_from_sql(previous)
         if prior_app:
             where.append(prior_app)
         else:
-            # Keep a single-app ranking's label when the follow-up only says "timeline".
             match = re.search(
-                r"(?i)where\s+.*?lower\(app_label\)\s*=\s*'([^']+)'",
-                previous or "",
+                r"(?i)lower\(app_label\)\s*=\s*'([^']+)'",
+                previous,
             )
             if match:
                 where.append(f"LOWER(app_label) = '{match.group(1)}'")
+            else:
+                like = re.search(
+                    r"(?i)lower\(app_label\)\s+like\s+'([^']+)'",
+                    previous,
+                )
+                if like:
+                    where.append(f"LOWER(app_label) LIKE '{like.group(1)}'")
     if app:
         where.append(_app_label_predicate(app))
     limit = _limit_in(question) or 200

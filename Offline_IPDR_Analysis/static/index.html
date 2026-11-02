@@ -261,7 +261,7 @@ function timeColumn(columns) {
 
 function isTimelineQuestion(question, sql, columns) {
   const text = String(question || "").toLowerCase();
-  if (/\b(timeline|over time|trend|hourly|daily|by hour|by day)\b/.test(text)) return true;
+  if (/\b(timeline|over time|trend|hourly|daily|by hour|by day|timestamps?)\b/.test(text)) return true;
   if (/\bgroup\s+by\s+(day_gmt5|hour_gmt5|date|hour|day)\b/i.test(String(sql || ""))) return true;
   return !!timeColumn(columns);
 }
@@ -678,7 +678,7 @@ function addAnswerBubble(asked, data) {
       data.sql,
       /\bpie\b/i.test(asked)
         ? "pie"
-        : /\b(timeline|over time|trend|line)\b/i.test(asked)
+        : /\b(timeline|over time|trend|line|timestamps?|hourly)\b/i.test(asked)
           ? "line"
           : "bar"
     ));
