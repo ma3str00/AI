@@ -326,21 +326,15 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
                 source="ambiguous_usage_on_isp",
             )
 
-    # Class / category app rankings (no ISP breakdown).
+    # Class / category app rankings (no ISP breakdown). Keep named ISP filters (e.g. on Jazz).
     if not _asks_isp_breakdown(question):
         class_id = class_from_question(question)
         if class_id and not re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded):
             names_apps = bool(re.search(r"\b(apps?|applications?|protocols?)\b", folded))
             ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display|usage|pattern)\b", folded))
             if names_apps or ranked:
-                predicate = class_label_predicate(class_id)
-                if predicate:
-                    where = [
-                        predicate,
-                        "IFNULL(subscriber_id, '') <> ''",
-                        "LOCATE('_', subscriber_id) = 0",
-                        *_merge_app_exclusions(question, _last_sql(history)),
-                    ]
+                where = _subject_filters(question, history, class_id=class_id, category=None)
+                if where:
                     return Intent(
                         grain=GRAIN_APPS_BY_CLASS,
                         where=where,
@@ -355,21 +349,17 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
             names_apps = bool(re.search(r"\b(apps?|applications?|protocols?)\b", folded))
             ranked = bool(re.search(r"\b(top|list|most|popular|used|show|display|usage|pattern)\b", folded))
             if names_apps or ranked:
-                where = [
-                    f"LOWER(app_category) = '{category}'",
-                    "IFNULL(subscriber_id, '') <> ''",
-                    "LOCATE('_', subscriber_id) = 0",
-                    *_merge_app_exclusions(question, _last_sql(history)),
-                ]
-                return Intent(
-                    grain=GRAIN_APPS_BY_CATEGORY,
-                    where=where,
-                    category=category,
-                    measure=measure,
-                    limit=limit,
-                    ambiguous=False,
-                    source="apps_by_category",
-                )
+                where = _subject_filters(question, history, class_id=None, category=category)
+                if where:
+                    return Intent(
+                        grain=GRAIN_APPS_BY_CATEGORY,
+                        where=where,
+                        category=category,
+                        measure=measure,
+                        limit=limit,
+                        ambiguous=False,
+                        source="apps_by_category",
+                    )
     return None
 
 

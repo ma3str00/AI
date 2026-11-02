@@ -2731,6 +2731,19 @@ def main() -> None:
         or not per_isp_social.ambiguous
     ):
         raise SystemExit(f"top social media apps per ISP should ask measure: {per_isp_social}")
+    jazz_social = resolve_intent("top social media apps used on Jazz", [])
+    jazz_social_sql = (build_sql(jazz_social) if jazz_social else "") or ""
+    jazz_social_folded = jazz_social_sql.lower()
+    if (
+        not jazz_social
+        or jazz_social.grain != "apps_by_class"
+        or jazz_social.class_id != "social_media"
+        or "group by app_label" not in jazz_social_folded
+        or "like '%jazz%'" not in jazz_social_folded
+        or "group by client_asn" in jazz_social_folded
+    ):
+        raise SystemExit(f"social apps on Jazz dropped the ISP filter: {jazz_social_sql}")
+    prepare(jazz_social_sql, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
