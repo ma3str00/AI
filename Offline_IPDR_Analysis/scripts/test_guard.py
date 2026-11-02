@@ -2334,6 +2334,23 @@ def main() -> None:
     ):
         raise SystemExit(f"average session duration ranking was wrong: {avg_apps}")
     prepare(avg_apps, 200, allow_full_scan=True)
+    ssl_timeline = resolve_followup("show me the timeline of SSL usage", [])
+    timeline_folded = (ssl_timeline or "").lower()
+    if (
+        not ssl_timeline
+        or "day_gmt5" not in timeline_folded
+        or "as flows" not in timeline_folded
+        or "as traffic_volume_mb" not in timeline_folded
+        or (
+            "lower(app_label) = 'ssl'" not in timeline_folded
+            and "like '%ssl%'" not in timeline_folded
+        )
+        or "group by day_gmt5" not in timeline_folded
+        or "order by day_gmt5" not in timeline_folded
+        or "group by start_time" in timeline_folded
+    ):
+        raise SystemExit(f"SSL timeline was not bucketed for charting: {ssl_timeline}")
+    prepare(ssl_timeline, 200, allow_full_scan=True)
     social = resolve_followup("show the most used social media applications", [])
     social_folded = (social or "").lower()
     if (

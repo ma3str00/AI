@@ -90,6 +90,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_class = _apps_by_class(question)
     if apps_class:
         return apps_class
+    timeline = _usage_timeline(question, history)
+    if timeline:
+        return timeline
     apps = _apps_of_one_subscriber(question, history)
     if apps:
         return apps
@@ -1192,6 +1195,49 @@ def _flows_by_operator(question: str) -> str | None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
         f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
         f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
+
+
+def _usage_timeline(question: str, history: list[dict] | None = None) -> str | None:
+    """Bucket flows over time for a chartable timeline (not one row per start_time second)."""
+    folded = question.lower()
+    if not re.search(r"\b(timeline|over time|trend|hourly|daily|by hour|by day)\b", folded):
+        return None
+    if re.search(r"\b(users?|subscribers?|operators?|websites?)\b", folded) and not re.search(
+        r"\b(apps?|applications?|ssl|timeline|over time|trend)\b", folded
+    ):
+        return None
+    hourly = bool(re.search(r"\b(hourly|by hour|per hour|each hour)\b", folded))
+    daily = bool(re.search(r"\b(daily|by day|per day|each day)\b", folded)) or not hourly
+    if daily:
+        bucket = "DATE(FROM_UNIXTIME(start_time)) AS day_gmt5"
+        alias = "day_gmt5"
+    else:
+        bucket = "FROM_UNIXTIME(FLOOR(start_time / 3600) * 3600) AS hour_gmt5"
+        alias = "hour_gmt5"
+    where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
+    app = _named_app_label(question) or known_app_token(question, _NOT_AN_APP)
+    if not app and history:
+        previous = _last_sql(history)
+        prior_app = _app_predicate_from_sql(previous or "")
+        if prior_app:
+            where.append(prior_app)
+        else:
+            # Keep a single-app ranking's label when the follow-up only says "timeline".
+            match = re.search(
+                r"(?i)where\s+.*?lower\(app_label\)\s*=\s*'([^']+)'",
+                previous or "",
+            )
+            if match:
+                where.append(f"LOWER(app_label) = '{match.group(1)}'")
+    if app:
+        where.append(_app_label_predicate(app))
+    limit = _limit_in(question) or 200
+    return (
+        f"SELECT {bucket}, COUNT(*) AS flows, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb "
+        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"GROUP BY {alias} ORDER BY {alias} ASC LIMIT {int(limit)}"
     )
 
 

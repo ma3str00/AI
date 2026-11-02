@@ -242,6 +242,11 @@ const LABEL_COLUMNS = new Set([
   "client_asn", "server_asn", "client_location", "server_location", "block_type"
 ]);
 
+const TIME_COLUMNS = new Set([
+  "start_time", "end_time", "recv_time", "hour_gmt5", "day_gmt5", "hour", "day", "date",
+  "bucket", "time_bucket", "period", "start_gmt5", "end_gmt5"
+]);
+
 function numberValue(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return null;
@@ -250,9 +255,21 @@ function numberValue(value) {
   return Number(text);
 }
 
+function timeColumn(columns) {
+  return columns.find((column) => TIME_COLUMNS.has(String(column).toLowerCase())) || null;
+}
+
+function isTimelineQuestion(question, sql, columns) {
+  const text = String(question || "").toLowerCase();
+  if (/\b(timeline|over time|trend|hourly|daily|by hour|by day)\b/.test(text)) return true;
+  if (/\bgroup\s+by\s+(day_gmt5|hour_gmt5|date|hour|day)\b/i.test(String(sql || ""))) return true;
+  return !!timeColumn(columns);
+}
+
 function numericColumns(columns, rows) {
   return columns.filter((column) => {
-    if (LABEL_COLUMNS.has(String(column).toLowerCase())) return false;
+    const name = String(column).toLowerCase();
+    if (LABEL_COLUMNS.has(name) || TIME_COLUMNS.has(name)) return false;
     const values = rows
       .map((row) => row[column])
       .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
@@ -303,16 +320,28 @@ function measureFromSql(sql, numeric) {
 
 function chartFields(columns, rows, question, sql) {
   const numeric = numericColumns(columns, rows);
-  const label = columns.find((column) => LABEL_COLUMNS.has(String(column).toLowerCase()))
+  const timeline = isTimelineQuestion(question, sql, columns);
+  const label = timeColumn(columns)
+    || columns.find((column) => LABEL_COLUMNS.has(String(column).toLowerCase()))
     || columns.find((column) => !numeric.includes(column));
   if (!label || !numeric.length) return null;
   const preferred = ["flows", "flow_count", "blocked_flows", "users", "websites", "traffic_volume_mb", "total_mb", "traffic_volume_gb", "total_gb", "traffic_volume", "total_bytes"];
   const named = namedMeasures(question, numeric);
   const measure = (named.length === 1 ? named[0] : null) || measureFromSql(sql, numeric) || named[named.length - 1] || preferred.find((name) => numeric.includes(name)) || numeric[0];
-  return {label, measure, numeric};
+  return {label, measure, numeric, timeline};
 }
 
-function chartRows(rows, measure) {
+function chartRows(rows, measure, fields) {
+  if (fields && fields.timeline) {
+    return rows.slice().sort((left, right) => {
+      const a = left[fields.label];
+      const b = right[fields.label];
+      if (a === b) return 0;
+      if (a == null) return -1;
+      if (b == null) return 1;
+      return a < b ? -1 : 1;
+    }).slice(0, 200);
+  }
   return rows
     .slice()
     .sort((left, right) => (numberValue(right[measure]) || 0) - (numberValue(left[measure]) || 0))
@@ -374,26 +403,41 @@ function chartCard(columns, rows, question, sql, kind) {
   });
   const barButton = choiceButton("Bar");
   const pieButton = choiceButton("Pie");
+  const lineButton = choiceButton("Line");
   const plot = document.createElement("div");
   const note = document.createElement("p");
   note.className = "chart-note";
-  let currentKind = kind === "pie" ? "pie" : "bar";
+  let currentKind = kind === "pie" ? "pie" : kind === "line" || fields.timeline ? "line" : "bar";
   function draw(nextKind) {
     currentKind = nextKind;
-    const shown = chartRows(rows, fields.measure);
+    const shown = chartRows(rows, fields.measure, fields);
     const label = measureLabel(fields.measure);
     for (const button of measureButtons) button.classList.toggle("active", button.dataset.measure === fields.measure);
     barButton.classList.toggle("active", nextKind === "bar");
     pieButton.classList.toggle("active", nextKind === "pie");
-    plot.replaceChildren(nextKind === "pie" ? pieChart(shown, fields) : barChart(shown, fields));
-    note.textContent = rows.length > shown.length
-      ? "Largest " + shown.length + " of " + rows.length + " rows, by " + label + "."
-      : "Ordered by " + label + ", largest first.";
+    lineButton.classList.toggle("active", nextKind === "line");
+    const chart = nextKind === "pie"
+      ? pieChart(shown, fields)
+      : nextKind === "line"
+        ? lineChart(shown, fields)
+        : barChart(shown, fields);
+    plot.replaceChildren(chart);
+    if (fields.timeline || nextKind === "line") {
+      note.textContent = rows.length > shown.length
+        ? "Timeline of " + shown.length + " of " + rows.length + " buckets, by " + label + "."
+        : "Timeline by " + label + ", oldest to newest.";
+    } else {
+      note.textContent = rows.length > shown.length
+        ? "Largest " + shown.length + " of " + rows.length + " rows, by " + label + "."
+        : "Ordered by " + label + ", largest first.";
+    }
   }
   barButton.addEventListener("click", () => draw("bar"));
   pieButton.addEventListener("click", () => draw("pie"));
+  lineButton.addEventListener("click", () => draw("line"));
+  const typeButtons = fields.timeline ? [lineButton, barButton] : [barButton, pieButton, lineButton];
   controls.append(
-    controlRow("Chart type", [barButton, pieButton]),
+    controlRow("Chart type", typeButtons),
     controlRow("Measure", measureButtons)
   );
   card.append(controls, plot, note);
@@ -490,6 +534,94 @@ function pieChart(rows, fields) {
   return svg;
 }
 
+function formatTick(value) {
+  const text = String(value ?? "");
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 16).replace("T", " ");
+  if (/^\d{10}$/.test(text)) {
+    const date = new Date(Number(text) * 1000);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString().slice(0, 16).replace("T", " ");
+    }
+  }
+  return text.slice(0, 16);
+}
+
+function lineChart(rows, fields) {
+  const width = 720;
+  const height = 280;
+  const left = 56;
+  const right = 16;
+  const top = 20;
+  const bottom = 48;
+  const values = rows.map((row) => Math.max(0, numberValue(row[fields.measure]) || 0));
+  const max = Math.max(...values, 1);
+  const span = Math.max(rows.length - 1, 1);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("class", "chart-svg");
+  const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  axis.setAttribute("x1", String(left));
+  axis.setAttribute("y1", String(height - bottom));
+  axis.setAttribute("x2", String(width - right));
+  axis.setAttribute("y2", String(height - bottom));
+  axis.setAttribute("stroke", "#c9c2b5");
+  svg.append(axis);
+  const yAxis = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  yAxis.setAttribute("x1", String(left));
+  yAxis.setAttribute("y1", String(top));
+  yAxis.setAttribute("x2", String(left));
+  yAxis.setAttribute("y2", String(height - bottom));
+  yAxis.setAttribute("stroke", "#c9c2b5");
+  svg.append(yAxis);
+  const points = rows.map((row, index) => {
+    const x = left + ((width - left - right) * index) / span;
+    const y = height - bottom - ((height - top - bottom) * values[index]) / max;
+    return {x, y, row, value: values[index]};
+  });
+  if (points.length) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      points.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ")
+    );
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", CHART_COLORS[0]);
+    path.setAttribute("stroke-width", "2.5");
+    svg.append(path);
+  }
+  points.forEach((point) => {
+    const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    dot.setAttribute("cx", String(point.x));
+    dot.setAttribute("cy", String(point.y));
+    dot.setAttribute("r", "3");
+    dot.setAttribute("fill", CHART_COLORS[0]);
+    svg.append(dot);
+  });
+  const tickIndexes = points.length <= 8
+    ? points.map((_, index) => index)
+    : [0, Math.floor(span / 3), Math.floor((2 * span) / 3), span];
+  for (const index of new Set(tickIndexes)) {
+    const point = points[index];
+    if (!point) continue;
+    const tick = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    tick.setAttribute("x", String(point.x));
+    tick.setAttribute("y", String(height - 18));
+    tick.setAttribute("text-anchor", "middle");
+    tick.setAttribute("fill", "#5c564c");
+    tick.setAttribute("font-size", "11");
+    tick.textContent = formatTick(point.row[fields.label]);
+    svg.append(tick);
+  }
+  const topLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  topLabel.setAttribute("x", "8");
+  topLabel.setAttribute("y", String(top + 4));
+  topLabel.setAttribute("fill", "#5c564c");
+  topLabel.setAttribute("font-size", "11");
+  topLabel.textContent = String(max);
+  svg.append(topLabel);
+  return svg;
+}
+
 function startProgress() {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
@@ -544,7 +676,11 @@ function addAnswerBubble(asked, data) {
       data.rows,
       data.chartQuestion || asked,
       data.sql,
-      /\bpie\b/i.test(asked) ? "pie" : "bar"
+      /\bpie\b/i.test(asked)
+        ? "pie"
+        : /\b(timeline|over time|trend|line)\b/i.test(asked)
+          ? "line"
+          : "bar"
     ));
     if (!data.chartQuestion) lastAnswer = {question: asked, data};
   }
