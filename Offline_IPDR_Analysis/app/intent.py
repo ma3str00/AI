@@ -87,6 +87,40 @@ def _pending_usage_clarify_question(history: list[dict]) -> str | None:
     return prior or None
 
 
+def _pending_open_clarify_question(history: list[dict]) -> str | None:
+    """Any prior turn that asked a clarify question and has no SQL yet."""
+    if not history:
+        return None
+    last = history[-1]
+    if (last.get("sql") or "").strip():
+        return None
+    note = (last.get("explanation") or "").lower()
+    if "do you want" not in note:
+        return None
+    prior = (last.get("question") or "").strip()
+    return prior or None
+
+
+def _explicit_measure(folded: str) -> bool:
+    return bool(re.search(r"\b(bytes|traffic|volume|mb|gb|tb|flows?|flow count|hits)\b", folded))
+
+
+def _measure_only_reply(question: str) -> str | None:
+    """Map a short clarify reply to total_mb or flows."""
+    folded = question.lower().strip()
+    has_volume = bool(re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded))
+    has_flows = bool(re.search(r"\b(flows?|flow count|hits)\b", folded))
+    if has_volume and not has_flows:
+        return "total_mb"
+    if has_flows and not has_volume:
+        return "flows"
+    if re.search(r"\b(traffic\s+volume|by\s+volume|by\s+traffic|based on traffic)\b", folded):
+        return "total_mb"
+    if re.search(r"\b(number of flows|based on flows|by flows)\b", folded):
+        return "flows"
+    return None
+
+
 def resolve_intent(question: str, history: list[dict] | None = None) -> Intent | None:
     """Parse a structured intent for the high-value ISP/app follow-up family."""
     history = history or []
@@ -101,6 +135,15 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
     ):
         # City/area rankings stay on the older follow-up path.
         return None
+
+    # "based on traffic volume" after a clarify — redo the prior question with that measure.
+    pending_open = _pending_open_clarify_question(history)
+    measure_reply = _measure_only_reply(question) if pending_open else None
+    if pending_open and measure_reply and not re.search(
+        r"\b(top|highest|isp|users?|subscribers?|apps?|platforms?)\b", folded
+    ):
+        suffix = "by traffic volume" if measure_reply == "total_mb" else "by number of flows"
+        return resolve_intent(f"{pending_open} {suffix}", history[:-1])
 
     measure = "total_mb" if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) else "flows"
     if re.search(r"\b(flows?|flow count|hits)\b", folded) and not re.search(
@@ -163,6 +206,32 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
             # "highest used" without an explicit flow/byte word → traffic volume.
             if measure == "flows" and re.search(r"\b(highest|most)\s+used\b", folded):
                 measure = "total_mb"
+            subject = (
+                "IM platforms"
+                if category == "im" or class_id == "messaging"
+                else (
+                    f"{category} apps"
+                    if category
+                    else (f"{class_id.replace('_', ' ')} apps" if class_id else "apps")
+                )
+            )
+            if not _explicit_measure(folded) and not re.search(r"\b(highest|most)\s+used\b", folded):
+                return Intent(
+                    grain=GRAIN_TOP_APP_PER_ISP,
+                    where=filters,
+                    app=_app_stem_in_question(question),
+                    class_id=class_id,
+                    category=category,
+                    measure="total_mb",
+                    top_n=top_n,
+                    limit=limit,
+                    ambiguous=True,
+                    clarify_prompt=(
+                        f"Do you want the top {subject} per ISP based on traffic volume "
+                        "or number of flows?"
+                    ),
+                    source="top_app_per_isp_measure",
+                )
             return Intent(
                 grain=GRAIN_TOP_APP_PER_ISP,
                 where=filters,

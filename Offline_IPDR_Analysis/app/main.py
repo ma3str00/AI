@@ -253,6 +253,10 @@ def _ask_events(body: Question):
     intent = resolve_intent(question, history)
     intent_rejected = False
     if intent:
+        # Measure-only asks (traffic vs flows) go straight to the user — no LLM referee.
+        if intent.ambiguous and intent.source == "top_app_per_isp_measure":
+            yield _done(_clarify(intent.clarify_prompt or "Traffic volume or number of flows?"))
+            return
         if intent.ambiguous and llama is not None:
             yield _status("Checking what you meant")
             verdict = referee_intent(llama, intent, question, history)
@@ -314,10 +318,16 @@ def _ask_events(body: Question):
     error = None
     previous_sql = None
     for attempt in range(3):
-        if attempt == 0:
-            yield _status(f"Asking {engine_label} {where}")
-        else:
-            yield _status(f"The SQL was rejected. Asking {engine_label} again.")
+        ask_label = (
+            f"Asking {engine_label} {where}"
+            if attempt == 0
+            else f"The SQL was rejected. Asking {engine_label} again."
+        )
+        # In debug mode the HTTP wait step carries the clock; skip a 0 ms umbrella line.
+        if not debug:
+            yield _status(ask_label)
+        elif attempt > 0:
+            yield _status(ask_label)
         if debug and llama is not None and attempt == 0:
             yield _status("Probing model link (GET /v1/models)")
             probe = llama.probe_latency()
@@ -339,7 +349,7 @@ def _ask_events(body: Question):
         )
         if debug:
             yield _status(f"Prompt ready in {time.perf_counter() - prompt_started:.3f}s")
-            yield _status("Waiting on model HTTP POST")
+            yield _status(f"Waiting on model HTTP POST ({engine_label})")
         try:
             raw = llama.chat(
                 messages,

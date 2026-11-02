@@ -2668,6 +2668,36 @@ def main() -> None:
     ):
         raise SystemExit(f"exclude youtube did not keep top-per-ISP streaming SQL: {exclude_yt}")
     prepare(exclude_yt, 200, allow_full_scan=True)
+    im_ask = resolve_intent("top IM platforms per ISP", [])
+    if (
+        not im_ask
+        or im_ask.source != "top_app_per_isp_measure"
+        or not im_ask.ambiguous
+        or im_ask.category != "im"
+        or "traffic volume" not in (im_ask.clarify_prompt or "").lower()
+    ):
+        raise SystemExit(f"top IM platforms per ISP should ask traffic vs flows: {im_ask}")
+    im_hist = [
+        {
+            "question": "top IM platforms per ISP",
+            "sql": "",
+            "explanation": im_ask.clarify_prompt or "",
+        }
+    ]
+    im_volume = resolve_intent("based on traffic volume", im_hist)
+    im_sql = (build_sql(im_volume) if im_volume else "") or ""
+    im_folded = im_sql.lower()
+    if (
+        not im_volume
+        or im_volume.grain != "top_app_per_isp"
+        or im_volume.measure != "total_mb"
+        or "lower(app_category) = 'im'" not in im_folded
+        or "partition by client_asn" not in im_folded
+        or "group by subscriber_id" in im_folded
+        or "whatsapp" in im_folded
+    ):
+        raise SystemExit(f"IM traffic-volume clarify produced wrong SQL: {im_sql}")
+    prepare(im_sql, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

@@ -9,6 +9,10 @@ from pathlib import Path
 # Spoken phrases that mean a table category. The table stores mixed case; SQL uses lowercase.
 CATEGORY_PHRASES = (
     ("instant messaging", "im"),
+    ("im platforms", "im"),
+    ("im applications", "im"),
+    ("im apps", "im"),
+    ("im", "im"),
     ("web browsing", "web_browsing"),
     ("software update", "software_update"),
     ("file access", "file_access_protocol"),
@@ -65,9 +69,13 @@ APP_CLASSES: dict[str, dict[str, tuple[str, ...]]] = {
         "phrases": (
             "messaging apps",
             "messaging applications",
+            "messaging platforms",
             "chat apps",
             "chat applications",
+            "chat platforms",
             "messenger apps",
+            "messenger platforms",
+            "im platforms",
             "im apps",
         ),
         "stems": (
