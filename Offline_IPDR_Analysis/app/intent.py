@@ -74,6 +74,17 @@ class Intent:
         return ", ".join(bits)
 
 
+def _asks_place_breakdown(folded: str) -> bool:
+    """True for per-city / each-city style questions the ISP intent path must not steal."""
+    if re.search(
+        r"\b(?:per|by|across|against|for each|on each|in each|in every|grouped by)\s+"
+        r"(?:the\s+)?(?:cities|city|areas?|towns?|districts?|provinces?)\b",
+        folded,
+    ):
+        return True
+    return bool(re.search(r"\b(?:city|area|town|district|province)[\s\-]?wise\b", folded))
+
+
 def _pending_usage_clarify_question(history: list[dict]) -> str | None:
     """Prior question that produced the totals-vs-users clarify prompt."""
     if not history:
@@ -133,8 +144,9 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
         or street_before_city(question)
         or asks_same_city(question)
         or re.search(r"\bsame\s+city\b", folded)
+        or _asks_place_breakdown(folded)
     ):
-        # City/area rankings stay on the older follow-up path.
+        # City/area breakdowns stay off this ISP/app intent path (LLM / older handlers).
         return None
 
     # "based on traffic volume" after a clarify — redo the prior question with that measure.

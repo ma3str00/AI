@@ -2744,6 +2744,13 @@ def main() -> None:
     ):
         raise SystemExit(f"social apps on Jazz dropped the ISP filter: {jazz_social_sql}")
     prepare(jazz_social_sql, 200, allow_full_scan=True)
+    city_apps = resolve_intent("top social media apps in each city", [])
+    city_follow = resolve_followup("top social media apps in each city", [])
+    if city_apps is not None or city_follow is not None:
+        raise SystemExit(
+            "per-city social apps should fall through to the LLM, "
+            f"got intent={city_apps} followup={city_follow}"
+        )
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
