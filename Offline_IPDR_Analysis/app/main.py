@@ -25,11 +25,13 @@ from app.followup import (
     subscriber_kind,
     use_full_scan,
 )
+from app.intent import build_sql, resolve_intent
 from app.learned import saved_sql, sql_needs_full_scan
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
+from app.referee import referee_intent
 from app.retrieve import ExampleIndex, load_examples
 from app.rules import dictionary_problem, repair_sql
 from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
@@ -170,7 +172,35 @@ def _ask_events(body: Question):
     if choice_question:
         yield _done(_clarify(choice_question))
         return
-    resolved = choice_sql or resolve_followup(question, history)
+    # Intent → optional LLM grain/slot referee → deterministic SQL.
+    intent = resolve_intent(question, history)
+    intent_rejected = False
+    if intent:
+        if intent.ambiguous and llama is not None:
+            yield _status("Checking what you meant")
+            verdict = referee_intent(llama, intent, question, history)
+            if isinstance(verdict, str):
+                yield _done(_clarify(verdict))
+                return
+            if verdict is None:
+                intent = None
+                intent_rejected = True
+            else:
+                intent = verdict
+        elif intent.ambiguous and llama is None:
+            # No model available: ask instead of guessing users vs totals.
+            yield _done(_clarify(intent.clarify_prompt or "Do you want totals, or a ranked list?"))
+            return
+    if intent is not None:
+        try:
+            resolved = build_sql(intent)
+        except ValueError:
+            resolved = None
+    else:
+        resolved = None
+    if not resolved:
+        # If the referee rejected this family, do not rebuild the same intent in follow-up.
+        resolved = choice_sql if intent_rejected else (choice_sql or resolve_followup(question, history))
     if resolved:
         resolved = repair_sql(question, resolved, history)
         one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))

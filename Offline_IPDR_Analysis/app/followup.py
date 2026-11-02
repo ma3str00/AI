@@ -88,24 +88,12 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_duration = _apps_by_duration(question)
     if apps_duration:
         return apps_duration
-    top_per_isp = _top_app_per_isp(question, history)
-    if top_per_isp:
-        return top_per_isp
-    by_isp = _usage_by_isp(question, history)
-    if by_isp:
-        return by_isp
-    aggregate_on_isp = _aggregate_app_on_isp(question, history)
-    if aggregate_on_isp:
-        return aggregate_on_isp
-    app_on_isp = _app_usage_on_isp(question, history)
-    if app_on_isp:
-        return app_on_isp
-    apps_class = _apps_by_class(question)
-    if apps_class:
-        return apps_class
-    apps_category = _apps_by_category(question)
-    if apps_category:
-        return apps_category
+    # High-value ISP/app family goes through intent → SQL (see app.intent).
+    from app.intent import build_sql, resolve_intent
+
+    intent = resolve_intent(question, history)
+    if intent:
+        return build_sql(intent)
     timeline = _usage_timeline(question, history)
     if timeline:
         return timeline
@@ -1539,9 +1527,13 @@ def _asks_aggregate_total(question: str) -> bool:
 def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str] | None:
     """Shared app + ISP (+ exclusion) filters for usage-on-operator asks."""
     previous = _last_sql(history or [])
+    folded = question.lower()
     isps = mentioned_isps(question)
     app = _app_stem_in_question(question)
-    if not app and previous:
+    # Inherit the prior app only for grain rewrites ("I meant the total…"), not a fresh ISP ranking.
+    if not app and previous and re.search(
+        r"\b(i meant|meant the|total|usage|traffic|volume|flow counts?)\b", folded
+    ):
         like = re.search(r"(?i)LOWER\(app_label\)\s+LIKE\s+'%([^%']+)%'", previous)
         if like:
             app = like.group(1)
@@ -1550,7 +1542,9 @@ def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str
     where = [f"LOWER(app_label) LIKE '%{app.lower().replace(chr(39), '')}%'"]
     if isps:
         where.append(column_predicate("client_asn", isps[-1]))
-    elif previous:
+    elif previous and re.search(
+        r"\b(i meant|meant the|total|usage|traffic|volume|flow counts?)\b", folded
+    ):
         asn_block = re.search(
             r"(?i)(\((?:LOWER\(client_asn\)\s+LIKE\s+'[^']+'\s*OR\s*)+"
             r"LOWER\(client_asn\)\s+LIKE\s+'[^']+'\))",

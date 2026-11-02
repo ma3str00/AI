@@ -2559,6 +2559,32 @@ def main() -> None:
     ):
         raise SystemExit(f"total tiktok on ptcl stayed a user ranking: {tiktok_total}")
     prepare(tiktok_total, 200, allow_full_scan=True)
+    from app.intent import (
+        GRAIN_AGGREGATE_TOTAL,
+        GRAIN_TOP_USERS,
+        apply_referee_decision,
+        build_sql,
+        resolve_intent,
+    )
+
+    usage_intent = resolve_intent("tiktok usage on ptcl", [])
+    if not usage_intent or usage_intent.grain != GRAIN_TOP_USERS or not usage_intent.ambiguous:
+        raise SystemExit(f"usage on ISP should be ambiguous top_users intent: {usage_intent}")
+    total_intent = resolve_intent("total tiktok traffic volume and flow count on ptcl", [])
+    if not total_intent or total_intent.grain != GRAIN_AGGREGATE_TOTAL or total_intent.ambiguous:
+        raise SystemExit(f"total on ISP should be clear aggregate intent: {total_intent}")
+    revised = apply_referee_decision(
+        usage_intent,
+        {"action": "revise", "grain": GRAIN_AGGREGATE_TOTAL, "measure": "total_mb"},
+    )
+    if not hasattr(revised, "grain") or revised.grain != GRAIN_AGGREGATE_TOTAL:
+        raise SystemExit(f"referee revise did not switch grain: {revised}")
+    revised_sql = build_sql(revised).lower()
+    if "group by subscriber_id" in revised_sql or "count(*) as flows" not in revised_sql:
+        raise SystemExit(f"revised intent SQL was wrong: {revised_sql}")
+    clarify = apply_referee_decision(usage_intent, {"action": "clarify", "clarify": "Users or totals?"})
+    if clarify != "Users or totals?":
+        raise SystemExit(f"referee clarify failed: {clarify}")
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
