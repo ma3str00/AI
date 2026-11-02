@@ -94,6 +94,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     by_isp = _usage_by_isp(question, history)
     if by_isp:
         return by_isp
+    aggregate_on_isp = _aggregate_app_on_isp(question, history)
+    if aggregate_on_isp:
+        return aggregate_on_isp
     app_on_isp = _app_usage_on_isp(question, history)
     if app_on_isp:
         return app_on_isp
@@ -1513,9 +1516,93 @@ def _app_stem_in_question(question: str, skip: set[str] | None = None) -> str | 
     )
 
 
+def _asks_aggregate_total(question: str) -> bool:
+    """True for one-row totals ('total traffic volume and flow count'), not user rankings."""
+    folded = question.lower()
+    if re.search(r"\b(users?|subscribers?|top\s+\d+)\b", folded):
+        return False
+    if re.search(r"\b(i meant|meant the|just the|only the)\b", folded) and re.search(
+        r"\b(total|overall|aggregate|sum|volume|flow count)\b", folded
+    ):
+        return True
+    if re.search(r"\b(total|overall|aggregate)\b", folded) and re.search(
+        r"\b(traffic|volume|bytes|flows?|usage|mb|gb|tb)\b", folded
+    ):
+        return True
+    return bool(
+        re.search(r"\btraffic volume\b", folded)
+        and re.search(r"\bflow counts?\b", folded)
+        and not re.search(r"\b(per|each|wise)\b", folded)
+    )
+
+
+def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str] | None:
+    """Shared app + ISP (+ exclusion) filters for usage-on-operator asks."""
+    previous = _last_sql(history or [])
+    isps = mentioned_isps(question)
+    app = _app_stem_in_question(question)
+    if not app and previous:
+        like = re.search(r"(?i)LOWER\(app_label\)\s+LIKE\s+'%([^%']+)%'", previous)
+        if like:
+            app = like.group(1)
+    if not app:
+        return None
+    where = [f"LOWER(app_label) LIKE '%{app.lower().replace(chr(39), '')}%'"]
+    if isps:
+        where.append(column_predicate("client_asn", isps[-1]))
+    elif previous:
+        asn_block = re.search(
+            r"(?i)(\((?:LOWER\(client_asn\)\s+LIKE\s+'[^']+'\s*OR\s*)+"
+            r"LOWER\(client_asn\)\s+LIKE\s+'[^']+'\))",
+            previous,
+        )
+        single = re.search(r"(?i)LOWER\(client_asn\)\s+LIKE\s+'[^']+'", previous)
+        if asn_block:
+            where.append(asn_block.group(1))
+        elif single:
+            where.append(single.group(0))
+        else:
+            return None
+    else:
+        return None
+    where.extend(
+        [
+            "IFNULL(subscriber_id, '') <> ''",
+            "LOCATE('_', subscriber_id) = 0",
+        ]
+    )
+    where.extend(_merge_app_exclusions(question, previous))
+    return where
+
+
+def _aggregate_app_on_isp(question: str, history: list[dict] | None = None) -> str | None:
+    """One-row total traffic/flows for an app on an ISP (not a subscriber ranking)."""
+    if _asks_isp_breakdown(question) or not _asks_aggregate_total(question):
+        return None
+    if class_from_question(question) or category_from_question(question):
+        return None
+    if (
+        mentioned_cities(question)
+        or mentioned_areas(question)
+        or mentioned_provinces(question)
+        or street_before_city(question)
+    ):
+        return None
+    where = _app_isp_where(question, history)
+    if not where:
+        return None
+    return (
+        "SELECT SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+        "COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"{' AND '.join(where)}"
+    )
+
+
 def _app_usage_on_isp(question: str, history: list[dict] | None = None) -> str | None:
     """'{app} usage on {isp}' ranks identified users of that app on that ISP."""
-    if _asks_isp_breakdown(question):
+    if _asks_isp_breakdown(question) or _asks_aggregate_total(question):
         return None
     folded = question.lower()
     isps = mentioned_isps(question)
@@ -1544,13 +1631,9 @@ def _app_usage_on_isp(question: str, history: list[dict] | None = None) -> str |
     # Prefer place phrasing: on/from Multinet.
     if not re.search(r"\b(?:on|from|for|at|via)\b", folded):
         return None
-    where = [
-        f"LOWER(app_label) LIKE '%{app.lower().replace(chr(39), '')}%'",
-        column_predicate("client_asn", isps[-1]),
-        "IFNULL(subscriber_id, '') <> ''",
-        "LOCATE('_', subscriber_id) = 0",
-    ]
-    where.extend(_merge_app_exclusions(question, _last_sql(history or [])))
+    where = _app_isp_where(question, history)
+    if not where:
+        return None
     limit = _limit_in(question) or 20
     order = "flows" if re.search(r"\b(flows?|flow count|hits)\b", folded) else "total_bytes"
     return (

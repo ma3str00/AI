@@ -2542,6 +2542,23 @@ def main() -> None:
     ):
         raise SystemExit(f"facebook usage on multinet missed the ISP filter: {fb_multinet}")
     prepare(fb_multinet, 200, allow_full_scan=True)
+    tiktok_users = resolve_followup("tiktok usage on ptcl", [])
+    tiktok_total = resolve_followup(
+        "I meant the total tiktok traffic volume and flow count on ptcl",
+        [{"question": "tiktok usage on ptcl", "sql": tiktok_users or ""}],
+    )
+    total_folded = (tiktok_total or "").lower()
+    if (
+        not tiktok_total
+        or "like '%tiktok%'" not in total_folded
+        or "ptcl" not in total_folded
+        or "group by subscriber_id" in total_folded
+        or "as total_mb" not in total_folded
+        or "count(*) as flows" not in total_folded
+        or total_folded.lstrip().startswith("select subscriber_id")
+    ):
+        raise SystemExit(f"total tiktok on ptcl stayed a user ranking: {tiktok_total}")
+    prepare(tiktok_total, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
