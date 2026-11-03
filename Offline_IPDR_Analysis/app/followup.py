@@ -659,9 +659,18 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
     folded = question.lower()
     if asks_same_city(question):
         return None
+    city_wise = bool(
+        re.search(r"\bcity[\s\-]?wise\b", folded)
+        or re.search(
+            r"\b(?:per|by|across|against|for each|on each|in each|in every|grouped by)\s+"
+            r"(?:the\s+)?cit(?:y|ies)\b",
+            folded,
+        )
+    )
     ranks_cities = bool(
         re.search(r"\b(?:which|what)\s+cit(?:y|ies)\b", folded)
         or re.search(r"\b(?:top|highest|maximum|most)\s+\d*\s*cit(?:y|ies)\b", folded)
+        or city_wise
     )
     isps = mentioned_isps(question)
     lists_cities = bool(
@@ -676,6 +685,8 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
     limit = _limit_in(question)
     if limit is None and re.search(r"\b(all|every)\b", folded) and re.search(r"\bcities\b", folded):
         limit = 200
+    elif limit is None and city_wise:
+        limit = 20
     elif limit is None:
         # "Which city" is one row. "Which cities" is the top of the ranking.
         limit = 10 if re.search(r"\bcities\b", folded) else 1

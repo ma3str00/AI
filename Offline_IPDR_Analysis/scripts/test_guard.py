@@ -2773,6 +2773,18 @@ def main() -> None:
     ):
         raise SystemExit(f"per-city social apps SQL was wrong: {city_sql[:500]}")
     prepare(city_sql, 200, allow_full_scan=True)
+    wa_city = resolve_followup("show me the city wise usage of whatsapp", [])
+    wa_city_folded = (wa_city or "").lower()
+    if (
+        not wa_city
+        or "like '%whatsapp%'" not in wa_city_folded
+        or "as city" not in wa_city_folded
+        or "group by city" not in wa_city_folded
+        or "bloons" in wa_city_folded
+        or "group_concat" in wa_city_folded
+    ):
+        raise SystemExit(f"city-wise WhatsApp usage SQL was wrong: {wa_city}")
+    prepare(wa_city, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
