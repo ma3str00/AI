@@ -2827,6 +2827,8 @@ def main() -> None:
     if (
         not popular_app_city
         or popular_app_city.grain != "top_app_per_city"
+        or popular_app_city.app
+        or "like '%popular%'" in popular_app_city_folded
         or "partition by city" not in popular_app_city_folded
         or "row_number()" not in popular_app_city_folded
         or "group by city having" in popular_app_city_folded
@@ -2835,6 +2837,72 @@ def main() -> None:
             f"most popular app in each city should be top_app_per_city: {popular_app_city_sql[:500]}"
         )
     prepare(popular_app_city_sql, 200, allow_full_scan=True)
+    citywise_list = resolve_intent("show me the citywise app list ranked by popularity", [])
+    citywise_list_sql = (build_sql(citywise_list) if citywise_list else "") or ""
+    citywise_list_folded = citywise_list_sql.lower()
+    if (
+        not citywise_list
+        or citywise_list.grain != "top_app_per_city"
+        or citywise_list.ambiguous
+        or citywise_list.top_n != 5
+        or citywise_list.app
+        or "like '%citywise%'" in citywise_list_folded
+        or "rn <= 5" not in citywise_list_folded
+        or "partition by city" not in citywise_list_folded
+        or "lower(loc) as city" in citywise_list_folded
+    ):
+        raise SystemExit(
+            f"citywise app list by popularity should be top 5 apps per city: "
+            f"{citywise_list_sql[:500]}"
+        )
+    prepare(citywise_list_sql, 200, allow_full_scan=True)
+    same_by_flows = resolve_followup(
+        "show me the same but ranked by flow count",
+        [{"question": "show me the most popular app in each city", "sql": popular_app_city_sql}],
+    )
+    same_by_flows_folded = (same_by_flows or "").lower()
+    if (
+        not same_by_flows
+        or "row_number()" not in same_by_flows_folded
+        or "partition by city" not in same_by_flows_folded
+        or "order by count(*) desc" not in same_by_flows_folded
+        or "order by flows desc" not in same_by_flows_folded
+        or "order by sum(c2s_byte_num" in same_by_flows_folded
+        or "order by flow_count" in same_by_flows_folded
+    ):
+        raise SystemExit(
+            f"same but by flow count should rebuild the per-city window: "
+            f"{(same_by_flows or '')[:500]}"
+        )
+    prepare(same_by_flows, 200, allow_full_scan=True)
+    isp_per_city = resolve_intent("show me the ISP with most users in each city", [])
+    isp_per_city_sql = (build_sql(isp_per_city) if isp_per_city else "") or ""
+    isp_per_city_folded = isp_per_city_sql.lower()
+    if (
+        not isp_per_city
+        or isp_per_city.grain != "top_isp_per_city"
+        or isp_per_city.measure != "users"
+        or "partition by city" not in isp_per_city_folded
+        or "client_asn" not in isp_per_city_folded
+        or "count(distinct subscriber_id)" not in isp_per_city_folded
+        or "group by city having" in isp_per_city_folded
+    ):
+        raise SystemExit(
+            f"ISP with most users in each city should be top_isp_per_city: "
+            f"{isp_per_city_sql[:500]}"
+        )
+    prepare(isp_per_city_sql, 200, allow_full_scan=True)
+    stolen_city = resolve_followup("show me the ISP with most users in each city", [])
+    stolen_city_folded = (stolen_city or "").lower()
+    if (
+        not stolen_city
+        or "partition by city" not in stolen_city_folded
+        or "client_asn" not in stolen_city_folded
+        or re.search(r"group by city having city is not null", stolen_city_folded)
+    ):
+        raise SystemExit(
+            f"ISP per city must not fall through to city totals: {(stolen_city or '')[:500]}"
+        )
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

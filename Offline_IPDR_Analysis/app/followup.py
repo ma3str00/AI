@@ -97,6 +97,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     intent = resolve_intent(question, history)
     if intent:
         return build_sql(intent)
+    reranked = _rerank_window_measure(question, history)
+    if reranked:
+        return reranked
     timeline = _usage_timeline(question, history)
     if timeline:
         return timeline
@@ -664,6 +667,11 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
         r"\b(top|most\s+used|most\s+popular|highest|best|rank|popular)\b", folded
     ):
         return None
+    # Top ISP/operator within each city is windowed — not a city-total ranking.
+    if re.search(r"\b(isps?|operators?|providers?|networks?|asns?)\b", folded) and re.search(
+        r"\b(top|most|highest|best|rank|popular)\b", folded
+    ):
+        return None
     city_wise = bool(
         re.search(r"\bcity[\s\-]?wise\b", folded)
         or re.search(
@@ -805,25 +813,37 @@ def _exact_app_word(text: str) -> str | None:
 def _named_app_label(text: str) -> str | None:
     """The application named as a filter, as in 'against app type HTTP' or 'ssl app'."""
     folded = text.lower()
+    explicit = False
     match = re.search(r"\bapp(?:lication)?\s+type\s+([a-z0-9][a-z0-9_.-]{1,40})\b", folded)
+    if match:
+        explicit = True
     if not match:
         match = re.search(
             r"\b(?:for|against|of|in)\s+(?:the\s+)?app(?:lication)?\s+([a-z0-9][a-z0-9_.-]{1,40})\b",
             folded,
         )
+        if match:
+            explicit = True
     if not match:
         match = re.search(
             r"\b(?:for|against|of|in)\s+(?:the\s+)?([a-z0-9][a-z0-9_.-]{1,40})\s+app(?:lication)?\b",
             folded,
         )
+        if match:
+            explicit = True
     if not match:
+        # Bare "X app" — only real labels (not "popular app" / "citywise app").
         match = re.search(r"\b([a-z0-9][a-z0-9_.-]{1,40})\s+app(?:lication)?\b", folded)
     if not match:
         return None
     label = match.group(1)
     if label in _NOT_AN_APP or label in {"type", "label", "category", "name", "blocked", "allowed"}:
         return None
-    if exact_app_label(label) or known_app_token(label, set()) == label or len(label) >= 4:
+    if re.search(r"wise$", label):
+        return None
+    if exact_app_label(label) or known_app_token(label, set()) == label:
+        return label
+    if explicit and len(label) >= 4:
         return label
     return None
 
@@ -2074,8 +2094,10 @@ _NOT_AN_APP = {
     "using", "other", "activities", "details", "detail", "have", "been", "them", "those",
     "along", "with", "also", "list", "listed", "respective", "corresponding", "related",
     "address", "addresses", "location", "locations", "whereabouts", "asn",
-    "instead", "showing", "rather", "sorted", "ordering",     "city", "cities", "town", "district", "province",
+    "instead", "showing", "rather", "sorted", "ordering", "city", "cities", "town", "district", "province",
     "area", "locality", "neighborhood", "neighbourhood", "vicinity",
+    "citywise", "areawise", "townwise", "districtwise", "provincewise",
+    "popular", "popularity", "ranked", "ranking", "favorite", "favourite", "common",
     "belong", "belongs", "belonging", "building", "previous", "query",
     "tried", "try", "access", "accessed", "accessing", "visit", "visited", "visiting",
     "blocked", "denied", "rejected", "allowed", "permitted",
@@ -2930,9 +2952,69 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
     return re.sub(r"(?i)\bFROM\b", f", {expression} FROM", text, count=1)
 
 
+def _rerank_window_measure(question: str, history: list[dict]) -> str | None:
+    """'Same but by flow count' on a ROW_NUMBER per-city/ISP query — rebuild with that measure."""
+    previous = _last_sql(history)
+    if not previous or "row_number()" not in previous.lower():
+        return None
+    folded = question.lower()
+    if re.search(r"\b(flows?|flow count|hits)\b", folded) and not re.search(
+        r"\b(bytes|traffic|volume|mb|gb|tb|users?|subscribers?)\b", folded
+    ):
+        measure_suffix = "by flow count"
+    elif re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) and not re.search(
+        r"\b(flows?|flow count|hits|users?|subscribers?)\b", folded
+    ):
+        measure_suffix = "by traffic volume"
+    elif re.search(r"\b(users?|subscribers?)\b", folded) and not re.search(
+        r"\b(flows?|flow count|hits|bytes|traffic|volume|mb|gb|tb)\b", folded
+    ):
+        measure_suffix = "by number of users"
+    else:
+        return None
+    # Follow-ups that change the ranking measure, not brand-new subject questions.
+    if not (
+        _asks_same_result(question)
+        or re.search(
+            r"\b(instead|rather|ranked by|ordered by|sorted by|order by|sort by|based on)\b",
+            folded,
+        )
+        or re.fullmatch(
+            r"(?:show\s+me\s+)?(?:the\s+)?(?:same\s+)?(?:but\s+)?"
+            r"(?:ranked\s+|ordered\s+|sorted\s+)?by\s+"
+            r"(?:flow\s+counts?|number\s+of\s+flows|flows?|hits|"
+            r"traffic(?:\s+volume)?|volume|bytes|mb|gb|tb|"
+            r"number\s+of\s+users|users?|subscribers?)\s*",
+            folded,
+        )
+    ):
+        return None
+    prior = ""
+    for turn in reversed(history or []):
+        sql = (turn.get("sql") or "").strip()
+        ask = (turn.get("question") or "").strip()
+        if sql and "row_number()" in sql.lower() and ask:
+            prior = ask
+            break
+    if not prior:
+        return None
+    from app.intent import build_sql, resolve_intent
+
+    intent = resolve_intent(f"{prior} {measure_suffix}", history[:-1] if history else [])
+    if intent is None or intent.ambiguous:
+        return None
+    try:
+        return build_sql(intent)
+    except ValueError:
+        return None
+
+
 def _present_measures(question: str, sql: str) -> str | None:
     """Add or convert measures on the previous result without dropping the ones already shown."""
     if not sql or not re.search(r"\bgroup\s+by\b", sql, flags=re.IGNORECASE):
+        return None
+    # Windowed per-group rankings must be rebuilt, not column-patched.
+    if re.search(r"row_number\s*\(", sql, flags=re.IGNORECASE):
         return None
     if _group_key(sql) == "subscriber_id" and _unit_of(question) is None:
         return None

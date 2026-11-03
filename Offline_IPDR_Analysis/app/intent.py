@@ -37,6 +37,7 @@ GRAIN_TOP_USERS = "top_users"
 GRAIN_USAGE_BY_ISP = "usage_by_isp"
 GRAIN_TOP_APP_PER_ISP = "top_app_per_isp"
 GRAIN_TOP_APP_PER_CITY = "top_app_per_city"
+GRAIN_TOP_ISP_PER_CITY = "top_isp_per_city"
 GRAIN_APPS_BY_CLASS = "apps_by_class"
 GRAIN_APPS_BY_CATEGORY = "apps_by_category"
 
@@ -46,6 +47,7 @@ _GRAIN_LABELS = {
     GRAIN_USAGE_BY_ISP: "totals grouped by ISP/operator",
     GRAIN_TOP_APP_PER_ISP: "top application within each ISP",
     GRAIN_TOP_APP_PER_CITY: "top application within each city",
+    GRAIN_TOP_ISP_PER_CITY: "top ISP/operator within each city",
     GRAIN_APPS_BY_CLASS: "applications in a conceptual class, ranked",
     GRAIN_APPS_BY_CATEGORY: "applications in a DPI category, ranked",
 }
@@ -98,7 +100,10 @@ def _top_app_per_city_intent(
 ) -> Intent | None:
     """Top app/platform within each city from loc (ROW_NUMBER), e.g. social media in each city."""
     wants_top = bool(
-        re.search(r"\b(top|most\s+used|most\s+popular|highest|best|rank|popular)\b", folded)
+        re.search(
+            r"\b(top|most\s+used|most\s+popular|highest|best|rank|popular|popularity)\b",
+            folded,
+        )
     )
     names_item = bool(
         re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?|games?)\b", folded)
@@ -127,10 +132,12 @@ def _top_app_per_city_intent(
     top_match = re.search(r"\btop\s+(\d+)\b", folded)
     if top_match:
         top_n = max(1, min(int(top_match.group(1)), 20))
-    # "highest/most popular used" defaults to traffic unless flows/hits are named.
+    elif re.search(r"\blists?\b", folded):
+        top_n = 5
+    # "highest/most popular" defaults to traffic unless flows/hits are named.
     if (
         measure == "flows"
-        and re.search(r"\b(highest|most)\s+(used|popular)\b|\bpopular\b", folded)
+        and re.search(r"\b(highest|most)\s+(used|popular)\b|\bpopular(?:ity)?\b", folded)
         and not re.search(r"\b(flows?|flow count|hits)\b", folded)
     ):
         measure = "total_mb"
@@ -148,7 +155,7 @@ def _top_app_per_city_intent(
         )
     )
     if not _explicit_measure(folded) and not re.search(
-        r"\b(highest|most)\s+(used|popular)\b|\bpopular\b", folded
+        r"\b(highest|most)\s+(used|popular)\b|\bpopular(?:ity)?\b", folded
     ):
         return Intent(
             grain=GRAIN_TOP_APP_PER_CITY,
@@ -177,6 +184,53 @@ def _top_app_per_city_intent(
         limit=limit,
         ambiguous=False,
         source="top_app_per_city",
+    )
+
+
+def _top_isp_per_city_intent(
+    question: str,
+    history: list[dict],
+    folded: str,
+    measure: str,
+    limit: int,
+) -> Intent | None:
+    """ISP/operator with the most users (or traffic) within each city."""
+    if not re.search(r"\b(isps?|operators?|providers?|networks?|asns?)\b", folded):
+        return None
+    if re.search(r"\b(apps?|applications?|platforms?|websites?|domains?)\b", folded):
+        return None
+    wants_rank = bool(
+        re.search(r"\b(top|most|highest|best|rank|popular|popularity)\b", folded)
+    )
+    wants_users = bool(re.search(r"\b(users?|subscribers?)\b", folded))
+    if not wants_rank:
+        return None
+    # "ISP with most users in each city" — users is the ranking measure.
+    if wants_users:
+        measure = "users"
+    elif measure == "flows" and re.search(r"\b(highest|most)\b", folded) and not re.search(
+        r"\b(flows?|flow count|hits)\b", folded
+    ):
+        measure = "total_mb"
+    filters = [
+        "IFNULL(client_asn, '') <> ''",
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+        "IFNULL(loc, '') <> ''",
+        *_merge_app_exclusions(question, _last_sql(history)),
+    ]
+    top_n = 1
+    top_match = re.search(r"\btop\s+(\d+)\b", folded)
+    if top_match:
+        top_n = max(1, min(int(top_match.group(1)), 20))
+    return Intent(
+        grain=GRAIN_TOP_ISP_PER_CITY,
+        where=filters,
+        measure=measure,
+        top_n=top_n,
+        limit=limit,
+        ambiguous=False,
+        source="top_isp_per_city",
     )
 
 
@@ -249,13 +303,16 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
         measure = "flows"
     limit = _limit_in(question) or 20
 
-    # Top apps/platforms in each city — deterministic window SQL (do not send to the LLM).
+    # Per-city window grains (top app / top ISP) — deterministic SQL, not the LLM.
     if _asks_place_breakdown(folded):
         city_intent = _top_app_per_city_intent(question, history, folded, measure, limit)
         if city_intent is not None:
             return city_intent
-        # Other city/area shapes stay on the LLM / older follow-up path.
-        return None
+        isp_city = _top_isp_per_city_intent(question, history, folded, measure, limit)
+        if isp_city is not None:
+            return isp_city
+        # Plain city rankings stay on _cities_by_usage / LLM via follow-up.
+        # Do not claim the question here.
 
     if (
         mentioned_cities(question)
@@ -489,7 +546,11 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
 def build_sql(intent: Intent) -> str:
     """Compile Intent into a single MySQL SELECT."""
     where_sql = " AND ".join(intent.where) if intent.where else "1=1"
-    order = intent.measure if intent.measure in {"flows", "total_mb", "total_bytes"} else "flows"
+    order = (
+        intent.measure
+        if intent.measure in {"flows", "total_mb", "total_bytes", "users"}
+        else "flows"
+    )
     if intent.grain == GRAIN_AGGREGATE_TOTAL:
         return (
             "SELECT SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
@@ -560,6 +621,55 @@ def build_sql(intent: Intent) -> str:
             f"FROM ntc_ssl_logs WHERE {where_sql}"
             ") labeled WHERE city IS NOT NULL "
             "GROUP BY city, app_label"
+            f") ranked WHERE rn <= {int(intent.top_n)} "
+            f"ORDER BY {outer_order} DESC LIMIT {int(intent.limit)}"
+        )
+    if intent.grain == GRAIN_TOP_ISP_PER_CITY:
+        filters = list(intent.where)
+        if not any("IFNULL(client_asn" in part for part in filters):
+            filters.insert(0, "IFNULL(client_asn, '') <> ''")
+        if not any(re.search(r"\bloc\b", part, flags=re.IGNORECASE) for part in filters):
+            filters.append("IFNULL(loc, '') <> ''")
+        if order == "users":
+            window_order = "COUNT(DISTINCT subscriber_id) DESC"
+            outer_order = "users"
+            inner_measures = (
+                "COUNT(DISTINCT subscriber_id) AS users, "
+                "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+                "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+                "COUNT(*) AS flows"
+            )
+            outer_cols = "city, client_asn, users, flows, total_bytes, total_mb"
+        elif order in {"total_mb", "total_bytes"}:
+            window_order = "SUM(c2s_byte_num + s2c_byte_num) DESC"
+            outer_order = "total_mb"
+            inner_measures = (
+                "COUNT(DISTINCT subscriber_id) AS users, "
+                "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+                "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+                "COUNT(*) AS flows"
+            )
+            outer_cols = "city, client_asn, users, flows, total_bytes, total_mb"
+        else:
+            window_order = "COUNT(*) DESC"
+            outer_order = "flows"
+            inner_measures = (
+                "COUNT(DISTINCT subscriber_id) AS users, "
+                "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+                "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+                "COUNT(*) AS flows"
+            )
+            outer_cols = "city, client_asn, users, flows, total_bytes, total_mb"
+        city_expr = city_from_loc()
+        where_sql = " AND ".join(filters)
+        return (
+            f"SELECT {outer_cols} FROM ("
+            f"SELECT city, client_asn, {inner_measures}, "
+            f"ROW_NUMBER() OVER (PARTITION BY city ORDER BY {window_order}) AS rn FROM ("
+            f"SELECT {city_expr} AS city, client_asn, subscriber_id, c2s_byte_num, s2c_byte_num "
+            f"FROM ntc_ssl_logs WHERE {where_sql}"
+            ") labeled WHERE city IS NOT NULL "
+            "GROUP BY city, client_asn"
             f") ranked WHERE rn <= {int(intent.top_n)} "
             f"ORDER BY {outer_order} DESC LIMIT {int(intent.limit)}"
         )
