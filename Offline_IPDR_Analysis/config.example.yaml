@@ -18,8 +18,13 @@ llama:
   # Two examples keep the prompt small enough for the 3B model on CPU.
   example_count: 2
 
-# The Cloudflare quick-tunnel address. Change this when Kaggle prints a new URL.
+# The Cloudflare tunnel address. Change this when Kaggle prints a new URL.
 # It replaces the address shipped in engines.yaml. Restart ipdr-assistant after editing.
+#
+# trycloudflare.com quick tunnels often add 1–3 minute stalls on silent buffered POSTs
+# even when Ollama itself finishes in ~10–15s. Prefer a named Cloudflare tunnel when
+# possible. The app streams /api/chat and resets stale sockets to reduce that delay.
+# Diagnose with: python scripts/probe_ollama_path.py
 kaggle:
   base_url: "https://bone-indexes-ensures-joe.trycloudflare.com"
 

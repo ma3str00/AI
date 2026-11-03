@@ -177,10 +177,15 @@ def _model_timing_lines(llama: LlamaServer | None, *, debug: bool) -> list[str]:
     lines: list[str] = []
     if stats.get("error"):
         lines.append(f"Model HTTP error: {stats['error']}")
+    if stats.get("client_reset"):
+        lines.append(f"HTTP client was reset: {stats['client_reset']}")
+    mode = "stream" if stats.get("streamed") else "buffered"
     lines.append(
         "Model HTTP: "
+        f"mode {mode}, "
         f"wall {_fmt_s(wall)}, "
         f"TTFB {_fmt_s(stats.get('ttfb_s'))}, "
+        f"first_token {_fmt_s(stats.get('time_to_first_token_s'))}, "
         f"body {_fmt_s(stats.get('body_read_s'))}, "
         f"httpx.elapsed {_fmt_s(stats.get('http_elapsed_s'))}"
     )
@@ -200,6 +205,11 @@ def _model_timing_lines(llama: LlamaServer | None, *, debug: bool) -> list[str]:
             f"tokens prompt={stats.get('prompt_tokens', '?')} "
             f"eval={stats.get('eval_tokens', '?')}"
         )
+        if stats.get("pre_model_s") is not None:
+            lines.append(
+                f"Pre-model path delay: {_fmt_s(stats.get('pre_model_s'))} "
+                "(time before Ollama accepted/started useful work)"
+            )
         if stats.get("unaccounted_s") is not None:
             lines.append(
                 f"Wall minus Ollama total_duration: {_fmt_s(stats.get('unaccounted_s'))} "
@@ -331,8 +341,11 @@ def _ask_events(body: Question):
             yield _status(ask_label)
         elif attempt > 0:
             yield _status(ask_label)
-        if debug and llama is not None and attempt == 0:
+        if debug and llama is not None:
+            # Re-probe on every attempt: a stale quick-tunnel socket is the usual ~150s stall.
             yield _status("Probing model link (GET /v1/models)")
+            if attempt > 0:
+                llama.reset_client(reason=f"retry attempt {attempt + 1}")
             probe = llama.probe_latency()
             for line in _probe_timing_lines(probe):
                 yield _status(line)

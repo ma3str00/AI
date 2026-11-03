@@ -1,6 +1,8 @@
 # Extra AI servers. The local llama.cpp server always comes from config.yaml.
 # The Kaggle address changes every time the tunnel starts. Put the current one in
 # config.yaml under kaggle.base_url. That value replaces the address below.
+# Quick tunnels (*.trycloudflare.com) can stall ~150s outside Ollama; named tunnels
+# are more stable. Run scripts/probe_ollama_path.py after updating the URL.
 #
 # num_ctx 8192 is enough for this prompt and avoids a 6 GiB KV cache from 32768.
 # keep_alive -1 keeps the 14B model in GPU memory so idle minutes do not reload it.
