@@ -2875,6 +2875,31 @@ def main() -> None:
             f"{(same_by_flows or '')[:500]}"
         )
     prepare(same_by_flows, 200, allow_full_scan=True)
+    same_by_sessions = resolve_followup(
+        "show me the same but ranked by session count",
+        [
+            {
+                "question": "show me the citywise app list ranked by popularity",
+                "sql": citywise_list_sql,
+            }
+        ],
+    )
+    same_by_sessions_folded = (same_by_sessions or "").lower()
+    if (
+        not same_by_sessions
+        or "row_number()" not in same_by_sessions_folded
+        or "partition by city" not in same_by_sessions_folded
+        or "rn <= 5" not in same_by_sessions_folded
+        or "order by count(*) desc" not in same_by_sessions_folded
+        or "order by flows desc" not in same_by_sessions_folded
+        or "count(*) as sessions" in same_by_sessions_folded
+        or "order by sum(c2s_byte_num" in same_by_sessions_folded
+    ):
+        raise SystemExit(
+            f"same but by session count should rebuild the per-city window: "
+            f"{(same_by_sessions or '')[:500]}"
+        )
+    prepare(same_by_sessions, 200, allow_full_scan=True)
     isp_per_city = resolve_intent("show me the ISP with most users in each city", [])
     isp_per_city_sql = (build_sql(isp_per_city) if isp_per_city else "") or ""
     isp_per_city_folded = isp_per_city_sql.lower()

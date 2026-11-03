@@ -138,7 +138,7 @@ def _top_app_per_city_intent(
     if (
         measure == "flows"
         and re.search(r"\b(highest|most)\s+(used|popular)\b|\bpopular(?:ity)?\b", folded)
-        and not re.search(r"\b(flows?|flow count|hits)\b", folded)
+        and not re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", folded)
     ):
         measure = "total_mb"
     subject = (
@@ -263,21 +263,31 @@ def _pending_open_clarify_question(history: list[dict]) -> str | None:
 
 
 def _explicit_measure(folded: str) -> bool:
-    return bool(re.search(r"\b(bytes|traffic|volume|mb|gb|tb|flows?|flow count|hits)\b", folded))
+    return bool(
+        re.search(
+            r"\b(bytes|traffic|volume|mb|gb|tb|flows?|flow count|hits|sessions?|session count)\b",
+            folded,
+        )
+    )
 
 
 def _measure_only_reply(question: str) -> str | None:
     """Map a short clarify reply to total_mb or flows."""
     folded = question.lower().strip()
     has_volume = bool(re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded))
-    has_flows = bool(re.search(r"\b(flows?|flow count|hits)\b", folded))
+    has_flows = bool(
+        re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", folded)
+    )
     if has_volume and not has_flows:
         return "total_mb"
     if has_flows and not has_volume:
         return "flows"
     if re.search(r"\b(traffic\s+volume|by\s+volume|by\s+traffic|based on traffic)\b", folded):
         return "total_mb"
-    if re.search(r"\b(number of flows|based on flows|by flows)\b", folded):
+    if re.search(
+        r"\b(number of flows|number of sessions|based on flows|by flows|by sessions)\b",
+        folded,
+    ):
         return "flows"
     return None
 
@@ -297,7 +307,7 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
         return resolve_intent(f"{pending_open} {suffix}", history[:-1])
 
     measure = "total_mb" if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) else "flows"
-    if re.search(r"\b(flows?|flow count|hits)\b", folded) and not re.search(
+    if re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", folded) and not re.search(
         r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded
     ):
         measure = "flows"

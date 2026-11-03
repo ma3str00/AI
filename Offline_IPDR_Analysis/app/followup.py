@@ -2794,12 +2794,19 @@ def _duration_unit_on_sql(sql: str) -> str | None:
 def _asks_for_session_count(question: str) -> bool:
     """Add COUNT(*) beside the current ranking. Flows and sessions are the same rows here."""
     folded = question.lower()
-    # Reordering by flow count is handled by _present_measures, not as an additive column.
-    if re.search(r"\b(instead|rather)\b", folded) and re.search(r"\bflows?\b", folded):
+    # Reordering by flow/session count rebuilds the ranking; do not add a side column.
+    if re.search(r"\b(instead|rather)\b", folded) and re.search(
+        r"\b(flows?|sessions?)\b", folded
+    ):
         return False
-    if re.search(r"\b(?:by|order(?:ed)?\s+by)\s+(?:the\s+)?flow\s+counts?\b", folded):
+    if re.search(
+        r"\b(?:by|order(?:ed)?\s+by|rank(?:ed)?\s+by|sort(?:ed)?\s+by)\s+(?:the\s+)?"
+        r"(?:flow\s+counts?|session\s+counts?|number\s+of\s+(?:flows?|sessions?)|"
+        r"flows?|sessions?)\b",
+        folded,
+    ):
         return False
-    if re.search(r"\border(?:ed)?\s+by\s+flows?\b", folded):
+    if re.search(r"\border(?:ed)?\s+by\s+(?:flows?|sessions?)\b", folded):
         return False
     return bool(
         re.search(
@@ -2822,6 +2829,9 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
     wants_sessions = _asks_for_session_count(question)
     wants_average = _asks_for_average_duration(question)
     if (not unit and not sum_unit and not avg_unit_asked and not wants_sessions and not wants_average) or not sql:
+        return None
+    # Windowed per-group rankings cannot take an outer COUNT(*) patch.
+    if re.search(r"row_number\s*\(", sql, flags=re.IGNORECASE):
         return None
     text = re.sub(r"\s+", " ", sql).strip()
     select = re.search(r"(?is)\bSELECT\b(.*?)\bFROM\b", text)
@@ -2953,21 +2963,23 @@ def _duration_in_units(question: str, sql: str | None) -> str | None:
 
 
 def _rerank_window_measure(question: str, history: list[dict]) -> str | None:
-    """'Same but by flow count' on a ROW_NUMBER per-city/ISP query — rebuild with that measure."""
+    """'Same but by flow/session count' on a ROW_NUMBER per-city/ISP query — rebuild with that measure."""
     previous = _last_sql(history)
     if not previous or "row_number()" not in previous.lower():
         return None
     folded = question.lower()
-    if re.search(r"\b(flows?|flow count|hits)\b", folded) and not re.search(
+    # Sessions and flows are the same IPDR rows; both mean COUNT(*) ranking.
+    if re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", folded) and not re.search(
         r"\b(bytes|traffic|volume|mb|gb|tb|users?|subscribers?)\b", folded
     ):
         measure_suffix = "by flow count"
     elif re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) and not re.search(
-        r"\b(flows?|flow count|hits|users?|subscribers?)\b", folded
+        r"\b(flows?|flow count|hits|sessions?|session count|users?|subscribers?)\b", folded
     ):
         measure_suffix = "by traffic volume"
     elif re.search(r"\b(users?|subscribers?)\b", folded) and not re.search(
-        r"\b(flows?|flow count|hits|bytes|traffic|volume|mb|gb|tb)\b", folded
+        r"\b(flows?|flow count|hits|sessions?|session count|bytes|traffic|volume|mb|gb|tb)\b",
+        folded,
     ):
         measure_suffix = "by number of users"
     else:
@@ -2982,7 +2994,8 @@ def _rerank_window_measure(question: str, history: list[dict]) -> str | None:
         or re.fullmatch(
             r"(?:show\s+me\s+)?(?:the\s+)?(?:same\s+)?(?:but\s+)?"
             r"(?:ranked\s+|ordered\s+|sorted\s+)?by\s+"
-            r"(?:flow\s+counts?|number\s+of\s+flows|flows?|hits|"
+            r"(?:flow\s+counts?|session\s+counts?|number\s+of\s+(?:flows?|sessions?)|"
+            r"flows?|sessions?|hits|"
             r"traffic(?:\s+volume)?|volume|bytes|mb|gb|tb|"
             r"number\s+of\s+users|users?|subscribers?)\s*",
             folded,
