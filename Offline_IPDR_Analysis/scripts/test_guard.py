@@ -2785,6 +2785,22 @@ def main() -> None:
     ):
         raise SystemExit(f"city-wise WhatsApp usage SQL was wrong: {wa_city}")
     prepare(wa_city, 200, allow_full_scan=True)
+    highest_app_city = resolve_intent("show me the highest used app against each city", [])
+    highest_app_city_sql = (build_sql(highest_app_city) if highest_app_city else "") or ""
+    highest_app_city_folded = highest_app_city_sql.lower()
+    if (
+        not highest_app_city
+        or highest_app_city.grain != "top_app_per_city"
+        or highest_app_city.measure != "total_mb"
+        or highest_app_city.ambiguous
+        or "partition by city" not in highest_app_city_folded
+        or "row_number()" not in highest_app_city_folded
+        or "group by city, app_label" not in highest_app_city_folded
+    ):
+        raise SystemExit(
+            f"highest used app against each city should be top_app_per_city: {highest_app_city_sql[:500]}"
+        )
+    prepare(highest_app_city_sql, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

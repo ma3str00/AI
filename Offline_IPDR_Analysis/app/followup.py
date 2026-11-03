@@ -659,10 +659,16 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
     folded = question.lower()
     if asks_same_city(question):
         return None
+    # Top/highest app per city is a different grain (windowed apps), not city totals.
+    if re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?|games?)\b", folded) and re.search(
+        r"\b(top|most\s+used|highest|best|rank)\b", folded
+    ):
+        return None
     city_wise = bool(
         re.search(r"\bcity[\s\-]?wise\b", folded)
         or re.search(
-            r"\b(?:per|by|across|against|for each|on each|in each|in every|grouped by)\s+"
+            r"\b(?:per|by|across|against|for each|against each|on each|in each|"
+            r"in every|for every|against every|grouped by)\s+"
             r"(?:the\s+)?cit(?:y|ies)\b",
             folded,
         )

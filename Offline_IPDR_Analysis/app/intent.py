@@ -80,7 +80,8 @@ class Intent:
 def _asks_place_breakdown(folded: str) -> bool:
     """True for per-city / each-city style questions the ISP intent path must not steal."""
     if re.search(
-        r"\b(?:per|by|across|against|for each|on each|in each|in every|grouped by)\s+"
+        r"\b(?:per|by|across|against|for each|against each|on each|in each|"
+        r"in every|for every|against every|grouped by)\s+"
         r"(?:the\s+)?(?:cities|city|areas?|towns?|districts?|provinces?)\b",
         folded,
     ):
@@ -102,12 +103,22 @@ def _top_app_per_city_intent(
     )
     class_id = class_from_question(question)
     category = None if class_id else category_from_question(question)
-    has_subject = bool(names_item or class_id or category or _app_stem_in_question(question))
+    app = _app_stem_in_question(question)
+    has_subject = bool(names_item or class_id or category or app)
     if not (wants_top and has_subject) or re.search(r"\b(websites?|domains?)\b", folded):
         return None
-    filters = _subject_filters(question, history, class_id=class_id, category=category)
-    if not filters:
-        return None
+    # Bare "highest used app per city" has no class/app filter — still valid.
+    if class_id or category or app:
+        filters = _subject_filters(question, history, class_id=class_id, category=category)
+        if not filters:
+            return None
+    else:
+        filters = [
+            "IFNULL(subscriber_id, '') <> ''",
+            "LOCATE('_', subscriber_id) = 0",
+            "IFNULL(loc, '') <> ''",
+            *_merge_app_exclusions(question, _last_sql(history)),
+        ]
     if not any(re.search(r"\bloc\b", part, flags=re.IGNORECASE) for part in filters):
         filters.append("IFNULL(loc, '') <> ''")
     top_n = 1
@@ -133,7 +144,7 @@ def _top_app_per_city_intent(
         return Intent(
             grain=GRAIN_TOP_APP_PER_CITY,
             where=filters,
-            app=_app_stem_in_question(question),
+            app=app,
             class_id=class_id,
             category=category,
             measure="total_mb",
@@ -149,7 +160,7 @@ def _top_app_per_city_intent(
     return Intent(
         grain=GRAIN_TOP_APP_PER_CITY,
         where=filters,
-        app=_app_stem_in_question(question),
+        app=app,
         class_id=class_id,
         category=category,
         measure=measure,
