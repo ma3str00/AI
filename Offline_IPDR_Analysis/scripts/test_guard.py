@@ -2875,6 +2875,71 @@ def main() -> None:
             f"{(same_by_flows or '')[:500]}"
         )
     prepare(same_by_flows, 200, allow_full_scan=True)
+    from app.intent import (
+        apply_followup_normalization,
+        intent_from_prior_sql,
+    )
+    from app.referee import normalize_followup
+
+    recovered = intent_from_prior_sql(citywise_list_sql)
+    if (
+        not recovered
+        or recovered.grain != "top_app_per_city"
+        or recovered.measure != "total_mb"
+        or recovered.top_n != 5
+    ):
+        raise SystemExit(f"could not recover citywise list intent from SQL: {recovered}")
+    normalized_flows = apply_followup_normalization(
+        recovered,
+        {"action": "rerank_measure", "measure": "flows"},
+    )
+    if (
+        not hasattr(normalized_flows, "measure")
+        or normalized_flows.measure != "flows"
+        or normalized_flows.grain != "top_app_per_city"
+        or normalized_flows.top_n != 5
+    ):
+        raise SystemExit(f"follow-up normalizer measure swap failed: {normalized_flows}")
+    normalized_flows_sql = build_sql(normalized_flows).lower()
+    if (
+        "order by count(*) desc" not in normalized_flows_sql
+        or "order by flows desc" not in normalized_flows_sql
+        or "rn <= 5" not in normalized_flows_sql
+        or "order by sum(c2s_byte_num" in normalized_flows_sql
+    ):
+        raise SystemExit(
+            f"normalized flow-count SQL was wrong: {normalized_flows_sql[:500]}"
+        )
+    prepare(build_sql(normalized_flows), 200, allow_full_scan=True)
+
+    class _FakeLlama:
+        def __init__(self, payload: dict):
+            self.payload = payload
+
+        def chat(self, messages, *, json_mode: bool, temperature: float) -> str:
+            return json.dumps(self.payload)
+
+    fake_hist = [
+        {
+            "question": "display the citywise list of most used apps",
+            "sql": citywise_list_sql,
+        }
+    ]
+    llm_norm = normalize_followup(
+        _FakeLlama({"action": "rerank_measure", "measure": "flows"}),
+        "rank them by flow count instead of traffic volme",
+        fake_hist,
+    )
+    if not hasattr(llm_norm, "measure") or llm_norm.measure != "flows":
+        raise SystemExit(f"normalize_followup with fake LLM failed: {llm_norm}")
+    llm_reject = normalize_followup(
+        _FakeLlama({"action": "new_question"}),
+        "show me top jazz users yesterday",
+        fake_hist,
+    )
+    if llm_reject is not None:
+        raise SystemExit(f"new_question should fall through: {llm_reject}")
+
     instead_of_traffic = resolve_followup(
         "rank them by flow count instead of traffic volme",
         [

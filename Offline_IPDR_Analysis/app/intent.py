@@ -705,9 +705,143 @@ def apply_referee_decision(intent: Intent, decision: dict) -> Intent | str | Non
     if grain not in _GRAIN_LABELS:
         grain = intent.grain
     measure = str(decision.get("measure") or intent.measure).strip()
-    if measure not in {"flows", "total_mb", "total_bytes"}:
+    if measure == "total_bytes":
+        measure = "total_mb"
+    if measure not in {"flows", "total_mb", "users"}:
         measure = intent.measure
-    return replace(intent, grain=grain, measure=measure, ambiguous=False, clarify_prompt=None)
+    top_n = intent.top_n
+    if decision.get("top_n") is not None:
+        try:
+            top_n = max(1, min(int(decision["top_n"]), 20))
+        except (TypeError, ValueError):
+            top_n = intent.top_n
+    return replace(
+        intent,
+        grain=grain,
+        measure=measure,
+        top_n=top_n,
+        ambiguous=False,
+        clarify_prompt=None,
+    )
+
+
+def _innermost_where_clauses(sql: str) -> list[str]:
+    """WHERE predicates on the base ntc_ssl_logs scan inside a compiled intent query."""
+    match = re.search(
+        r"from\s+ntc_ssl_logs\s+where\s+(.+?)(?=\)\s*labeled|\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)",
+        sql,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return []
+    clause = match.group(1).strip().rstrip(")")
+    return [part.strip() for part in re.split(r"\s+AND\s+", clause, flags=re.IGNORECASE) if part.strip()]
+
+
+def intent_from_prior_sql(sql: str) -> Intent | None:
+    """Recover a structured Intent from deterministic SQL we previously built."""
+    text = (sql or "").strip()
+    if not text:
+        return None
+    folded = re.sub(r"\s+", " ", text).lower()
+    where = _innermost_where_clauses(text)
+    top_n = 1
+    rn = re.search(r"\brn\s*<=\s*(\d+)\b", folded)
+    if rn:
+        top_n = max(1, min(int(rn.group(1)), 20))
+    limit = 20
+    lim = re.search(r"\blimit\s+(\d+)\s*$", folded)
+    if lim:
+        limit = max(1, min(int(lim.group(1)), 200))
+
+    measure = "flows"
+    window = re.search(
+        r"row_number\s*\(\s*\)\s*over\s*\(\s*partition\s+by\s+\w+\s+order\s+by\s+(.+?)\s*\)",
+        folded,
+    )
+    if window:
+        order_expr = window.group(1)
+        if "sum(c2s_byte_num" in order_expr:
+            measure = "total_mb"
+        elif "count(distinct" in order_expr:
+            measure = "users"
+        else:
+            measure = "flows"
+    elif "order by users" in folded:
+        measure = "users"
+    elif "order by total_mb" in folded or "order by total_bytes" in folded:
+        measure = "total_mb"
+
+    grain: str | None = None
+    source = "prior_sql"
+    if "row_number()" in folded and "partition by city" in folded:
+        if re.search(r"group by city,\s*client_asn", folded):
+            grain = GRAIN_TOP_ISP_PER_CITY
+            source = "prior_top_isp_per_city"
+        elif re.search(r"group by city,\s*app_label", folded):
+            grain = GRAIN_TOP_APP_PER_CITY
+            source = "prior_top_app_per_city"
+    elif "row_number()" in folded and "partition by client_asn" in folded:
+        grain = GRAIN_TOP_APP_PER_ISP
+        source = "prior_top_app_per_isp"
+    elif re.search(r"group by client_asn\b", folded) and "row_number()" not in folded:
+        grain = GRAIN_USAGE_BY_ISP
+        source = "prior_usage_by_isp"
+    elif re.search(r"group by app_label\b", folded) and "row_number()" not in folded:
+        if any("app_category" in part.lower() for part in where):
+            grain = GRAIN_APPS_BY_CATEGORY
+            source = "prior_apps_by_category"
+        else:
+            grain = GRAIN_APPS_BY_CLASS
+            source = "prior_apps_by_class"
+    elif re.search(r"group by subscriber_id\b", folded):
+        grain = GRAIN_TOP_USERS
+        source = "prior_top_users"
+    elif "group by" not in folded and re.search(r"\b(sum|count)\s*\(", folded):
+        grain = GRAIN_AGGREGATE_TOTAL
+        source = "prior_aggregate_total"
+    if grain is None:
+        return None
+    return Intent(
+        grain=grain,
+        where=where or _base_identified_where(),
+        measure=measure,
+        top_n=top_n,
+        limit=limit,
+        ambiguous=False,
+        source=source,
+    )
+
+
+def apply_followup_normalization(prior: Intent, decision: dict) -> Intent | str | None:
+    """Apply follow-up normalizer JSON onto the prior Intent."""
+    action = str(decision.get("action") or "").strip().lower()
+    if action in {"reject", "new_question", "keep"}:
+        return None
+    if action == "clarify":
+        text = (decision.get("clarify") or "").strip()
+        return text or "Do you want to change the ranking measure, or ask something new?"
+    if action not in {"rerank_measure", "revise", "accept"}:
+        return None
+    measure = str(decision.get("measure") or prior.measure).strip().lower()
+    if measure in {"flow", "flow_count", "flows", "hits", "session", "sessions", "session_count"}:
+        measure = "flows"
+    elif measure in {"traffic", "volume", "bytes", "total_bytes", "total_mb", "mb", "gb", "tb"}:
+        measure = "total_mb"
+    elif measure in {"user", "users", "subscriber", "subscribers"}:
+        measure = "users"
+    if measure not in {"flows", "total_mb", "users"}:
+        measure = prior.measure
+    if prior.grain != GRAIN_TOP_ISP_PER_CITY and measure == "users":
+        # Non-ISP-per-city grains do not rank by distinct users in build_sql.
+        measure = "flows" if action == "rerank_measure" else prior.measure
+    payload = {"action": "revise", "grain": prior.grain, "measure": measure}
+    if decision.get("top_n") is not None:
+        payload["top_n"] = decision.get("top_n")
+    result = apply_referee_decision(prior, payload)
+    if isinstance(result, Intent):
+        return replace(result, source="followup_normalize")
+    return result
 
 
 def _base_identified_where() -> list[str]:

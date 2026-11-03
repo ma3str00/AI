@@ -32,7 +32,7 @@ from app.preferences import absorb_marked_answers, lesson_from_marked_answer, lo
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
-from app.referee import referee_intent
+from app.referee import normalize_followup, referee_intent
 from app.retrieve import ExampleIndex, load_examples
 from app.rules import dictionary_problem, repair_sql
 from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
@@ -295,6 +295,18 @@ def _ask_events(body: Question):
     if not resolved:
         # If the referee rejected this family, do not rebuild the same intent in follow-up.
         resolved = choice_sql if intent_rejected else (choice_sql or resolve_followup(question, history))
+    # Local rules missed a follow-up that still looks like a tweak of the last structured answer.
+    if not resolved and not intent_rejected and llama is not None and history:
+        yield _status("Checking how this relates to the last answer")
+        normalized = normalize_followup(llama, question, history)
+        if isinstance(normalized, str):
+            yield _done(_clarify(normalized))
+            return
+        if normalized is not None:
+            try:
+                resolved = build_sql(normalized)
+            except ValueError:
+                resolved = None
     if resolved:
         resolved = repair_sql(question, resolved, history)
         one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))

@@ -1,4 +1,4 @@
-"""LLM referee for ambiguous intents. Confirms grain/slots; does not invent free SQL."""
+"""LLM referee / follow-up normalizer. Confirms slots; does not invent free SQL."""
 
 from __future__ import annotations
 
@@ -9,11 +9,15 @@ from app.intent import (
     GRAIN_AGGREGATE_TOTAL,
     GRAIN_APPS_BY_CATEGORY,
     GRAIN_APPS_BY_CLASS,
+    GRAIN_TOP_APP_PER_CITY,
     GRAIN_TOP_APP_PER_ISP,
+    GRAIN_TOP_ISP_PER_CITY,
     GRAIN_TOP_USERS,
     GRAIN_USAGE_BY_ISP,
     Intent,
+    apply_followup_normalization,
     apply_referee_decision,
+    intent_from_prior_sql,
 )
 from app.llama_client import LlamaError, LlamaServer
 
@@ -22,6 +26,8 @@ _ALLOWED_GRAINS = (
     GRAIN_TOP_USERS,
     GRAIN_USAGE_BY_ISP,
     GRAIN_TOP_APP_PER_ISP,
+    GRAIN_TOP_APP_PER_CITY,
+    GRAIN_TOP_ISP_PER_CITY,
     GRAIN_APPS_BY_CLASS,
     GRAIN_APPS_BY_CATEGORY,
 )
@@ -43,7 +49,7 @@ def referee_intent(
                 "You verify an IPDR analytics intent. Do not write SQL. "
                 "Choose whether the proposed grain matches the user question. "
                 "Reply with JSON only: "
-                '{"action":"accept"|"revise"|"clarify"|"reject","grain":"...","measure":"flows|total_mb","clarify":"..."} . '
+                '{"action":"accept"|"revise"|"clarify"|"reject","grain":"...","measure":"flows|total_mb|users","clarify":"..."} . '
                 f"Allowed grain values: {', '.join(_ALLOWED_GRAINS)}. "
                 "accept = proposed grain is right. "
                 "revise = change grain/measure only. "
@@ -66,8 +72,76 @@ def referee_intent(
         return intent
     action = str(decision.get("action") or "accept").strip().lower()
     if action == "accept":
-        return apply_referee_decision(intent, {"action": "accept", "grain": intent.grain, "measure": intent.measure})
+        return apply_referee_decision(
+            intent, {"action": "accept", "grain": intent.grain, "measure": intent.measure}
+        )
     return apply_referee_decision(intent, decision)
+
+
+def normalize_followup(
+    llama: LlamaServer,
+    question: str,
+    history: list[dict] | None = None,
+) -> Intent | str | None:
+    """Map a vague follow-up onto the prior structured Intent (measure/top_n), not free SQL.
+
+    Returns Intent to build, a clarify string, or None to fall through to NL→SQL.
+    """
+    history = history or []
+    prior_question, prior_sql = _prior_turn(history)
+    if not prior_sql:
+        return None
+    prior = intent_from_prior_sql(prior_sql)
+    if prior is None:
+        return None
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You normalize an IPDR analytics follow-up. Do not write SQL. "
+                "The previous answer already used a fixed query shape (grain). "
+                "Decide how the new user message relates to that result. "
+                "Reply with JSON only: "
+                '{"action":"rerank_measure"|"revise"|"clarify"|"keep"|"new_question"|"reject",'
+                '"measure":"flows|total_mb|users","top_n":null,"clarify":""} . '
+                "rerank_measure = same list/shape, change ranking measure "
+                "(flow/session/hit count → flows; traffic/volume/bytes → total_mb; "
+                "most users/subscribers on ISP-per-city → users). "
+                "revise = same grain with measure and/or top_n change (top_n = apps/ISPs per group). "
+                "clarify = ask one short question when the follow-up is unclear. "
+                "keep = no meaningful change. "
+                "new_question or reject = this is not a tweak of the previous result. "
+                "Typos in measure words still count (e.g. volme → volume)."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Previous question: {prior_question}\n"
+                f"Previous grain: {prior.summary()} (top_n={prior.top_n})\n"
+                f"Previous SQL (truncated): {prior_sql[:700]}\n"
+                f"New follow-up: {question}\n"
+                "Normalize the follow-up."
+            ),
+        },
+    ]
+    try:
+        raw = llama.chat(messages, json_mode=True, temperature=0)
+    except LlamaError:
+        return None
+    decision = _parse(raw)
+    if not decision:
+        return None
+    return apply_followup_normalization(prior, decision)
+
+
+def _prior_turn(history: list[dict]) -> tuple[str, str]:
+    for turn in reversed(history):
+        sql = (turn.get("sql") or "").strip()
+        if not sql:
+            continue
+        return (turn.get("question") or "").strip(), sql
+    return "", ""
 
 
 def _user_payload(intent: Intent, question: str, history: list[dict] | None) -> str:
