@@ -2968,18 +2968,32 @@ def _rerank_window_measure(question: str, history: list[dict]) -> str | None:
     if not previous or "row_number()" not in previous.lower():
         return None
     folded = question.lower()
+    # "by flow count instead of traffic volume" — drop the old measure being replaced.
+    measure_text = re.sub(
+        r"\b(?:instead of|rather than|not)\s+(?:the\s+)?"
+        r"(?:traffic(?:\s+volum\w*)?|volum\w*|bytes|mb|gb|tb|"
+        r"flow\s+counts?|flows?|hits|session\s+counts?|sessions?|"
+        r"number\s+of\s+(?:flows?|sessions?|users?|subscribers?)|"
+        r"users?|subscribers?)\b",
+        " ",
+        folded,
+    )
+    measure_text = re.sub(r"\s+", " ", measure_text).strip()
     # Sessions and flows are the same IPDR rows; both mean COUNT(*) ranking.
-    if re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", folded) and not re.search(
-        r"\b(bytes|traffic|volume|mb|gb|tb|users?|subscribers?)\b", folded
+    if re.search(
+        r"\b(flows?|flow count|hits|sessions?|session count)\b", measure_text
+    ) and not re.search(
+        r"\b(bytes|traffic|volume|mb|gb|tb|users?|subscribers?)\b", measure_text
     ):
         measure_suffix = "by flow count"
-    elif re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded) and not re.search(
-        r"\b(flows?|flow count|hits|sessions?|session count|users?|subscribers?)\b", folded
+    elif re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", measure_text) and not re.search(
+        r"\b(flows?|flow count|hits|sessions?|session count|users?|subscribers?)\b",
+        measure_text,
     ):
         measure_suffix = "by traffic volume"
-    elif re.search(r"\b(users?|subscribers?)\b", folded) and not re.search(
+    elif re.search(r"\b(users?|subscribers?)\b", measure_text) and not re.search(
         r"\b(flows?|flow count|hits|sessions?|session count|bytes|traffic|volume|mb|gb|tb)\b",
-        folded,
+        measure_text,
     ):
         measure_suffix = "by number of users"
     else:
@@ -2988,7 +3002,8 @@ def _rerank_window_measure(question: str, history: list[dict]) -> str | None:
     if not (
         _asks_same_result(question)
         or re.search(
-            r"\b(instead|rather|ranked by|ordered by|sorted by|order by|sort by|based on)\b",
+            r"\b(instead|rather|rank(?:ed)?\s+(?:them\s+|it\s+|these\s+)?"
+            r"by|ordered by|sorted by|order by|sort by|based on)\b",
             folded,
         )
         or re.fullmatch(

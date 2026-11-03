@@ -2875,6 +2875,29 @@ def main() -> None:
             f"{(same_by_flows or '')[:500]}"
         )
     prepare(same_by_flows, 200, allow_full_scan=True)
+    instead_of_traffic = resolve_followup(
+        "rank them by flow count instead of traffic volme",
+        [
+            {
+                "question": "display the citywise list of most used apps",
+                "sql": citywise_list_sql,
+            }
+        ],
+    )
+    instead_of_traffic_folded = (instead_of_traffic or "").lower()
+    if (
+        not instead_of_traffic
+        or "row_number()" not in instead_of_traffic_folded
+        or "partition by city" not in instead_of_traffic_folded
+        or "order by count(*) desc" not in instead_of_traffic_folded
+        or "order by flows desc" not in instead_of_traffic_folded
+        or "order by sum(c2s_byte_num" in instead_of_traffic_folded
+    ):
+        raise SystemExit(
+            "rank by flow count instead of traffic should rebuild the window: "
+            f"{(instead_of_traffic or '')[:500]}"
+        )
+    prepare(instead_of_traffic, 200, allow_full_scan=True)
     same_by_sessions = resolve_followup(
         "show me the same but ranked by session count",
         [
