@@ -74,6 +74,24 @@ def _tcp_tls_timing(base_url: str) -> dict[str, float | str | None]:
     return out
 
 
+def _import_llama_server():
+    try:
+        from app.llama_client import LlamaServer
+    except ModuleNotFoundError as exc:
+        missing = getattr(exc, "name", None) or str(exc)
+        venv_python = ROOT / ".venv" / "bin" / "python"
+        print("--- dependency error ---")
+        print(f"Missing module: {missing}")
+        print("Use the app virtualenv, not system python3:")
+        if venv_python.exists():
+            print(f"  {venv_python} scripts/probe_ollama_path.py")
+        else:
+            print("  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt")
+            print("  .venv/bin/python scripts/probe_ollama_path.py")
+        raise SystemExit(2) from exc
+    return LlamaServer
+
+
 def main() -> None:
     default_url, default_model = _load_kaggle_defaults()
     base_url = (sys.argv[1] if len(sys.argv) > 1 else default_url).rstrip("/")
@@ -84,9 +102,17 @@ def main() -> None:
     net = _tcp_tls_timing(base_url)
     for key, value in net.items():
         print(f"{key}: {value}")
+    if net.get("dns_error"):
+        print("--- verdict ---")
+        print("DNS failed: this tunnel hostname does not resolve from this host.")
+        print("The Kaggle quick tunnel URL has likely changed or the tunnel is down.")
+        print("1) On Kaggle, restart cloudflared and copy the new https://….trycloudflare.com URL")
+        print("2) Set it in Offline_IPDR_Analysis/config.yaml under kaggle.base_url")
+        print("3) Restart ipdr-assistant, then re-run this probe with the new URL:")
+        print("   .venv/bin/python scripts/probe_ollama_path.py https://NEW-HOST.trycloudflare.com")
+        raise SystemExit(1)
 
-    from app.llama_client import LlamaServer
-
+    LlamaServer = _import_llama_server()
     server = LlamaServer(base_url, model, timeout=180, sql_max_tokens=32, explain_max_tokens=32, kind="ollama")
     print("--- GET /v1/models (x3) ---")
     for index in range(3):
