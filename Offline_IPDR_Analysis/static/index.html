@@ -788,6 +788,12 @@ function syncDebugToggle() {
   button.classList.toggle("on", debugMode);
   button.setAttribute("aria-pressed", debugMode ? "true" : "false");
   button.textContent = debugMode ? "Debug on" : "Debug off";
+  // Turning debug off removes existing debug panels from the transcript.
+  if (!debugMode) {
+    for (const bubble of transcript.querySelectorAll(".bubble.debug-log")) {
+      bubble.remove();
+    }
+  }
 }
 
 function startProgress() {

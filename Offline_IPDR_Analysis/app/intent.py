@@ -125,7 +125,12 @@ def _top_app_per_city_intent(
     top_match = re.search(r"\btop\s+(\d+)\b", folded)
     if top_match:
         top_n = max(1, min(int(top_match.group(1)), 20))
-    if measure == "flows" and re.search(r"\b(highest|most)\s+used\b", folded):
+    # "highest used" defaults to traffic unless the user named flows/hits explicitly.
+    if (
+        measure == "flows"
+        and re.search(r"\b(highest|most)\s+used\b", folded)
+        and not re.search(r"\b(flows?|flow count|hits)\b", folded)
+    ):
         measure = "total_mb"
     subject = (
         "social media apps"
@@ -317,8 +322,12 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
             top_match = re.search(r"\btop\s+(\d+)\b", folded)
             if top_match:
                 top_n = max(1, min(int(top_match.group(1)), 20))
-            # "highest used" without an explicit flow/byte word → traffic volume.
-            if measure == "flows" and re.search(r"\b(highest|most)\s+used\b", folded):
+            # "highest used" defaults to traffic unless flows/hits are named.
+            if (
+                measure == "flows"
+                and re.search(r"\b(highest|most)\s+used\b", folded)
+                and not re.search(r"\b(flows?|flow count|hits)\b", folded)
+            ):
                 measure = "total_mb"
             subject = (
                 "IM platforms"
