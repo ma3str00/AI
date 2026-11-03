@@ -2821,6 +2821,20 @@ def main() -> None:
             f"{highest_app_city_flows_sql[:500]}"
         )
     prepare(highest_app_city_flows_sql, 200, allow_full_scan=True)
+    popular_app_city = resolve_intent("show me the most popular app in each city", [])
+    popular_app_city_sql = (build_sql(popular_app_city) if popular_app_city else "") or ""
+    popular_app_city_folded = popular_app_city_sql.lower()
+    if (
+        not popular_app_city
+        or popular_app_city.grain != "top_app_per_city"
+        or "partition by city" not in popular_app_city_folded
+        or "row_number()" not in popular_app_city_folded
+        or "group by city having" in popular_app_city_folded
+    ):
+        raise SystemExit(
+            f"most popular app in each city should be top_app_per_city: {popular_app_city_sql[:500]}"
+        )
+    prepare(popular_app_city_sql, 200, allow_full_scan=True)
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "

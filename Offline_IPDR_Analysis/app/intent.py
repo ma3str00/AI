@@ -97,7 +97,9 @@ def _top_app_per_city_intent(
     limit: int,
 ) -> Intent | None:
     """Top app/platform within each city from loc (ROW_NUMBER), e.g. social media in each city."""
-    wants_top = bool(re.search(r"\b(top|most\s+used|highest|best|rank)\b", folded))
+    wants_top = bool(
+        re.search(r"\b(top|most\s+used|most\s+popular|highest|best|rank|popular)\b", folded)
+    )
     names_item = bool(
         re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?|games?)\b", folded)
     )
@@ -125,10 +127,10 @@ def _top_app_per_city_intent(
     top_match = re.search(r"\btop\s+(\d+)\b", folded)
     if top_match:
         top_n = max(1, min(int(top_match.group(1)), 20))
-    # "highest used" defaults to traffic unless the user named flows/hits explicitly.
+    # "highest/most popular used" defaults to traffic unless flows/hits are named.
     if (
         measure == "flows"
-        and re.search(r"\b(highest|most)\s+used\b", folded)
+        and re.search(r"\b(highest|most)\s+(used|popular)\b|\bpopular\b", folded)
         and not re.search(r"\b(flows?|flow count|hits)\b", folded)
     ):
         measure = "total_mb"
@@ -145,7 +147,9 @@ def _top_app_per_city_intent(
             )
         )
     )
-    if not _explicit_measure(folded) and not re.search(r"\b(highest|most)\s+used\b", folded):
+    if not _explicit_measure(folded) and not re.search(
+        r"\b(highest|most)\s+(used|popular)\b|\bpopular\b", folded
+    ):
         return Intent(
             grain=GRAIN_TOP_APP_PER_CITY,
             where=filters,
@@ -300,7 +304,9 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
 
     # Top app/platform/game per ISP/operator (including "ISP wise" / "on each ISP").
     if _asks_isp_breakdown(question):
-        wants_top = bool(re.search(r"\b(top|most\s+used|highest|best)\b", folded))
+        wants_top = bool(
+            re.search(r"\b(top|most\s+used|most\s+popular|highest|best|popular)\b", folded)
+        )
         names_item = bool(
             re.search(r"\b(apps?|applications?|platforms?|protocols?|labels?|games?)\b", folded)
         )
@@ -322,10 +328,10 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
             top_match = re.search(r"\btop\s+(\d+)\b", folded)
             if top_match:
                 top_n = max(1, min(int(top_match.group(1)), 20))
-            # "highest used" defaults to traffic unless flows/hits are named.
+            # "highest/most popular used" defaults to traffic unless flows/hits are named.
             if (
                 measure == "flows"
-                and re.search(r"\b(highest|most)\s+used\b", folded)
+                and re.search(r"\b(highest|most)\s+(used|popular)\b|\bpopular\b", folded)
                 and not re.search(r"\b(flows?|flow count|hits)\b", folded)
             ):
                 measure = "total_mb"
@@ -338,7 +344,9 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
                     else (f"{class_id.replace('_', ' ')} apps" if class_id else "apps")
                 )
             )
-            if not _explicit_measure(folded) and not re.search(r"\b(highest|most)\s+used\b", folded):
+            if not _explicit_measure(folded) and not re.search(
+                r"\b(highest|most)\s+(used|popular)\b|\bpopular\b", folded
+            ):
                 return Intent(
                     grain=GRAIN_TOP_APP_PER_ISP,
                     where=filters,
