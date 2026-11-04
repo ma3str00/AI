@@ -65,6 +65,10 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     other_isp = _same_request_other_isp(question, history)
     if other_isp:
         return other_isp
+    # Column adds ("also show address / ISP") must win over place-listing rebuilds.
+    shown = _add_shown_columns(question, history)
+    if shown:
+        return shown
     with_address = _filter_current_users_with_addresses(question, history)
     if with_address:
         return with_address
@@ -77,9 +81,6 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     from_place = _users_from_place(question, history)
     if from_place:
         return from_place
-    shown = _add_shown_columns(question, history)
-    if shown:
-        return shown
     blocked_activity = _blocked_activity_of_one(question, history)
     if blocked_activity:
         return blocked_activity
@@ -968,6 +969,11 @@ def _asks_for_place(text: str) -> bool:
 def _place_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     """loc and geo are the cell or fixed-line address, not the IP-database place."""
     if not _asks_for_place(question):
+        return None
+    # "also show the address / ISP" adds columns to the current result; do not rebuild a place list.
+    if _adds_to_current(question) and (
+        _display_columns(question) or re.search(r"\b(isp|provider|asn)\b", question.lower())
+    ):
         return None
     subscriber = named_subscriber(question)
     if not subscriber and (_points_at_known_user(question) or _recent_unanswered(history, _asks_for_place)):
@@ -2637,7 +2643,13 @@ def _add_shown_columns(question: str, history: list[dict]) -> str | None:
     flow_list = "as start_gmt5" in previous.lower() and not re.search(
         r"\bgroup\s+by\b", previous, flags=re.IGNORECASE
     )
-    if "group by subscriber_id" not in previous.lower() and not one_person and not flow_list:
+    app_list = "group by app_label" in previous.lower() and one_person
+    if (
+        "group by subscriber_id" not in previous.lower()
+        and not one_person
+        and not flow_list
+        and not app_list
+    ):
         return None
     text = re.sub(r"\s+", " ", previous).strip()
     named = named_subscriber(question)

@@ -3407,6 +3407,32 @@ def main() -> None:
     detail_follow = resolve_followup("show details of 03334128404ASD", accept_hist)
     if not detail_follow or "subscriber_id = '03334128404ASD'" not in detail_follow or "group by app_label" not in detail_follow.lower():
         raise SystemExit(f"post-Accept subscriber details failed: {detail_follow}")
+    add_addr_isp = resolve_followup(
+        "also show the user address and ISP name",
+        [
+            {
+                "question": "show activity details of user 03334128404ASD",
+                "sql": "",
+                "pending_sql": detail_sql,
+                "explanation": "confirm",
+            }
+        ],
+    )
+    add_addr_folded = (add_addr_isp or "").lower()
+    if (
+        not add_addr_isp
+        or "group by app_label" not in add_addr_folded
+        or "subscriber_id = '03334128404ASD'" not in add_addr_isp
+        or " as loc" not in add_addr_folded
+        or " as geo" not in add_addr_folded
+        or " as client_asn" not in add_addr_folded
+        or "group by loc" in add_addr_folded
+    ):
+        raise SystemExit(
+            "also show address/ISP on activity details must keep app_label grain: "
+            f"{(add_addr_isp or '')[:500]}"
+        )
+    prepare(add_addr_isp, 200, allow_full_scan=True)
     # Confirm responses must pause with pending_sql and no executed sql.
     confirm_payload = {
         "confirm": True,
