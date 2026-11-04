@@ -316,6 +316,11 @@ def _ask_events(body: Question):
         prior_sql = str(turn.get("sql") or "").strip()
         if prior_sql:
             break
+    if not prior_sql:
+        for turn in reversed(history):
+            prior_sql = str(turn.get("pending_sql") or "").strip()
+            if prior_sql:
+                break
     # App-scope clarify replies redo the deferred ask; that pending text is the scope source of truth.
     weaken_question = question
     if _pending(history) and (_answer_keeps(question) or _answer_drops(question)):

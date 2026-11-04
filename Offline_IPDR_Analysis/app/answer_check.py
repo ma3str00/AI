@@ -143,14 +143,23 @@ def _adds_time_where_filter(sql: str) -> bool:
 def _forbids_new_time_filter(current: str, history: list[dict] | None, full_scan: bool) -> bool:
     if any(word in current for word in ("yesterday", "today", "last ", "hour", "between", "since", "this week")):
         return False
-    previous = ""
-    for item in reversed(history or []):
-        if item.get("sql"):
-            previous = str(item["sql"]).lower()
-            break
+    previous = _prior_sql_text(history or []).lower()
     if previous and not _adds_time_where_filter(previous):
         return True
     return full_scan and not previous
+
+
+def _prior_sql_text(history: list[dict]) -> str:
+    """Executed SQL first; confirm-before-run pending_sql as fallback."""
+    for item in reversed(history):
+        sql = str(item.get("sql") or "").strip()
+        if sql:
+            return sql
+    for item in reversed(history):
+        pending = str(item.get("pending_sql") or "").strip()
+        if pending:
+            return pending
+    return ""
 
 
 def needs_clarification(question: str, history: list[dict] | None) -> str | None:
@@ -158,11 +167,7 @@ def needs_clarification(question: str, history: list[dict] | None) -> str | None
     history = history or []
     if _pending_clarify(history) or _drops_previous_apps(question):
         return None
-    previous = ""
-    for item in reversed(history):
-        if item.get("sql"):
-            previous = str(item["sql"])
-            break
+    previous = _prior_sql_text(history)
     if not previous:
         return None
     previous_apps = _apps(previous.lower())

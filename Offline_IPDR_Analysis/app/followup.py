@@ -47,6 +47,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     dropped_app = _remove_app_filter(question, history)
     if dropped_app:
         return dropped_app
+    dropped_place = _remove_place_alias_filter(question, history)
+    if dropped_place:
+        return dropped_place
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
@@ -1121,6 +1124,74 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
         text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
         text = f"{text} LIMIT {int(limit)}"
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _place_alias_stems_to_drop(question: str) -> list[str]:
+    """Tokens the user wants removed from the previous loc/geo place filter."""
+    folded = question.lower()
+    if not re.search(r"\b(place|loc|city|cities|location|locations|address)\b", folded):
+        return []
+    if not re.search(r"\b(exclud(?:e|ing)|remove|drop|without|except)\b", folded):
+        return []
+    stems: list[str] = []
+    for match in re.finditer(
+        r"\b(?:exclud(?:e|ing)|remove|drop|without|except)\s+(?:the\s+)?"
+        r"([a-z0-9][a-z0-9_.-]{1,40})\b",
+        folded,
+    ):
+        token = match.group(1)
+        if token in {
+            "the", "a", "an", "from", "place", "filter", "filters", "loc", "city",
+            "location", "address", "app", "application",
+        }:
+            continue
+        stems.append(token)
+    return stems
+
+
+def _remove_place_alias_filter(question: str, history: list[dict]) -> str | None:
+    """'Exclude Pindi from the place filter' drops that LIKE from the prior loc OR-group."""
+    stems = _place_alias_stems_to_drop(question)
+    if not stems:
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    cleaned = text
+    for stem in stems:
+        like = re.escape(f"%{stem}%")
+        # Drop OR-connected loc/geo likes for this stem.
+        cleaned = re.sub(
+            rf"(?i)\s+OR\s+LOWER\((?:loc|geo)\)\s+LIKE\s+'{like}'",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(
+            rf"(?i)LOWER\((?:loc|geo)\)\s+LIKE\s+'{like}'\s+OR\s+",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(
+            rf"(?i)\s+AND\s+LOWER\((?:loc|geo)\)\s+LIKE\s+'{like}'",
+            "",
+            cleaned,
+        )
+        cleaned = re.sub(
+            rf"(?i)LOWER\((?:loc|geo)\)\s+LIKE\s+'{like}'\s+AND\s+",
+            "",
+            cleaned,
+        )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # Collapse empty parentheses left by removing every OR arm.
+    cleaned = re.sub(r"(?i)\s+AND\s+\(\s*\)", "", cleaned)
+    cleaned = re.sub(r"\(\s*\)\s+AND\s+", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if cleaned.lower() == text.lower():
+        return None
+    if not preserves_result_shape(text, cleaned):
+        return None
+    return cleaned
 
 
 def _asks_remove_app_filter(question: str) -> bool:
@@ -2832,10 +2903,15 @@ def _time_clause(sql: str) -> str:
 
 
 def _last_sql(history: list[dict]) -> str:
+    """Prefer executed SQL; fall back to confirm-before-run pending_sql."""
     for item in reversed(history):
         sql = str(item.get("sql") or "").strip()
         if sql:
             return sql
+    for item in reversed(history):
+        pending = str(item.get("pending_sql") or "").strip()
+        if pending:
+            return pending
     return ""
 
 

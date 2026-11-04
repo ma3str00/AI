@@ -3334,6 +3334,44 @@ def main() -> None:
     plan_folded = plan_text.lower()
     if "columns shown" not in plan_folded or "accept" not in plan_folded:
         raise SystemExit(f"query plan summary missing expected conditions: {plan_text}")
+    # After Change on a confirm pause, pending_sql is the previous query source of truth.
+    paused_rawalpindi = (
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND (LOWER(loc) LIKE '%rawalpindi%' OR LOWER(loc) LIKE '%rwp%' OR LOWER(loc) LIKE '%pindi%') "
+        "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    drop_pindi = resolve_followup(
+        "Exclude Pindi from the place filter",
+        [
+            {
+                "question": "show me the top 20 whatsapp Jazz users from Rawalpindi",
+                "sql": "",
+                "pending_sql": paused_rawalpindi,
+                "explanation": "confirm",
+            }
+        ],
+    )
+    drop_pindi_folded = (drop_pindi or "").lower()
+    if (
+        not drop_pindi
+        or "like '%pindi%'" in drop_pindi_folded
+        or "like '%rawalpindi%'" not in drop_pindi_folded
+        or "like '%rwp%'" not in drop_pindi_folded
+        or "like '%whatsapp%'" not in drop_pindi_folded
+        or "like '%jazz%'" not in drop_pindi_folded
+        or "limit 20" not in drop_pindi_folded
+        or " as loc" not in drop_pindi_folded
+    ):
+        raise SystemExit(
+            "exclude Pindi from place filter must keep Jazz/WhatsApp/Rawalpindi/RWP and drop only pindi: "
+            f"{(drop_pindi or '')[:500]}"
+        )
+    prepare(drop_pindi, 200, allow_full_scan=True)
     # Confirm responses must pause with pending_sql and no executed sql.
     confirm_payload = {
         "confirm": True,
