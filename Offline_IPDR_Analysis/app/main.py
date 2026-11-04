@@ -32,6 +32,7 @@ from app.followup import (
     asked_unit,
     conversation_full_scan,
     limit_followup,
+    confirm_ask_text,
     looks_like_result_tweak,
     named_subscriber,
     patch_order_measure,
@@ -394,11 +395,16 @@ def _ask_events(body: Question):
         yield _done(_clarify(uncertain_followup_prompt(question, history)))
         return
     if resolved:
-        resolved = repair_sql(question, resolved, history)
+        ask_for_confirm = confirm_ask_text(question, history)
+        resolved = repair_sql(ask_for_confirm, resolved, history)
         one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))
-        full_scan = conversation_full_scan(question, history) and not one_subscriber
+        full_scan = (
+            conversation_full_scan(question, history) or conversation_full_scan(ask_for_confirm, history)
+        ) and not one_subscriber
         yield _status("Confirming the follow-up")
-        yield _done(_confirm(question, resolved, full_scan=full_scan or sql_needs_full_scan(resolved)))
+        yield _done(
+            _confirm(ask_for_confirm, resolved, full_scan=full_scan or sql_needs_full_scan(resolved))
+        )
         return
     clarification = needs_clarification(question, history)
     if clarification:

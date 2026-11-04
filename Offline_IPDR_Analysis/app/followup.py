@@ -111,6 +111,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     popular = _popular_apps(question, history)
     if popular:
         return popular
+    popular_isps = _popular_isps(question, history)
+    if popular_isps:
+        return popular_isps
     # High-value ISP/app family goes through intent → SQL (see app.intent).
     from app.intent import build_sql, resolve_intent
 
@@ -1241,6 +1244,16 @@ def _answers_no_time(question: str) -> bool:
     )
 
 
+def confirm_ask_text(question: str, history: list[dict] | None) -> str:
+    """Title for confirm UI: use the deferred ask when the user only answered a time clarify."""
+    history = history or []
+    if _pending_time_clarify(history) and _answers_no_time(question):
+        pending = str(history[-1].get("question") or "").strip()
+        if pending:
+            return pending
+    return question
+
+
 def _answer_time_clarify(question: str, history: list[dict]) -> str | None:
     """Redo the deferred ask after the user declines a time-range clarify."""
     if not _pending_time_clarify(history) or not _answers_no_time(question):
@@ -1252,6 +1265,9 @@ def _answer_time_clarify(question: str, history: list[dict]) -> str | None:
     rebuilt = _popular_apps(pending, prior)
     if rebuilt:
         return rebuilt
+    rebuilt = _popular_isps(pending, prior)
+    if rebuilt:
+        return rebuilt
     from app.intent import build_sql, resolve_intent
 
     intent = resolve_intent(pending, prior)
@@ -1261,6 +1277,87 @@ def _answer_time_clarify(question: str, history: list[dict]) -> str | None:
         except ValueError:
             return None
     return resolve_followup(pending, prior)
+
+
+def _popular_isps(question: str, history: list[dict] | None = None) -> str | None:
+    """Most popular / top ISPs, optionally limited to a named city."""
+    folded = question.lower()
+    names_isp = bool(re.search(r"\b(isps?|operators?|providers?)\b", folded))
+    ranks_asn = bool(
+        re.search(r"\b(?:top|most|popular|highest)\s+asns?\b", folded)
+        or re.search(r"\basns?\s+(?:ranked|ranking|by|with)\b", folded)
+    )
+    if not names_isp and not ranks_asn:
+        return None
+    if not re.search(r"\b(top|most|popular|highest|favourite|favorite)\b", folded):
+        return None
+    ranks_users = bool(re.search(r"\b(top|highest)\b.{0,50}\b(users?|subscribers?)\b", folded))
+    ranks_isp = bool(
+        re.search(
+            r"\b(most|highest|popular)\s+(?:used\s+)?(isps?|operators?|providers?)\b",
+            folded,
+        )
+        or re.search(r"\btop\s+\d*\s*(isps?|operators?|providers?)\b", folded)
+        or re.search(
+            r"\b(isps?|operators?|providers?)\s+(?:with\s+)?(?:the\s+)?(most|highest|popular)\b",
+            folded,
+        )
+        or ranks_asn
+    )
+    # "top 10 SSL users, their addresses and ISP" ranks subscribers; ISP is only a column.
+    if ranks_users and not ranks_isp:
+        return None
+    # "top users … along with the client asn" is a subscriber list, not an ISP ranking.
+    if re.search(
+        r"\b(along\s+with|with\s+the|also\s+show|including)\b.{0,40}\b(client\s+)?asns?\b",
+        folded,
+    ):
+        return None
+    if re.search(
+        r"\b("
+        r"apps?|applications?|platforms?|websites?|domains?|protocols?|"
+        r"each\s+city|per\s+city|city[\s\-]?wise|every\s+city|"
+        r"blocked|allowed|timeline|pattern"
+        r")\b",
+        folded,
+    ):
+        return None
+    if class_from_question(question) or category_from_question(question):
+        return None
+    if _named_app_label(question) or known_app_token(question, _NOT_AN_APP):
+        return None
+    cities = mentioned_cities(question)
+    where = [
+        "IFNULL(client_asn, '') <> ''",
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+        *_merge_app_exclusions(question, _last_sql(history or [])),
+    ]
+    if cities:
+        where.append(column_predicate("loc", cities[-1]))
+    limit = _limit_in(question)
+    if limit is None:
+        singular = bool(re.search(r"\bisp\b", folded)) and not re.search(r"\bisps\b", folded)
+        limit = 1 if singular else 20
+    if re.search(r"\b(users?|subscribers?)\b", folded) and not re.search(
+        r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded
+    ):
+        order = "users"
+    elif re.search(r"\b(flows?|flow count|hits|sessions?)\b", folded):
+        order = "flows"
+    else:
+        order = "total_mb"
+    return (
+        "SELECT client_asn, "
+        "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+        "COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"{' AND '.join(where)} "
+        f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
 
 
 def _popular_apps(question: str, history: list[dict] | None = None) -> str | None:

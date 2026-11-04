@@ -3488,6 +3488,57 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Most popular ISP in a named city — local client_asn ranking (time-clarify redo too).
+    karachi_isp = resolve_followup("the most popular ISP in Karachi", [])
+    karachi_isp_folded = (karachi_isp or "").lower()
+    karachi_isp_plan = summarize_query_plan(
+        "the most popular ISP in Karachi", karachi_isp or "", full_scan=True
+    )
+    if (
+        not karachi_isp
+        or "group by client_asn" not in karachi_isp_folded
+        or "like '%karachi%'" not in karachi_isp_folded
+        or "group by subscriber_id" in karachi_isp_folded
+        or "whatsapp" in karachi_isp_folded
+        or "Place:" not in karachi_isp_plan
+        or "Karachi" not in karachi_isp_plan
+        or "One row per ISP" not in karachi_isp_plan
+    ):
+        raise SystemExit(
+            f"most popular ISP in Karachi failed: {karachi_isp}\n{karachi_isp_plan}"
+        )
+    prepare(karachi_isp, 200, allow_full_scan=True)
+    after_all_data = resolve_followup(
+        "for all the data",
+        [
+            {
+                "question": "the most popular ISP in Karachi",
+                "sql": "",
+                "pending_sql": "",
+                "explanation": (
+                    "Do you want to see the most popular ISP in Karachi "
+                    "for a specific time range or for all the data?"
+                ),
+            }
+        ],
+    )
+    if not after_all_data or "group by client_asn" not in after_all_data.lower() or "like '%karachi%'" not in after_all_data.lower():
+        raise SystemExit(f"for all the data must redo popular ISP in Karachi: {after_all_data}")
+    from app.followup import confirm_ask_text
+
+    title = confirm_ask_text(
+        "for all the data",
+        [
+            {
+                "question": "the most popular ISP in Karachi",
+                "sql": "",
+                "explanation": "Please provide a specific time range for the data you want to analyze.",
+            }
+        ],
+    )
+    if title != "the most popular ISP in Karachi":
+        raise SystemExit(f"confirm title after time clarify should be the deferred ask: {title!r}")
+
     # Short exact app labels (ssl) must filter top-N user rankings, including with address/ISP.
     ssl_users = resolve_followup("show the top 10 SSL users, their addresses and ISP", [])
     ssl_folded = (ssl_users or "").lower()
