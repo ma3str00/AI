@@ -16,6 +16,7 @@ from app.answer_check import check_sql, needs_clarification
 from app.clarify_gate import silently_weakens_prior, uncertain_followup_prompt
 from app.confirm_gate import (
     answer_accepts,
+    build_query_plan,
     pending_confirm,
     pending_sql,
     summarize_query_plan,
@@ -668,6 +669,7 @@ def _clarify(text: str) -> dict:
 
 
 def _confirm(question: str, sql: str, *, full_scan: bool | None = None) -> dict:
+    plan = build_query_plan(question, sql, full_scan=full_scan)
     summary = summarize_query_plan(question, sql, full_scan=full_scan)
     return {
         "ok": True,
@@ -675,6 +677,7 @@ def _confirm(question: str, sql: str, *, full_scan: bool | None = None) -> dict:
         "clarify": summary,
         "sql": None,
         "pending_sql": sql,
+        "plan": plan,
         "columns": [],
         "rows": [],
         "explanation": summary,

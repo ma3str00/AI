@@ -3300,26 +3300,39 @@ def main() -> None:
 
     from app.confirm_gate import (
         answer_accepts,
+        build_query_plan,
         pending_confirm,
         pending_sql,
         summarize_query_plan,
     )
 
     jazz_plan_sql = (
-        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
+        "COUNT(*) AS flows FROM ntc_ssl_logs "
         "WHERE (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
     )
+    plan = build_query_plan("show me the top 10 Jazz users by flow count", jazz_plan_sql)
+    plan_labels = {item["label"]: item["value"] for item in plan["conditions"]}
+    plan_cols = [name.lower() for name in plan["columns"]]
+    if (
+        "Jazz" not in plan_labels.get("ISP", "")
+        or "Flow count" not in plan_labels.get("Ranked by", "")
+        or "Top 10" not in plan_labels.get("Limit", "")
+        or "Every application" not in plan_labels.get("App", "")
+        or "subscriber id" not in plan_cols
+        or "address (loc)" not in plan_cols
+        or "traffic (mb)" not in plan_cols
+        or "flow count" not in plan_cols
+    ):
+        raise SystemExit(f"structured query plan missing expected fields: {plan}")
     plan_text = summarize_query_plan("show me the top 10 Jazz users by flow count", jazz_plan_sql)
     plan_folded = plan_text.lower()
-    if (
-        "jazz" not in plan_folded
-        or "flow count" not in plan_folded
-        or "top 10" not in plan_folded
-        or "every application" not in plan_folded
-        or "accept" not in plan_folded
-    ):
+    if "columns shown" not in plan_folded or "accept" not in plan_folded:
         raise SystemExit(f"query plan summary missing expected conditions: {plan_text}")
     # Confirm responses must pause with pending_sql and no executed sql.
     confirm_payload = {

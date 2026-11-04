@@ -113,7 +113,33 @@
   .hidden { display: none; }
   .transcript { display: grid; gap: 14px; margin-top: 8px; }
   .bubble { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--panel); box-shadow: 0 8px 24px rgba(27, 25, 20, 0.04); }
-  .confirm-plan { white-space: pre-wrap; line-height: 1.5; margin: 0; }
+  .confirm-card { margin: 0; }
+  .confirm-card .confirm-lead { margin: 0 0 12px; color: var(--ink); }
+  .confirm-card .confirm-ask {
+    margin: 6px 0 0; padding: 10px 12px; border-radius: 10px;
+    background: #f3efe7; border: 1px solid var(--line); font-weight: 600;
+  }
+  .confirm-card h3 {
+    margin: 16px 0 8px; font-size: 12px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+  }
+  .confirm-card h3:first-of-type { margin-top: 4px; }
+  .confirm-grid {
+    display: grid; grid-template-columns: 8.5rem 1fr; gap: 8px 12px;
+    margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px;
+    background: #fffcf7;
+  }
+  .confirm-grid dt {
+    margin: 0; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--muted); padding-top: 2px;
+  }
+  .confirm-grid dd { margin: 0; color: var(--ink); font-weight: 500; }
+  .confirm-columns { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .confirm-columns li {
+    border: 1px solid #cfe0da; background: #eef6f3; color: #14352c;
+    border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 500;
+  }
+  .confirm-card .confirm-foot { margin: 14px 0 0; color: var(--muted); }
   .bubble.user { background: #14352c; color: #f4f1ea; border-color: #14352c; }
   .bubble.user .who { color: #b7d8ce; }
   .who { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -866,10 +892,13 @@ function addAnswerBubble(asked, data) {
     error.textContent = data.error;
     bubble.append(error);
   }
-  const text = document.createElement("div");
-  if (data.confirm) text.className = "confirm-plan";
-  text.textContent = data.explanation || data.clarify || "";
-  bubble.append(text);
+  if (data.confirm && data.plan) {
+    bubble.append(confirmPlanCard(data.plan));
+  } else {
+    const text = document.createElement("div");
+    text.textContent = data.explanation || data.clarify || "";
+    bubble.append(text);
+  }
   if (data.confirm && data.pending_sql) {
     const preview = document.createElement("details");
     preview.className = "sql";
@@ -1022,6 +1051,51 @@ function resetConversation() {
   transcript.replaceChildren();
   document.getElementById("question-label").textContent = "Question";
   question.placeholder = "Example: top app labels by download bytes yesterday";
+}
+
+function confirmPlanCard(plan) {
+  const card = document.createElement("div");
+  card.className = "confirm-card";
+  const lead = document.createElement("p");
+  lead.className = "confirm-lead";
+  lead.textContent = "I am going to run a query for:";
+  card.append(lead);
+  if (plan.title) {
+    const ask = document.createElement("div");
+    ask.className = "confirm-ask";
+    ask.textContent = plan.title;
+    card.append(ask);
+  }
+  const conditionsTitle = document.createElement("h3");
+  conditionsTitle.textContent = "Conditions";
+  card.append(conditionsTitle);
+  const grid = document.createElement("dl");
+  grid.className = "confirm-grid";
+  for (const item of plan.conditions || []) {
+    const dt = document.createElement("dt");
+    dt.textContent = item.label;
+    const dd = document.createElement("dd");
+    dd.textContent = item.value;
+    grid.append(dt, dd);
+  }
+  card.append(grid);
+  const columnsTitle = document.createElement("h3");
+  columnsTitle.textContent = "Columns shown";
+  card.append(columnsTitle);
+  const columns = document.createElement("ul");
+  columns.className = "confirm-columns";
+  const names = (plan.columns && plan.columns.length) ? plan.columns : ["(none detected)"];
+  for (const name of names) {
+    const li = document.createElement("li");
+    li.textContent = name;
+    columns.append(li);
+  }
+  card.append(columns);
+  const foot = document.createElement("p");
+  foot.className = "confirm-foot";
+  foot.textContent = plan.footer || "Accept to run it, or Change if this is wrong.";
+  card.append(foot);
+  return card;
 }
 
 function historyPayload() {

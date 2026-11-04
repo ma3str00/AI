@@ -62,64 +62,193 @@ def answer_accepts(question: str) -> bool:
     )
 
 
-def summarize_query_plan(question: str, sql: str, *, full_scan: bool | None = None) -> str:
-    """Plain-language conditions for the confirm bubble (multi-line for readability)."""
+_COLUMN_LABELS = {
+    "subscriber_id": "Subscriber ID",
+    "app_label": "Application",
+    "requested_server": "Website / hostname",
+    "client_asn": "ISP / client ASN",
+    "server_asn": "Server ASN",
+    "client_ip": "Client IP",
+    "server_ip": "Server IP",
+    "loc": "Address (loc)",
+    "geo": "Geo",
+    "imei": "IMEI",
+    "imsi": "IMSI",
+    "flows": "Flow count",
+    "flow_count": "Flow count",
+    "sessions": "Session count",
+    "hits": "Hit count",
+    "total_bytes": "Traffic (bytes)",
+    "total_mb": "Traffic (MB)",
+    "total_gb": "Traffic (GB)",
+    "traffic_volume": "Traffic volume",
+    "traffic_volume_mb": "Traffic (MB)",
+    "traffic_volume_gb": "Traffic (GB)",
+    "upload_bytes": "Upload (bytes)",
+    "download_bytes": "Download (bytes)",
+    "upload_traffic": "Upload traffic",
+    "download_traffic": "Download traffic",
+    "upload_traffic_mb": "Upload (MB)",
+    "download_traffic_mb": "Download (MB)",
+    "upload_traffic_gb": "Upload (GB)",
+    "download_traffic_gb": "Download (GB)",
+    "users": "User count",
+    "city": "City",
+    "block_type": "Block type",
+    "blocked_flows": "Blocked flow count",
+    "allowed_flows": "Allowed flow count",
+    "start_gmt5": "Start time (GMT+5)",
+    "end_gmt5": "End time (GMT+5)",
+    "duration": "Duration",
+    "rn": "Rank within group",
+}
+
+
+def build_query_plan(question: str, sql: str, *, full_scan: bool | None = None) -> dict:
+    """Structured plan for the confirm UI (conditions + columns)."""
     text = re.sub(r"\s+", " ", sql or "").strip()
     folded = text.lower()
-    lines: list[str] = []
+    conditions: list[dict[str, str]] = []
 
     apps = _like_values(folded, "app_label")
     if apps:
-        lines.append(f"App: {', '.join(_title_tokens(apps))}")
+        conditions.append({"label": "App", "value": ", ".join(_title_tokens(apps))})
     else:
-        lines.append("App: every application (no app filter)")
+        conditions.append({"label": "App", "value": "Every application (no app filter)"})
 
     isps = _unique_keep_order(_like_values(folded, "client_asn"))
     if isps:
-        lines.append(f"ISP: {', '.join(_title_tokens(isps))}")
+        conditions.append({"label": "ISP", "value": ", ".join(_title_tokens(isps))})
 
     places = _unique_keep_order(_like_values(folded, "loc") + _like_values(folded, "geo"))
     if places:
-        lines.append(f"Place: {', '.join(_title_tokens(places))}")
+        conditions.append({"label": "Place", "value": ", ".join(_title_tokens(places))})
 
     if "locate('_', subscriber_id) = 0" in folded.replace(" ", ""):
-        lines.append("Users: identified subscribers only")
+        conditions.append({"label": "Users", "value": "Identified subscribers only"})
 
     mobile = re.sub(r"\s+", " ", MOBILE_SQL).lower()
     compact_sql = re.sub(r"\s+", " ", folded)
-    if f"not {mobile}" in compact_sql or "and not (" in compact_sql and "nullif(mcc" in compact_sql:
-        lines.append("Connection: fixed-line")
-    elif "nullif(mcc" in compact_sql and "not " not in compact_sql.split("nullif(mcc")[0][-20:]:
+    if f"not {mobile}" in compact_sql or ("and not (" in compact_sql and "nullif(mcc" in compact_sql):
+        conditions.append({"label": "Connection", "value": "Fixed-line"})
+    elif "nullif(mcc" in compact_sql:
         if re.search(r"\band\s+\(.*nullif\(mcc", compact_sql) and "and not" not in compact_sql:
-            lines.append("Connection: mobile")
+            conditions.append({"label": "Connection", "value": "Mobile"})
 
     measure = _order_measure(folded)
     if measure:
-        lines.append(f"Ranked by: {measure}")
+        conditions.append({"label": "Ranked by", "value": measure})
 
     limit = re.search(r"\blimit\s+(\d+)\b", folded)
     if limit:
-        lines.append(f"Limit: top {limit.group(1)} rows")
+        conditions.append({"label": "Limit", "value": f"Top {limit.group(1)} rows"})
 
     scan = sql_needs_full_scan(text) if full_scan is None else full_scan
     if scan:
-        lines.append("Time: no filter (full table scan; may take several minutes)")
+        conditions.append(
+            {"label": "Time", "value": "No filter (full table scan; may take several minutes)"}
+        )
 
     grain = _grain(folded)
     if grain:
-        lines.append(f"Result: {grain}")
+        conditions.append({"label": "Result shape", "value": grain})
 
+    columns = _display_columns(text)
     ask = (question or "").strip()
     if ask and ask.lower() not in {"accept", "yes", "run it", "go ahead"}:
-        header = f'I am going to run a query for:\n"{ask[:120]}"'
+        title = ask[:120]
+    else:
+        title = ""
+    return {
+        "title": title,
+        "conditions": conditions,
+        "columns": columns,
+        "footer": "Accept to run it, or Change if this is wrong.",
+    }
+
+
+def summarize_query_plan(question: str, sql: str, *, full_scan: bool | None = None) -> str:
+    """Plain-text fallback of the structured plan (history / logs)."""
+    plan = build_query_plan(question, sql, full_scan=full_scan)
+    if plan["title"]:
+        header = f'I am going to run a query for:\n"{plan["title"]}"'
     else:
         header = "I am going to run a query"
-    bullets = "\n".join(f"- {line}" for line in lines) if lines else "- the generated SQL"
-    return (
-        f"{header}\n\n"
-        f"Conditions:\n{bullets}\n\n"
-        "Accept to run it, or Change if this is wrong."
-    )
+    lines = [f"- {item['label']}: {item['value']}" for item in plan["conditions"]]
+    if plan["columns"]:
+        lines.append("- Columns shown: " + ", ".join(plan["columns"]))
+    bullets = "\n".join(lines) if lines else "- the generated SQL"
+    return f"{header}\n\nConditions:\n{bullets}\n\n{plan['footer']}"
+
+
+def _display_columns(sql: str) -> list[str]:
+    """Friendly names for SELECT aliases that appear in the result table."""
+    # Prefer the outermost SELECT list (before the first top-level FROM).
+    select = _outer_select_list(sql or "")
+    if not select:
+        return []
+    names: list[str] = []
+    for part in _split_select_list(select):
+        alias = _select_alias(part)
+        if not alias or alias in {"rn"}:
+            continue
+        label = _COLUMN_LABELS.get(alias, alias.replace("_", " ").title())
+        if label not in names:
+            names.append(label)
+    return names
+
+
+def _outer_select_list(sql: str) -> str:
+    text = sql.strip()
+    match = re.match(r"(?is)^select\b", text)
+    if not match:
+        return ""
+    start = match.end()
+    depth = 0
+    i = start
+    while i < len(text):
+        ch = text[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0 and re.match(r"(?is)\bfrom\b", text[i:]):
+            return text[start:i].strip()
+        i += 1
+    return ""
+
+
+def _split_select_list(select: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in select:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            piece = "".join(buf).strip()
+            if piece:
+                parts.append(piece)
+            buf = []
+            continue
+        buf.append(ch)
+    piece = "".join(buf).strip()
+    if piece:
+        parts.append(piece)
+    return parts
+
+
+def _select_alias(expression: str) -> str | None:
+    text = expression.strip().rstrip(",")
+    as_match = re.search(r"(?is)\bas\s+(`?[a-zA-Z_][a-zA-Z0-9_]*`?)\s*$", text)
+    if as_match:
+        return as_match.group(1).strip("`").lower()
+    bare = re.match(r"(?is)^(?:\w+\.)?(`?[a-zA-Z_][a-zA-Z0-9_]*`?)\s*$", text)
+    if bare:
+        return bare.group(1).strip("`").lower()
+    return None
 
 
 def _title_tokens(items: list[str]) -> list[str]:
@@ -150,31 +279,31 @@ def _unique_keep_order(items: list[str]) -> list[str]:
 
 
 def _order_measure(folded_sql: str) -> str | None:
-    match = re.search(r"\border\s+by\s+([a-z0-9_]+)\s+(?:desc|asc)\b", folded_sql)
+    match = re.search(r"\border\s+by\s+([a-z0-9_]+)\s+(?:desc|asc)\s+limit\b", folded_sql)
     if not match:
-        # Prefer the statement-level ORDER BY near LIMIT.
-        match = re.search(r"\border\s+by\s+([a-z0-9_]+)\s+(?:desc|asc)\s+limit\b", folded_sql)
+        matches = list(re.finditer(r"\border\s+by\s+([a-z0-9_]+)\s+(?:desc|asc)\b", folded_sql))
+        match = matches[-1] if matches else None
     if not match:
         return None
     name = match.group(1)
     if name in {"flows", "flow_count", "sessions", "hits"}:
-        return "flow count"
+        return "Flow count"
     if name in {"total_bytes", "total_mb", "traffic_volume", "traffic_volume_mb"}:
-        return "traffic volume"
+        return "Traffic volume"
     if name == "users":
-        return "user count"
-    return name.replace("_", " ")
+        return "User count"
+    return name.replace("_", " ").title()
 
 
 def _grain(folded_sql: str) -> str | None:
     if "row_number()" in folded_sql:
-        return "windowed ranking"
+        return "Windowed ranking"
     if "group by subscriber_id" in folded_sql:
-        return "one row per subscriber"
+        return "One row per subscriber"
     if "group by app_label" in folded_sql:
-        return "one row per application"
+        return "One row per application"
     if "group by client_asn" in folded_sql:
-        return "one row per ISP"
+        return "One row per ISP"
     if "group by" in folded_sql:
-        return "grouped result"
+        return "Grouped result"
     return None
