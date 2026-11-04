@@ -55,6 +55,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     other_isp = _same_request_other_isp(question, history)
     if other_isp:
         return other_isp
+    with_address = _filter_current_users_with_addresses(question, history)
+    if with_address:
+        return with_address
     places = _addresses_of_current_users(question, history)
     if places:
         return places
@@ -1113,9 +1116,78 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _asks_require_address(question: str) -> bool:
+    """Filter the current ranking to subscribers that have a non-blank loc/geo."""
+    folded = question.lower()
+    if not re.search(r"\b(address|addresses|location|locations)\b", folded):
+        return False
+    return bool(
+        re.search(
+            r"\b("
+            r"valid\s+addresses?|"
+            r"non[\s\-]?blank\s+addresses?|"
+            r"addresses?\s+(?:that\s+)?(?:are\s+)?not\s+(?:blank|empty|null|missing)|"
+            r"(?:blank|empty|null|missing)\s+addresses?|"
+            r"have\s+(?:a\s+)?(?:valid\s+)?addresses?|"
+            r"with\s+(?:a\s+)?(?:valid\s+)?addresses?|"
+            r"whose\s+addresses?\b|"
+            r"only\s+(?:show\s+)?(?:those\s+|the\s+)?(?:users?|subscribers?).{0,80}?\baddresses?"
+            r")\b",
+            folded,
+        )
+    )
+
+
+def _has_nonblank_address_filter(sql: str) -> bool:
+    """True when WHERE already requires a non-blank loc/geo (ignore SELECT CASE wrappers)."""
+    match = re.search(
+        r"\bwhere\b(.+?)(?=\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)",
+        sql or "",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return False
+    where = re.sub(r"\s+", "", match.group(1).lower())
+    has_loc = "ifnull(loc,'')<>''" in where or re.search(r"(?<![a-z0-9_])loc<>''", where)
+    has_geo = "ifnull(geo,'')<>''" in where or re.search(r"(?<![a-z0-9_])geo<>''", where)
+    return bool(has_loc or has_geo)
+
+
+def _filter_current_users_with_addresses(question: str, history: list[dict]) -> str | None:
+    """Keep the subscriber ranking but require a non-blank loc/geo address."""
+    if not _asks_require_address(question):
+        return None
+    if named_subscriber(question):
+        return None
+    previous = _last_sql(history)
+    if not previous or "group by subscriber_id" not in previous.lower():
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    additions = [
+        _address_expression(column)
+        for column in ("loc", "geo")
+        if not re.search(rf"(?i)\bas {column}\b", text)
+    ]
+    if additions:
+        text = re.sub(r"(?i)\bFROM\b", ", " + ", ".join(additions) + " FROM", text, count=1)
+    if _has_nonblank_address_filter(text):
+        return text
+    clause = "(IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '')"
+    if re.search(r"(?i)\bWHERE\b", text):
+        text = re.sub(r"(?i)\bWHERE\b", f"WHERE {clause} AND", text, count=1)
+    elif re.search(r"(?i)\bGROUP\s+BY\b", text):
+        text = re.sub(r"(?i)\bGROUP\s+BY\b", f"WHERE {clause} GROUP BY", text, count=1)
+    else:
+        text = f"{text} WHERE {clause}"
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _addresses_of_current_users(question: str, history: list[dict]) -> str | None:
     """Add loc and geo to the subscriber list on screen. Not the IP-database place."""
     if not _asks_for_place(question):
+        return None
+    if _asks_require_address(question):
+        # Filtering belongs to _filter_current_users_with_addresses.
         return None
     if named_subscriber(question):
         return None
@@ -1143,7 +1215,8 @@ def _addresses_of_current_users(question: str, history: list[dict]) -> str | Non
         if not re.search(rf"(?i)\bas {column}\b", text)
     ]
     if not additions:
-        return text
+        # Already showing addresses — do not claim refine/filter asks as no-ops.
+        return None
     return re.sub(r"(?i)\bFROM\b", ", " + ", ".join(additions) + " FROM", text, count=1)
 
 
@@ -2432,6 +2505,16 @@ def _last_sql(history: list[dict]) -> str:
         if sql:
             return sql
     return ""
+
+
+def sql_unchanged(sql: str | None, history: list[dict] | None) -> bool:
+    """True when a follow-up handler returned the previous SQL with no real change."""
+    if not sql:
+        return False
+    previous = _last_sql(history or [])
+    if not previous:
+        return False
+    return re.sub(r"\s+", " ", sql).strip().lower() == re.sub(r"\s+", " ", previous).strip().lower()
 
 
 def _subscriber_kind(texts: list[str]) -> str | None:

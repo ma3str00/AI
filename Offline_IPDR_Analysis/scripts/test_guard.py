@@ -1369,6 +1369,43 @@ def main() -> None:
         or "order by flows desc" not in their_addresses.lower()
     ):
         raise SystemExit(f"addresses of these users used the IP database: {their_addresses}")
+    from app.followup import sql_unchanged
+
+    valid_addresses = resolve_followup(
+        "only show those users who have valid addresses",
+        [{"question": "also show their addresses", "sql": their_addresses}],
+    )
+    valid_folded = (valid_addresses or "").lower()
+    if (
+        not valid_addresses
+        or sql_unchanged(valid_addresses, [{"sql": their_addresses}])
+        or "ifnull(loc, '') <> ''" not in valid_folded
+        or "ifnull(geo, '') <> ''" not in valid_folded
+        or "group by subscriber_id" not in valid_folded
+        or " as loc" not in valid_folded
+    ):
+        raise SystemExit(
+            f"valid addresses should require non-blank loc/geo: {valid_addresses}"
+        )
+    prepare(valid_addresses, 200, allow_full_scan=True)
+    not_blank = resolve_followup(
+        "only show those users whose addresses are not blank",
+        [{"question": "also show their addresses", "sql": their_addresses}],
+    )
+    if (
+        not not_blank
+        or sql_unchanged(not_blank, [{"sql": their_addresses}])
+        or "ifnull(loc, '') <> ''" not in not_blank.lower()
+    ):
+        raise SystemExit(f"not-blank addresses filter failed: {not_blank}")
+    already_showing = resolve_followup(
+        "also show their addresses",
+        [{"question": "also show their addresses", "sql": their_addresses}],
+    )
+    if already_showing is not None:
+        raise SystemExit(
+            f"already-showing addresses must not return a no-op SQL: {already_showing}"
+        )
     both = resolve_followup("show me top 20 users. Also list the respective ASN and address.", [])
     if (
         not both

@@ -23,6 +23,7 @@ from app.followup import (
     limit_followup,
     named_subscriber,
     resolve_followup,
+    sql_unchanged,
     subscriber_kind,
     use_full_scan,
 )
@@ -295,6 +296,9 @@ def _ask_events(body: Question):
     if not resolved:
         # If the referee rejected this family, do not rebuild the same intent in follow-up.
         resolved = choice_sql if intent_rejected else (choice_sql or resolve_followup(question, history))
+        # A local rule that returns the previous SQL unchanged did not understand the ask.
+        if resolved and history and sql_unchanged(resolved, history):
+            resolved = None
     # Local rules missed a follow-up that still looks like a tweak of the last structured answer.
     if not resolved and not intent_rejected and llama is not None and history:
         yield _status("Checking how this relates to the last answer")
