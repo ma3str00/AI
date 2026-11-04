@@ -2863,9 +2863,13 @@ def _subject_filter(folded: str) -> str | None:
     if class_id:
         return class_label_predicate(class_id)
     stem = known_app_token(folded, set(_NOT_AN_APP) | set(CLASS_PHRASE_STOPWORDS))
-    if not stem:
-        return None
-    return f"LOWER(app_label) LIKE '%{stem}%'"
+    if stem:
+        return f"LOWER(app_label) LIKE '%{stem}%'"
+    # Short exact labels (ssl, quic, …) are not in known_app_token (min length 4).
+    exact = _exact_app_word(folded)
+    if exact:
+        return f"LOWER(app_label) = '{exact}'"
+    return None
 
 
 def _add_user_count(question: str, history: list[dict]) -> str | None:

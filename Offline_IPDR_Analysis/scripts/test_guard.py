@@ -3488,6 +3488,23 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Short exact app labels (ssl) must filter top-N user rankings, including with address/ISP.
+    ssl_users = resolve_followup("show the top 10 SSL users, their addresses and ISP", [])
+    ssl_folded = (ssl_users or "").lower()
+    ssl_plan = summarize_query_plan(
+        "show the top 10 SSL users, their addresses and ISP", ssl_users or "", full_scan=True
+    )
+    if (
+        not ssl_users
+        or "group by subscriber_id" not in ssl_folded
+        or "lower(app_label) = 'ssl'" not in ssl_folded
+        or " as loc" not in ssl_folded
+        or " as client_asn" not in ssl_folded
+        or "App: Ssl" not in ssl_plan and "App: SSL" not in ssl_plan and "ssl" not in ssl_plan.lower()
+    ):
+        raise SystemExit(f"top SSL users with address/ISP dropped the ssl filter: {ssl_users}\n{ssl_plan}")
+    prepare(ssl_users, 200, allow_full_scan=True)
+
     # Common city typos must still attach the real loc needle (not the misspelling).
     peshawer_apps = resolve_followup("most popular apps in Peshawer", [])
     peshawer_folded = (peshawer_apps or "").lower()
