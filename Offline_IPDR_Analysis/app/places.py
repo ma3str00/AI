@@ -19,9 +19,13 @@ class Place:
     needles: tuple[str, ...]
 
 
-def _city(name: str, *aliases: str) -> Place:
+def _city(name: str, *aliases: str, typos: tuple[str, ...] = ()) -> Place:
+    """aliases are spoken and stored; typos are question-only (never used in SQL LIKE)."""
+    spoken = (name.lower(),) + tuple(alias.lower() for alias in aliases) + tuple(
+        typo.lower() for typo in typos
+    )
     needles = (name.lower(),) + tuple(alias.lower() for alias in aliases)
-    return Place("city", name, (name.lower(),) + tuple(alias.lower() for alias in aliases), needles)
+    return Place("city", name, spoken, needles)
 
 
 def _isp(name: str, needles: tuple[str, ...], *aliases: str) -> Place:
@@ -35,9 +39,9 @@ CITIES: tuple[Place, ...] = (
     _city("Rawalpindi", "rwp", "pindi"),
     _city("Lahore", "lhr"),
     _city("Karachi", "khi"),
-    _city("Faisalabad", "fsd", "lyallpur"),
+    _city("Faisalabad", "fsd", "lyallpur", typos=("faislabad", "faisalbad")),
     _city("Multan", "mux"),
-    _city("Peshawar", "pew"),
+    _city("Peshawar", "pew", typos=("peshawer",)),
     _city("Quetta", "qta"),
     _city("Hyderabad", "hyd"),
     _city("Gujranwala", "grw"),
@@ -468,7 +472,7 @@ _COMMON_CITIES = (
 
 def _city_needles(place: Place) -> list[str]:
     needles: list[str] = []
-    for needle in (place.name, *place.aliases):
+    for needle in place.needles:
         text = needle.lower().replace("'", "").strip()
         if len(text) < 4 or text in needles:
             continue

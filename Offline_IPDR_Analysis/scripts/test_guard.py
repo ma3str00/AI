@@ -3488,6 +3488,23 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Common city typos must still attach the real loc needle (not the misspelling).
+    peshawer_apps = resolve_followup("most popular apps in Peshawer", [])
+    peshawer_folded = (peshawer_apps or "").lower()
+    peshawer_plan = summarize_query_plan("most popular apps in Peshawer", peshawer_apps or "", full_scan=True)
+    if (
+        not peshawer_apps
+        or "group by app_label" not in peshawer_folded
+        or "like '%peshawar%'" not in peshawer_folded
+        or "like '%peshawer%'" in peshawer_folded
+        or "Place:" not in peshawer_plan
+        or "Peshawar" not in peshawer_plan
+    ):
+        raise SystemExit(
+            f"Peshawer typo must map to Peshawar loc filter: sql={peshawer_apps} plan={peshawer_plan}"
+        )
+    prepare(peshawer_apps, 200, allow_full_scan=True)
+
     # Declining a time-range clarify redoes the deferred popular-apps-in-city ask.
     after_time = resolve_followup(
         "no time filter required",
