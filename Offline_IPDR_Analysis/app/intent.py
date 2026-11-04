@@ -301,7 +301,7 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
     # Same/repeat/instead/rank-them tweaks belong to SQL patching / LLM normalize — not a new grain.
     if (
         _last_sql(history)
-        and looks_like_result_tweak(question)
+        and looks_like_result_tweak(question, history)
         and not _pending_open_clarify_question(history)
         and not _pending_usage_clarify_question(history)
     ):

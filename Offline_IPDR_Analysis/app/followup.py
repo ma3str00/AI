@@ -1718,25 +1718,41 @@ def _asks_aggregate_total(question: str) -> bool:
     )
 
 
-def looks_like_result_tweak(question: str) -> bool:
+def looks_like_result_tweak(question: str, history: list[dict] | None = None) -> bool:
     """True when the user is tweaking the previous answer, not asking a brand-new listing."""
     folded = question.lower()
-    return bool(
-        re.search(
-            r"\b("
-            r"same(?:\s+(?:query|list|result|ranking|thing))?|"
-            r"repeat|"
-            r"instead(?:\s+of)?|"
-            r"rather\s+than|"
-            r"rank(?:\s+them|\s+it|\s+these)?|"
-            r"re-?rank|"
-            r"order(?:\s+them)?\s+by|"
-            r"sort(?:\s+them)?\s+by|"
-            r"based\s+on\s+(?:flow|traffic|volume|session|hit)"
-            r")\b",
-            folded,
-        )
-    )
+    if re.search(
+        r"\b("
+        r"same(?:\s+(?:query|list|result|ranking|thing))?|"
+        r"repeat|"
+        r"instead(?:\s+of)?|"
+        r"rather\s+than|"
+        r"rank(?:\s+them|\s+it|\s+these)?|"
+        r"re-?rank|"
+        r"order(?:\s+them)?\s+by|"
+        r"sort(?:\s+them)?\s+by|"
+        r"based\s+on\s+(?:flow|traffic|volume|session|hit)|"
+        r"you\s+(?:have\s+)?(?:ranked|sorted|ordered)|"
+        r"wrong\s+(?:order|ranking|sort|measure)"
+        r")\b",
+        folded,
+    ):
+        return True
+    previous = _last_sql(history or [])
+    if not previous:
+        return False
+    # "I need the top 10 by flow count" after a ranked list — keep prior filters.
+    if re.search(
+        r"\b(?:i\s+need|need\s+to\s+see|show\s+me|give\s+me|want)\b.{0,40}\b"
+        r"top\s+\d+\s+by\s+(?:flow|traffic|volume|session|hit)",
+        folded,
+    ):
+        return True
+    if re.search(r"\btop\s+\d+\s+by\s+(?:flow\s+counts?|flows?|traffic|volume|session)", folded):
+        # No new city/area named → correction of the previous ranking.
+        if not (mentioned_cities(question) or mentioned_areas(question) or mentioned_provinces(question)):
+            return True
+    return False
 
 
 def result_shape(sql: str) -> tuple:
@@ -1762,9 +1778,59 @@ def preserves_result_shape(previous: str | None, new_sql: str | None) -> bool:
     return result_shape(previous) == result_shape(new_sql)
 
 
+def _where_like_predicates(sql: str) -> set[str]:
+    """Normalized LOWER(col) LIKE '%x%' predicates from WHERE (filters that must survive tweaks)."""
+    match = re.search(
+        r"\bwhere\b(.+?)(?=\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)",
+        sql or "",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return set()
+    where = match.group(1)
+    found = {
+        re.sub(r"\s+", "", m.group(0).lower())
+        for m in re.finditer(
+            r"lower\s*\(\s*(?:loc|geo|app_label|client_asn|app_category)\s*\)\s+like\s+'[^']+'",
+            where,
+            flags=re.IGNORECASE,
+        )
+    }
+    return found
+
+
+def preserves_prior_filters(previous: str | None, new_sql: str | None) -> bool:
+    """Tweaks must keep prior app/ISP/city LIKE filters unless the user clearly dropped them."""
+    if not previous or not new_sql:
+        return False
+    prior = _where_like_predicates(previous)
+    if not prior:
+        return True
+    now = _where_like_predicates(new_sql)
+    return prior.issubset(now)
+
+
 def _measure_from_tweak(question: str) -> str | None:
     """Target ranking measure for same/instead/rank-by follow-ups."""
     folded = question.lower()
+    # Last "by <measure>" is the requested target (critique may name the old measure earlier).
+    by_hits = list(
+        re.finditer(
+            r"\bby\s+(?:the\s+)?("
+            r"flow\s+counts?|flows?|hits|session\s+counts?|sessions?|"
+            r"traffic(?:\s+volum\w*)?|volum\w*|bytes|"
+            r"users?|subscribers?"
+            r")\b",
+            folded,
+        )
+    )
+    if by_hits:
+        token = by_hits[-1].group(1)
+        if re.search(r"flow|hit|session", token):
+            return "flows"
+        if re.search(r"user|subscriber", token):
+            return "users"
+        return "total_mb"
     measure_text = re.sub(
         r"\b(?:instead of|rather than|not)\s+(?:the\s+)?"
         r"(?:traffic(?:\s+volum\w*)?|volum\w*|bytes|mb|gb|tb|"
@@ -1773,6 +1839,13 @@ def _measure_from_tweak(question: str) -> str | None:
         r"users?|subscribers?)\b",
         " ",
         folded,
+    )
+    # Drop "you ranked by traffic volume" style critique before detecting the new measure.
+    measure_text = re.sub(
+        r"\byou\s+(?:have\s+)?(?:ranked|sorted|ordered).{0,40}?\bby\s+"
+        r"(?:traffic(?:\s+volum\w*)?|volum\w*|bytes|flow\s+counts?|flows?)\b",
+        " ",
+        measure_text,
     )
     measure_text = re.sub(r"\s+", " ", measure_text).strip()
     if re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", measure_text) and not re.search(
@@ -1848,10 +1921,18 @@ def patch_order_measure(sql: str, measure: str) -> str | None:
 
 
 def safe_rerank_previous(question: str, history: list[dict] | None = None) -> str | None:
-    """Same result shape; only swap the ranking measure on the previous SQL."""
-    if not looks_like_result_tweak(question):
+    """Same result shape; only swap the ranking measure (and optional LIMIT) on the previous SQL."""
+    history = history or []
+    if not looks_like_result_tweak(question, history):
         return None
-    previous = _last_sql(history or [])
+    folded = question.lower()
+    # Column-add asks ("also show upload/download") belong to _present_measures, not a pure patch.
+    if re.search(
+        r"\b(upload|download|also\s+(?:show|give|display|include|add)|add\s+(?:a\s+)?column)\b",
+        folded,
+    ):
+        return None
+    previous = _last_sql(history)
     if not previous:
         return None
     measure = _measure_from_tweak(question)
@@ -1859,9 +1940,17 @@ def safe_rerank_previous(question: str, history: list[dict] | None = None) -> st
         return None
     if "row_number()" in previous.lower():
         # Window rankings need the dedicated rebuild path.
-        return _rerank_window_measure(question, history or [])
+        return _rerank_window_measure(question, history)
     patched = patch_order_measure(previous, measure)
-    if patched and preserves_result_shape(previous, patched):
+    if not patched:
+        return None
+    limit = _limit_in(question)
+    if limit is not None:
+        if re.search(r"(?i)\blimit\s+\d+\s*$", patched):
+            patched = re.sub(r"(?i)\blimit\s+\d+\s*$", f"LIMIT {int(limit)}", patched)
+        else:
+            patched = f"{patched} LIMIT {int(limit)}"
+    if preserves_result_shape(previous, patched) and preserves_prior_filters(previous, patched):
         return patched
     return None
 

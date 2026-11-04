@@ -2977,7 +2977,11 @@ def main() -> None:
     if llm_reject is not None:
         raise SystemExit(f"new_question should fall through: {llm_reject}")
 
-    from app.followup import looks_like_result_tweak, preserves_result_shape
+    from app.followup import (
+        looks_like_result_tweak,
+        preserves_prior_filters,
+        preserves_result_shape,
+    )
 
     jazz_lahore = (
         "SELECT subscriber_id, "
@@ -2993,6 +2997,42 @@ def main() -> None:
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
     )
+    zong_isb = (
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(geo, '') <> '' THEN geo END ORDER BY geo SEPARATOR ', ') AS geo, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END "
+        "ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (LOWER(loc) LIKE '%islamabad%' OR LOWER(loc) LIKE '%isb%') "
+        "AND (LOWER(client_asn) LIKE '%zong%' OR LOWER(client_asn) LIKE '%cmpak%') "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    critique_flows = resolve_followup(
+        "you have ranked the users by traffic volume. I need to see the top 10 by flow count",
+        [{"question": "show me the top 20 whatsapp Zong users from Islamabad", "sql": zong_isb}],
+    )
+    critique_folded = (critique_flows or "").lower()
+    if (
+        not critique_flows
+        or "like '%islamabad%'" not in critique_folded
+        or "like '%whatsapp%'" not in critique_folded
+        or "like '%zong%'" not in critique_folded
+        or "order by flows desc" not in critique_folded
+        or "limit 10" not in critique_folded
+        or "order by total_bytes" in critique_folded
+        or "order by total_mb" in critique_folded
+        or not preserves_prior_filters(zong_isb, critique_flows)
+    ):
+        raise SystemExit(
+            "traffic critique → top 10 by flow count must keep Islamabad/Zong filters: "
+            f"{(critique_flows or '')[:500]}"
+        )
+    prepare(critique_flows, 200, allow_full_scan=True)
+
     same_by_flows_users = resolve_followup(
         "repeat the same query but rank them by flow count instead of traffic volume",
         [{"question": "show me the top 20 whatsapp Jazz users from Lahore", "sql": jazz_lahore}],

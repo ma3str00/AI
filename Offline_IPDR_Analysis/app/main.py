@@ -24,6 +24,7 @@ from app.followup import (
     looks_like_result_tweak,
     named_subscriber,
     patch_order_measure,
+    preserves_prior_filters,
     preserves_result_shape,
     resolve_followup,
     safe_rerank_previous,
@@ -264,60 +265,67 @@ def _ask_events(body: Question):
     if choice_question:
         yield _done(_clarify(choice_question))
         return
-    # Intent → optional LLM grain/slot referee → deterministic SQL.
-    intent = resolve_intent(question, history)
-    intent_rejected = False
-    if intent:
-        # Measure-only asks (traffic vs flows) go straight to the user — no LLM referee.
-        if intent.ambiguous and intent.source in {
-            "top_app_per_isp_measure",
-            "top_app_per_city_measure",
-        }:
-            yield _done(_clarify(intent.clarify_prompt or "Traffic volume or number of flows?"))
-            return
-        if intent.ambiguous and llama is not None:
-            yield _status("Checking what you meant")
-            verdict = referee_intent(llama, intent, question, history)
-            if isinstance(verdict, str):
-                yield _done(_clarify(verdict))
-                return
-            if verdict is None:
-                intent = None
-                intent_rejected = True
-            else:
-                intent = verdict
-        elif intent.ambiguous and llama is None:
-            # No model available: ask instead of guessing users vs totals.
-            yield _done(_clarify(intent.clarify_prompt or "Do you want totals, or a ranked list?"))
-            return
     prior_sql = ""
     for turn in reversed(history):
         prior_sql = str(turn.get("sql") or "").strip()
         if prior_sql:
             break
-    tweak = bool(prior_sql and looks_like_result_tweak(question))
-
-    if intent is not None:
-        try:
-            resolved = build_sql(intent)
-        except ValueError:
-            resolved = None
-        # Do not let intent rebuild a different grain for "same but by flow count" asks.
-        if resolved and tweak and not preserves_result_shape(prior_sql, resolved):
-            resolved = None
-    else:
-        resolved = None
+    tweak = bool(prior_sql and looks_like_result_tweak(question, history))
+    # Patch the previous ranking before intent can rebuild a thinner query.
+    resolved = safe_rerank_previous(question, history) if tweak else None
+    intent_rejected = False
+    intent = None
     if not resolved:
-        # If the referee rejected this family, do not rebuild the same intent in follow-up.
-        resolved = choice_sql if intent_rejected else (choice_sql or resolve_followup(question, history))
-        # A local rule that returns the previous SQL unchanged did not understand the ask.
-        if resolved and history and sql_unchanged(resolved, history):
-            resolved = None
-        # A local rewrite that changes ranking shape (users → one total) is a miss.
-        if resolved and tweak and not preserves_result_shape(prior_sql, resolved):
-            resolved = None
-    if not resolved and tweak:
-        resolved = safe_rerank_previous(question, history)
+        # Intent → optional LLM grain/slot referee → deterministic SQL.
+        intent = resolve_intent(question, history)
+        if intent:
+            # Measure-only asks (traffic vs flows) go straight to the user — no LLM referee.
+            if intent.ambiguous and intent.source in {
+                "top_app_per_isp_measure",
+                "top_app_per_city_measure",
+            }:
+                yield _done(_clarify(intent.clarify_prompt or "Traffic volume or number of flows?"))
+                return
+            if intent.ambiguous and llama is not None:
+                yield _status("Checking what you meant")
+                verdict = referee_intent(llama, intent, question, history)
+                if isinstance(verdict, str):
+                    yield _done(_clarify(verdict))
+                    return
+                if verdict is None:
+                    intent = None
+                    intent_rejected = True
+                else:
+                    intent = verdict
+            elif intent.ambiguous and llama is None:
+                # No model available: ask instead of guessing users vs totals.
+                yield _done(_clarify(intent.clarify_prompt or "Do you want totals, or a ranked list?"))
+                return
+        if intent is not None:
+            try:
+                resolved = build_sql(intent)
+            except ValueError:
+                resolved = None
+            # Do not let intent drop filters or change grain on a follow-up tweak.
+            if resolved and tweak and (
+                not preserves_result_shape(prior_sql, resolved)
+                or not preserves_prior_filters(prior_sql, resolved)
+            ):
+                resolved = None
+        if not resolved:
+            # If the referee rejected this family, do not rebuild the same intent in follow-up.
+            resolved = choice_sql if intent_rejected else (choice_sql or resolve_followup(question, history))
+            # A local rule that returns the previous SQL unchanged did not understand the ask.
+            if resolved and history and sql_unchanged(resolved, history):
+                resolved = None
+            # A local rewrite that changes ranking shape or drops city/ISP filters is a miss.
+            if resolved and tweak and (
+                not preserves_result_shape(prior_sql, resolved)
+                or not preserves_prior_filters(prior_sql, resolved)
+            ):
+                resolved = None
+            if not resolved and tweak:
+                resolved = safe_rerank_previous(question, history)
     # Local rules missed a follow-up that still looks like a tweak of the last structured answer.
     if not resolved and not intent_rejected and llama is not None and history:
         yield _status("Checking how this relates to the last answer")
