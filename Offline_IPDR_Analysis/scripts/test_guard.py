@@ -3488,6 +3488,27 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Most popular ISP among social-media users — ISP grain + class filter, not subscribers.
+    social_isp = resolve_followup("most popular ISP among the social media users", [])
+    social_isp_folded = (social_isp or "").lower()
+    social_isp_plan = summarize_query_plan(
+        "most popular ISP among the social media users", social_isp or "", full_scan=True
+    )
+    if (
+        not social_isp
+        or "group by client_asn" not in social_isp_folded
+        or "like '%facebook%'" not in social_isp_folded
+        or "like '%whatsapp%'" not in social_isp_folded
+        or "order by users" not in social_isp_folded
+        or "group by subscriber_id" in social_isp_folded
+        or "One row per ISP" not in social_isp_plan
+        or "limit 1" not in social_isp_folded
+    ):
+        raise SystemExit(
+            f"most popular ISP among social media users failed: {social_isp}\n{social_isp_plan}"
+        )
+    prepare(social_isp, 200, allow_full_scan=True)
+
     # Fresh ask: top ISPs in a city by YouTube user count (not a subscriber ranking).
     yt_isps = resolve_followup(
         "I want to see the top 5 ISPs of Karachi that have the maximum number of youtube users",
