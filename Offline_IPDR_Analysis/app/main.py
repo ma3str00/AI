@@ -1007,7 +1007,7 @@ def _history_payload(history: list[Turn]) -> list[dict]:
             {
                 "question": turn.question.strip(),
                 "sql": (turn.sql or "").strip(),
-                "explanation": (turn.explanation or "").strip()[:500],
+                "explanation": (turn.explanation or "").strip()[:2000],
                 "pending_sql": (turn.pending_sql or "").strip(),
             }
         )

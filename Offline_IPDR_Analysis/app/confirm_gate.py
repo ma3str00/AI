@@ -63,61 +63,67 @@ def answer_accepts(question: str) -> bool:
 
 
 def summarize_query_plan(question: str, sql: str, *, full_scan: bool | None = None) -> str:
-    """Plain-language conditions for the confirm bubble."""
+    """Plain-language conditions for the confirm bubble (multi-line for readability)."""
     text = re.sub(r"\s+", " ", sql or "").strip()
     folded = text.lower()
-    parts: list[str] = []
+    lines: list[str] = []
 
     apps = _like_values(folded, "app_label")
     if apps:
-        parts.append("app filter: " + ", ".join(apps))
+        lines.append(f"App: {', '.join(_title_tokens(apps))}")
     else:
-        parts.append("every application (no app filter)")
+        lines.append("App: every application (no app filter)")
 
-    isps = _like_values(folded, "client_asn")
+    isps = _unique_keep_order(_like_values(folded, "client_asn"))
     if isps:
-        parts.append("ISP: " + ", ".join(_unique_keep_order(isps)))
+        lines.append(f"ISP: {', '.join(_title_tokens(isps))}")
 
-    places = _like_values(folded, "loc") + _like_values(folded, "geo")
+    places = _unique_keep_order(_like_values(folded, "loc") + _like_values(folded, "geo"))
     if places:
-        parts.append("place: " + ", ".join(_unique_keep_order(places)))
+        lines.append(f"Place: {', '.join(_title_tokens(places))}")
 
     if "locate('_', subscriber_id) = 0" in folded.replace(" ", ""):
-        parts.append("identified subscribers only")
+        lines.append("Users: identified subscribers only")
 
     mobile = re.sub(r"\s+", " ", MOBILE_SQL).lower()
     compact_sql = re.sub(r"\s+", " ", folded)
     if f"not {mobile}" in compact_sql or "and not (" in compact_sql and "nullif(mcc" in compact_sql:
-        parts.append("fixed-line subscribers")
+        lines.append("Connection: fixed-line")
     elif "nullif(mcc" in compact_sql and "not " not in compact_sql.split("nullif(mcc")[0][-20:]:
         if re.search(r"\band\s+\(.*nullif\(mcc", compact_sql) and "and not" not in compact_sql:
-            parts.append("mobile subscribers")
+            lines.append("Connection: mobile")
 
     measure = _order_measure(folded)
     if measure:
-        parts.append(f"ranked by {measure}")
+        lines.append(f"Ranked by: {measure}")
 
     limit = re.search(r"\blimit\s+(\d+)\b", folded)
     if limit:
-        parts.append(f"top {limit.group(1)} rows")
+        lines.append(f"Limit: top {limit.group(1)} rows")
 
     scan = sql_needs_full_scan(text) if full_scan is None else full_scan
     if scan:
-        parts.append("no time filter (full table scan; may take several minutes)")
+        lines.append("Time: no filter (full table scan; may take several minutes)")
 
     grain = _grain(folded)
     if grain:
-        parts.append(grain)
+        lines.append(f"Result: {grain}")
 
-    body = "; ".join(parts) if parts else "the generated SQL"
     ask = (question or "").strip()
-    lead = "I am going to run a query"
     if ask and ask.lower() not in {"accept", "yes", "run it", "go ahead"}:
-        lead = f'I am going to run a query for "{ask[:120]}"'
+        header = f'I am going to run a query for:\n"{ask[:120]}"'
+    else:
+        header = "I am going to run a query"
+    bullets = "\n".join(f"- {line}" for line in lines) if lines else "- the generated SQL"
     return (
-        f"{lead} with these conditions: {body}. "
+        f"{header}\n\n"
+        f"Conditions:\n{bullets}\n\n"
         "Accept to run it, or Change if this is wrong."
     )
+
+
+def _title_tokens(items: list[str]) -> list[str]:
+    return [item[:1].upper() + item[1:] if item else item for item in items]
 
 
 def _like_values(folded_sql: str, column: str) -> list[str]:

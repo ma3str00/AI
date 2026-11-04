@@ -113,6 +113,7 @@
   .hidden { display: none; }
   .transcript { display: grid; gap: 14px; margin-top: 8px; }
   .bubble { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--panel); box-shadow: 0 8px 24px rgba(27, 25, 20, 0.04); }
+  .confirm-plan { white-space: pre-wrap; line-height: 1.5; margin: 0; }
   .bubble.user { background: #14352c; color: #f4f1ea; border-color: #14352c; }
   .bubble.user .who { color: #b7d8ce; }
   .who { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -866,6 +867,7 @@ function addAnswerBubble(asked, data) {
     bubble.append(error);
   }
   const text = document.createElement("div");
+  if (data.confirm) text.className = "confirm-plan";
   text.textContent = data.explanation || data.clarify || "";
   bubble.append(text);
   if (data.confirm && data.pending_sql) {
@@ -1026,7 +1028,7 @@ function historyPayload() {
   return history.slice(-12).map((turn) => ({
     question: turn.question,
     sql: (turn.sql || "").slice(0, 100000),
-    explanation: (turn.explanation || "").slice(0, 500),
+    explanation: (turn.explanation || "").slice(0, 2000),
     pending_sql: (turn.pending_sql || "").slice(0, 100000)
   }));
 }
