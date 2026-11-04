@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from app.followup import _asks_for_websites, lists_one_subscriber_apps, named_subscriber, subscriber_kind
+from app.places import mentioned_cities, mentioned_isps, mentioned_provinces
 
 APP_NAMES = (
     "whatsapp", "facebook", "messenger", "tiktok", "youtube", "instagram", "snapchat",
@@ -167,19 +168,61 @@ def needs_clarification(question: str, history: list[dict] | None) -> str | None
     previous_apps = _apps(previous.lower())
     if not previous_apps or _apps(question):
         return None
-    if re.search(r"\b(keep|same|those|these|continue|still)\b", question.lower()):
+    folded = question.lower()
+    if re.search(r"\b(keep|same|those|these|continue|still)\b", folded):
+        return None
+    # Pure measure/limit tweaks keep the previous app without asking.
+    from app.followup import looks_like_result_tweak, _asks_remove_app_filter
+
+    if _asks_remove_app_filter(question):
+        return None
+    if looks_like_result_tweak(question, history) and not re.search(
+        r"\b(users?|subscribers?)\b", folded
+    ):
+        return None
+    if looks_like_result_tweak(question, history) and re.search(
+        r"\b(instead of|rather than|by flow|by traffic|top\s+\d+\s+by)\b", folded
+    ):
+        # "same but by flow count" — keep app; do not re-ask.
+        if not re.search(r"\btop\s+\d+\s+\w+\s+users?\b", folded):
+            return None
+    names = " and ".join(previous_apps)
+    scope = (
+        "with no time filter"
+        if not any(column in previous.lower() for column in TIME_COLUMNS)
+        else "with the same time range"
+    )
+    # Bare "top 10" is only a limit change on the previous list.
+    if re.fullmatch(
+        r"\s*(?:now\s+|please\s+)?(?:show\s+me\s+|give\s+me\s+)?"
+        r"(?:the\s+)?top\s+\d+\s*",
+        folded,
+    ):
+        return None
+    # "you gave mobile only / regardless of connection" keeps the previous app.
+    if re.search(
+        r"\b(you\s+(?:gave|returned|showed)|regardless of(?:\s+their)?\s+(?:nature\s+of\s+)?connection|"
+        r"regardless of\s+(?:mobile|fixed)|nature of connection)\b",
+        folded,
+    ):
         return None
     scope_kind = subscriber_kind([question])
-    if scope_kind == "any" or (scope_kind is None and not _switches_application(question)):
-        return None
-    names = " and ".join(previous_apps)
-    scope = "with no time filter" if not any(column in previous.lower() for column in TIME_COLUMNS) else "with the same time range"
-    return (
-        f"The previous query was limited to {names}, ranked by traffic volume, {scope}. "
-        "Mobile means a valid subscriber id with mcc, mnc, lac, cid, or usr_loc_info filled. "
-        "Fixed-line means a valid subscriber id with those cell fields empty. "
-        f"Should this stay limited to {names}, or include every application?"
-    )
+    if scope_kind in {"mobile", "fixed"}:
+        return (
+            f"The previous query was limited to {names}, {scope}. "
+            "Mobile means a valid subscriber id with mcc, mnc, lac, cid, or usr_loc_info filled. "
+            "Fixed-line means a valid subscriber id with those cell fields empty. "
+            f"Should this stay limited to {names}, or include every application?"
+        )
+    # New user/ISP ranking that does not name an app while the previous answer had one.
+    if re.search(r"\b(users?|subscribers?)\b", folded) and (
+        mentioned_isps(question) or mentioned_cities(question) or mentioned_provinces(question)
+    ):
+        return (
+            f"The previous answer was limited to {names}. "
+            f"Should this ranking stay limited to {names}, or include every application?"
+        )
+    return None
 
 
 def _switches_application(question: str) -> bool:
@@ -202,7 +245,7 @@ def _pending_clarify(history: list[dict]) -> bool:
 
 def _drops_previous_apps(question: str) -> bool:
     text = question.lower()
-    return any(
+    if any(
         phrase in text
         for phrase in (
             "all applications",
@@ -218,4 +261,8 @@ def _drops_previous_apps(question: str) -> bool:
             "other application",
             "other apps",
         )
-    )
+    ):
+        return True
+    from app.followup import _asks_remove_app_filter
+
+    return _asks_remove_app_filter(question)

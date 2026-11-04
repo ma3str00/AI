@@ -44,6 +44,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     reranked = safe_rerank_previous(question, history)
     if reranked:
         return reranked
+    dropped_app = _remove_app_filter(question, history)
+    if dropped_app:
+        return dropped_app
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
@@ -1120,6 +1123,86 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _asks_remove_app_filter(question: str) -> bool:
+    """True when the user wants the previous app_label filter removed."""
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"do\s+not\s+apply\s+(?:the\s+)?(?:\w+\s+)?(?:app\s+)?filters?|"
+            r"don'?t\s+apply\s+(?:the\s+)?(?:\w+\s+)?(?:app\s+)?filters?|"
+            r"remove\s+(?:the\s+)?(?:\w+\s+)?(?:app\s+)?filters?|"
+            r"without\s+(?:the\s+)?(?:\w+\s+)?(?:app\s+)?filters?|"
+            r"drop\s+(?:the\s+)?(?:\w+\s+)?(?:app\s+)?filters?|"
+            r"no\s+\w+\s+filters?|"
+            r"exclude\s+(?:the\s+)?(?:app\s+)?filters?"
+            r")\b",
+            folded,
+        )
+        or re.search(
+            r"\b(?:do\s+not|don'?t|remove|without|drop|no)\b.{0,30}\b"
+            r"(?:whatsapp|facebook|instagram|tiktok|youtube|snapchat|telegram|imo)\b.{0,20}\bfilters?\b",
+            folded,
+        )
+        or re.search(
+            r"\b(?:do\s+not|don'?t|remove|without|drop)\b.{0,20}\b"
+            r"(?:app(?:lication)?\s+)?filters?\b",
+            folded,
+        )
+    )
+
+
+def _remove_app_filter(question: str, history: list[dict]) -> str | None:
+    """Strip LOWER(app_label) filters from the previous ranking when asked."""
+    if not _asks_remove_app_filter(question):
+        return None
+    previous = _last_sql(history)
+    if not previous or "app_label" not in previous.lower():
+        return None
+    text = re.sub(r"\s+", " ", previous).strip()
+    # Drop AND-connected app_label predicates (including parenthesized OR blocks of likes).
+    cleaned = re.sub(
+        r"(?i)\s+AND\s+\(?\s*LOWER\(app_label\)\s+LIKE\s+'[^']+'(?:\s+OR\s+LOWER\(app_label\)\s+LIKE\s+'[^']+')*\s*\)?",
+        "",
+        text,
+    )
+    cleaned = re.sub(
+        r"(?i)\(?\s*LOWER\(app_label\)\s+LIKE\s+'[^']+'(?:\s+OR\s+LOWER\(app_label\)\s+LIKE\s+'[^']+')*\s*\)?\s+AND\s+",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if cleaned.lower() == text.lower() or "app_label" in cleaned.lower() and re.search(
+        r"(?i)lower\(app_label\)\s+like", cleaned
+    ):
+        # Named app: remove that specific LIKE only.
+        stem = None
+        match = re.search(
+            r"\b(?:whatsapp|facebook|instagram|tiktok|youtube|snapchat|telegram|imo)\b",
+            question.lower(),
+        )
+        if match:
+            stem = match.group(0)
+            cleaned = re.sub(
+                rf"(?i)\s+AND\s+LOWER\(app_label\)\s+LIKE\s+'%{re.escape(stem)}%'",
+                "",
+                text,
+            )
+            cleaned = re.sub(
+                rf"(?i)LOWER\(app_label\)\s+LIKE\s+'%{re.escape(stem)}%'\s+AND\s+",
+                "",
+                cleaned,
+            )
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if cleaned.lower() == text.lower():
+        return None
+    if not preserves_result_shape(text, cleaned):
+        return None
+    cleaned = re.sub(r"(?i)\bWHERE\s*\(", "WHERE (", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
 def _asks_require_address(question: str) -> bool:
     """Filter the current ranking to subscribers that have a non-blank loc/geo."""
     folded = question.lower()
@@ -1973,14 +2056,21 @@ def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str
     if not isps and re.search(r"\b(?:that|this|same)\s+(?:isp|operator|provider|network)\b", folded):
         isps = _isp_from_history_questions(history)
     app = _app_stem_in_question(question)
-    # Inherit the prior app only for grain rewrites ("I meant the total…"), not a fresh ISP ranking.
-    if not app and previous and re.search(
-        r"\b(i meant|meant the|total|usage|traffic|volume|flow counts?)\b", folded
-    ):
+    # Inherit the prior app only for explicit grain rewrites ("I meant the total…"),
+    # never for a fresh "top N <ISP> users by flow count" ranking.
+    inherit_prior = bool(
+        re.search(r"\b(i meant|meant the|just the|only the)\b", folded)
+        or (
+            re.search(r"\b(total|overall|aggregate)\b", folded)
+            and re.search(r"\b(traffic|volume|bytes|flows?|usage)\b", folded)
+            and not re.search(r"\b(users?|subscribers?|top\s+\d+)\b", folded)
+        )
+    )
+    if not app and previous and inherit_prior:
         like = re.search(r"(?i)LOWER\(app_label\)\s+LIKE\s+'%([^%']+)%'", previous)
         if like:
             app = like.group(1)
-    if not app and re.search(r"\b(i meant|meant the|total|usage|traffic|volume|flow counts?)\b", folded):
+    if not app and inherit_prior:
         for turn in reversed(history):
             prior_app = _app_stem_in_question(turn.get("question") or "")
             if prior_app:
@@ -1991,9 +2081,7 @@ def _app_isp_where(question: str, history: list[dict] | None = None) -> list[str
     where = [f"LOWER(app_label) LIKE '%{app.lower().replace(chr(39), '')}%'"]
     if isps:
         where.append(column_predicate("client_asn", isps[-1]))
-    elif previous and re.search(
-        r"\b(i meant|meant the|total|usage|traffic|volume|flow counts?)\b", folded
-    ):
+    elif previous and inherit_prior:
         asn_block = re.search(
             r"(?i)(\((?:LOWER\(client_asn\)\s+LIKE\s+'[^']+'\s*OR\s*)+"
             r"LOWER\(client_asn\)\s+LIKE\s+'[^']+'\))",

@@ -274,6 +274,12 @@ def _ask_events(body: Question):
     tweak = bool(prior_sql and looks_like_result_tweak(question, history))
     # Patch the previous ranking before intent can rebuild a thinner query.
     resolved = safe_rerank_previous(question, history) if tweak else None
+    # Ask about keeping the previous app filter before inheriting it into a new ranking.
+    if not resolved and prior_sql:
+        early_clarify = needs_clarification(question, history)
+        if early_clarify:
+            yield _done(_clarify(early_clarify))
+            return
     intent_rejected = False
     intent = None
     if not resolved:

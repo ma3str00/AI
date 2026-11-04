@@ -3051,6 +3051,36 @@ def main() -> None:
         [{"question": "show me the top 20 whatsapp Zong users from Islamabad", "sql": zong_isb}],
     ):
         raise SystemExit("uncertain follow-up should produce a clarify prompt")
+    from app.answer_check import needs_clarification as need_app_clarify
+
+    jazz_after_wa = need_app_clarify(
+        "show me the top 10 Jazz users by flow count",
+        [{"question": "show me the top 20 whatsapp Jazz users from Lahore", "sql": jazz_lahore}],
+    )
+    if not jazz_after_wa or "whatsapp" not in jazz_after_wa.lower():
+        raise SystemExit(
+            f"new Jazz ranking after WhatsApp should ask about the app filter: {jazz_after_wa}"
+        )
+    drop_wa = resolve_followup(
+        "do not apply the whatsapp filter",
+        [{"question": "show me the top 10 Jazz users by flow count", "sql": (
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "WHERE LOWER(app_label) LIKE '%whatsapp%' "
+            "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
+            "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+            "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
+        )}],
+    )
+    drop_wa_folded = (drop_wa or "").lower()
+    if (
+        not drop_wa
+        or "like '%whatsapp%'" in drop_wa_folded
+        or "like '%jazz%'" not in drop_wa_folded
+        or "group by subscriber_id" not in drop_wa_folded
+        or "order by flows desc" not in drop_wa_folded
+    ):
+        raise SystemExit(f"do not apply whatsapp filter failed: {drop_wa}")
+    prepare(drop_wa, 200, allow_full_scan=True)
 
     same_by_flows_users = resolve_followup(
         "repeat the same query but rank them by flow count instead of traffic volume",
