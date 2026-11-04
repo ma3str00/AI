@@ -240,6 +240,8 @@ def _pending_clarify(history: list[dict]) -> bool:
     if not history:
         return False
     last = history[-1]
+    if str(last.get("pending_sql") or "").strip():
+        return False
     return not str(last.get("sql") or "").strip() and bool(str(last.get("explanation") or "").strip())
 
 

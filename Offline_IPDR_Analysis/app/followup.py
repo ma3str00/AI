@@ -151,9 +151,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     if protocols:
         return protocols
     if _pending(history) and _answer_keeps(question):
-        return _revise(str(history[-1].get("question") or ""), history[:-1], force_keep=True)
+        return _answer_app_clarify(question, history, drop_app=False)
     if _pending(history) and _answer_drops(question):
-        return _revise(str(history[-1].get("question") or ""), history[:-1], force_drop=True)
+        return _answer_app_clarify(question, history, drop_app=True)
     previous = _last_sql(history)
     valid_only = _only_valid_users(question, previous)
     if valid_only:
@@ -3942,9 +3942,12 @@ def _without_cell(sql: str) -> str:
 
 
 def _pending(history: list[dict]) -> bool:
+    """Ambiguity clarify waiting for a text reply (not a confirm-before-run pause)."""
     if not history:
         return False
     last = history[-1]
+    if str(last.get("pending_sql") or "").strip():
+        return False
     return not str(last.get("sql") or "").strip() and bool(str(last.get("explanation") or "").strip())
 
 
@@ -3958,6 +3961,90 @@ def _answer_keeps(question: str) -> bool:
 def _answer_drops(question: str) -> bool:
     folded = question.strip().lower()
     return folded in {"no", "no."} or "include every application" in folded or "every application" in folded
+
+
+def _app_predicate(sql: str) -> str | None:
+    """Copy LOWER(app_label) LIKE predicates from a previous ranking."""
+    match = re.search(
+        r"(?is)((?:LOWER\(app_label\)\s+LIKE\s+'[^']+'\s*OR\s*)*LOWER\(app_label\)\s+LIKE\s+'[^']+')",
+        sql or "",
+    )
+    return match.group(1).strip() if match else None
+
+
+def _with_app_predicate(sql: str, predicate: str) -> str:
+    text = re.sub(r"\s+", " ", sql).strip()
+    if not predicate or _has_app_filter(text):
+        return text
+    clause = predicate if predicate.startswith("(") else f"({predicate})"
+    if re.search(r"(?i)\bGROUP BY\b", text):
+        return re.sub(r"(?i)\bGROUP BY\b", f"AND {clause} GROUP BY", text, count=1)
+    if re.search(r"(?i)\bWHERE\b", text):
+        return re.sub(r"(?i)\bWHERE\b", f"WHERE {clause} AND", text, count=1)
+    return text
+
+
+def _strip_app_predicates(sql: str) -> str:
+    text = re.sub(r"\s+", " ", sql).strip()
+    text = re.sub(r"\s+AND\s+LOWER\(app_label\)\s+LIKE\s+'%[^']+%'", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"LOWER\(app_label\)\s+LIKE\s+'%[^']+%'\s+AND\s+", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+AND\s+\(\s*LOWER\(app_label\)\s+LIKE\s+'%[^']+%'(?:\s+OR\s+LOWER\(app_label\)\s+LIKE\s+'%[^']+%')*\s*\)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\(\s*LOWER\(app_label\)\s+LIKE\s+'%[^']+%'(?:\s+OR\s+LOWER\(app_label\)\s+LIKE\s+'%[^']+%')*\s*\)\s+AND\s+", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _set_final_order(sql: str, column: str) -> str:
+    """Replace only the statement-level ORDER BY, never ORDER BY inside GROUP_CONCAT."""
+    text = re.sub(r"\s+", " ", sql).strip()
+    replaced = re.sub(
+        r"(?i)\border\s+by\s+[\w.`]+\s+(desc|asc)(\s+limit\s+\d+)?\s*$",
+        lambda m: f"ORDER BY {column} DESC{m.group(2) or ''}",
+        text,
+    )
+    if replaced != text:
+        return replaced.strip()
+    if re.search(r"(?i)\border\s+by\b", text) and re.search(r"(?i)\blimit\s+\d+\s*$", text):
+        replaced = re.sub(
+            r"(?i)\border\s+by\s+[\w.`]+\s+(desc|asc)\s+(?=limit\s+\d+\s*$)",
+            f"ORDER BY {column} DESC ",
+            text,
+        )
+        if replaced != text:
+            return replaced.strip()
+    if re.search(r"(?i)\blimit\s+\d+\s*$", text):
+        return re.sub(r"(?i)\blimit\s+(\d+)\s*$", f"ORDER BY {column} DESC LIMIT \\1", text).strip()
+    return f"{text} ORDER BY {column} DESC"
+
+
+def _answer_app_clarify(question: str, history: list[dict], *, drop_app: bool) -> str | None:
+    """Redo the deferred ranking after the user keeps or drops the previous app filter.
+
+    Scope (ISP/city/limit/measure) comes from the pending question — not by patching the
+    prior WhatsApp/city SQL — so “top 10 Jazz users” keeps Jazz when the app is dropped.
+    """
+    pending = str(history[-1].get("question") or "").strip()
+    if not pending:
+        return None
+    prior = history[:-1]
+    previous = _last_sql(prior)
+    rebuilt = _top_people(pending, prior)
+    if not rebuilt:
+        texts = [str(item.get("question") or "") for item in prior] + [pending, question]
+        kind = _subscriber_kind(texts)
+        if kind in {"mobile", "fixed"} and previous and "group by subscriber_id" in previous.lower():
+            limit = _limit_in(pending) or _limit_of(previous) or 5
+            rebuilt = _rewrite(previous, keep_app=not drop_app, kind=kind, limit=limit)
+        else:
+            rebuilt = _revise(pending, prior, force_keep=not drop_app, force_drop=drop_app)
+    if not rebuilt:
+        return None
+    if drop_app:
+        rebuilt = _strip_app_predicates(rebuilt)
+    else:
+        predicate = _app_predicate(previous or "")
+        if predicate:
+            rebuilt = _with_app_predicate(rebuilt, predicate)
+    return re.sub(r"\s+", " ", rebuilt).strip()
 
 
 def _wants_split(question: str) -> bool:
@@ -4026,12 +4113,7 @@ def _revise(question: str, history: list[dict], force_keep: bool = False, force_
         text = re.sub(r"(?i)\bFROM\b", ", COUNT(*) AS flows FROM", text, count=1)
     if rank:
         column = "flows" if rank == "flows" else ("total_bytes" if re.search(r"\bas\s+total_bytes\b", text, flags=re.IGNORECASE) else "total_mb")
-        if re.search(r"(?i)\bORDER BY\b", text):
-            text = re.sub(r"(?is)\bORDER BY\b.+?(?=\bLIMIT\b|$)", f"ORDER BY {column} DESC ", text, count=1)
-        elif re.search(r"(?i)\bLIMIT\b", text):
-            text = re.sub(r"(?i)\bLIMIT\b", f"ORDER BY {column} DESC LIMIT", text, count=1)
-        else:
-            text = f"{text} ORDER BY {column} DESC"
+        text = _set_final_order(text, column)
     limit = _limit_in(question) or _limit_of(text)
     if limit and re.search(r"(?i)\blimit\s+\d+\b", text):
         text = re.sub(r"(?i)\blimit\s+\d+\b", f"LIMIT {int(limit)}", text, count=1)

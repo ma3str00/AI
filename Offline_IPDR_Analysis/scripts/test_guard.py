@@ -3061,6 +3061,60 @@ def main() -> None:
         raise SystemExit(
             f"new Jazz ranking after WhatsApp should ask about the app filter: {jazz_after_wa}"
         )
+    # After app-scope clarify, "include every application" must redo the Jazz ask — keep Jazz, drop WhatsApp.
+    jazz_rwp_flows = (
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(geo, '') <> '' THEN geo END ORDER BY geo SEPARATOR ', ') AS geo, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND (LOWER(loc) LIKE '%rawalpindi%' OR LOWER(loc) LIKE '%rwp%') "
+        "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%' "
+        "OR LOWER(client_asn) LIKE '%pmcl%' OR LOWER(client_asn) LIKE '%pakistan mobile communication%' "
+        "OR LOWER(client_asn) LIKE '%warid%') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 20"
+    )
+    every_app_after_clarify = resolve_followup(
+        "include every application",
+        [
+            {"question": "show me the top 20 whatsapp Jazz users from Rawalpindi", "sql": jazz_rwp_flows},
+            {
+                "question": "show me the top 10 Jazz users by flow count",
+                "sql": "",
+                "explanation": jazz_after_wa,
+            },
+        ],
+    )
+    every_app_folded = (every_app_after_clarify or "").lower()
+    if (
+        not every_app_after_clarify
+        or "like '%whatsapp%'" in every_app_folded
+        or "like '%jazz%'" not in every_app_folded
+        or "like '%rawalpindi%'" in every_app_folded
+        or "group by subscriber_id" not in every_app_folded
+        or "order by flows desc" not in every_app_folded
+        or "limit 10" not in every_app_folded
+    ):
+        raise SystemExit(
+            "include every application after Jazz clarify must keep Jazz, drop WhatsApp/Rawalpindi: "
+            f"{(every_app_after_clarify or '')[:500]}"
+        )
+    prepare(every_app_after_clarify, 200, allow_full_scan=True)
+    if not silently_weakens_prior(
+        "include every application",
+        jazz_rwp_flows,
+        (
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+            "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
+        ),
+    ):
+        raise SystemExit(
+            "include every application must not allow dropping Jazz/city when rebuilding freely"
+        )
     drop_wa = resolve_followup(
         "do not apply the whatsapp filter",
         [{"question": "show me the top 10 Jazz users by flow count", "sql": (
@@ -3243,6 +3297,70 @@ def main() -> None:
     )
     if rejected:
         raise SystemExit(f"listing access times was blocked by the SQL check: {rejected}")
+
+    from app.confirm_gate import (
+        answer_accepts,
+        pending_confirm,
+        pending_sql,
+        summarize_query_plan,
+    )
+
+    jazz_plan_sql = (
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
+    )
+    plan_text = summarize_query_plan("show me the top 10 Jazz users by flow count", jazz_plan_sql)
+    plan_folded = plan_text.lower()
+    if (
+        "jazz" not in plan_folded
+        or "flow count" not in plan_folded
+        or "top 10" not in plan_folded
+        or "every application" not in plan_folded
+        or "accept" not in plan_folded
+    ):
+        raise SystemExit(f"query plan summary missing expected conditions: {plan_text}")
+    # Confirm responses must pause with pending_sql and no executed sql.
+    confirm_payload = {
+        "confirm": True,
+        "sql": None,
+        "pending_sql": jazz_plan_sql,
+        "explanation": plan_text,
+    }
+    if confirm_payload["sql"] or not confirm_payload["pending_sql"]:
+        raise SystemExit(f"confirm payload must pause with pending_sql only: {confirm_payload}")
+    paused = [
+        {
+            "question": "show me the top 10 Jazz users by flow count",
+            "sql": "",
+            "explanation": confirm_payload["explanation"],
+            "pending_sql": jazz_plan_sql,
+        }
+    ]
+    if not pending_confirm(paused) or pending_sql(paused) != jazz_plan_sql:
+        raise SystemExit("pending confirm helpers failed to surface paused SQL")
+    if not answer_accepts("Accept") or not answer_accepts("go ahead") or answer_accepts("change the limit"):
+        raise SystemExit("accept language detection failed")
+    # Confirm turns must not be treated as app-scope ambiguity clarifies.
+    from app.followup import _pending as followup_pending
+    from app.answer_check import _pending_clarify
+
+    if followup_pending(paused) or _pending_clarify(paused):
+        raise SystemExit("confirm-before-run pause was mistaken for an ambiguity clarify")
+    # Jazz clarify → every application still yields the right SQL to pause on.
+    if every_app_after_clarify != pending_sql(
+        [
+            {
+                "question": "show me the top 10 Jazz users by flow count",
+                "sql": "",
+                "explanation": "paused",
+                "pending_sql": every_app_after_clarify,
+            }
+        ]
+    ):
+        raise SystemExit("Jazz every-application SQL should be usable as pending_sql")
+
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 

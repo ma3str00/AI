@@ -46,8 +46,6 @@ def silently_weakens_prior(
         return False
     if preserves_prior_filters(prior_sql, new_sql) and preserves_result_shape(prior_sql, new_sql):
         return False
-    if drops_previous_apps(question):
-        return False
     # User named a place / ISP / app → allowed to rebuild with that scope.
     if (
         mentioned_cities(question)
@@ -57,6 +55,16 @@ def silently_weakens_prior(
         or _app_stem_in_question(question)
     ):
         return False
+    if drops_previous_apps(question):
+        # "Every application" may drop app_label only — not ISP/city filters.
+        from app.followup import _where_like_predicates
+
+        prior = _where_like_predicates(prior_sql)
+        now = _where_like_predicates(new_sql)
+        prior_scope = {item for item in prior if "app_label" not in item}
+        if prior_scope.issubset(now) and preserves_result_shape(prior_sql, new_sql):
+            return False
+        return True
     if looks_like_result_tweak(question, [{"sql": prior_sql}]):
         return not (
             preserves_prior_filters(prior_sql, new_sql) and preserves_result_shape(prior_sql, new_sql)

@@ -868,6 +868,36 @@ function addAnswerBubble(asked, data) {
   const text = document.createElement("div");
   text.textContent = data.explanation || data.clarify || "";
   bubble.append(text);
+  if (data.confirm && data.pending_sql) {
+    const preview = document.createElement("details");
+    preview.className = "sql";
+    const summary = document.createElement("summary");
+    summary.textContent = "SQL preview";
+    const sql = document.createElement("pre");
+    sql.textContent = data.pending_sql;
+    preview.append(summary, sql);
+    bubble.append(preview);
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.marginTop = "10px";
+    const accept = document.createElement("button");
+    accept.type = "button";
+    accept.textContent = "Accept";
+    accept.addEventListener("click", () => acceptPendingQuery(accept, row));
+    const change = document.createElement("button");
+    change.type = "button";
+    change.className = "secondary";
+    change.textContent = "Change";
+    change.addEventListener("click", () => {
+      accept.disabled = true;
+      change.disabled = true;
+      document.getElementById("question-label").textContent = "Change";
+      question.placeholder = "What should I change about those conditions?";
+      question.focus();
+    });
+    row.append(accept, change);
+    bubble.append(row);
+  }
   if (data.columns && data.columns.length && data.rows && data.rows.length) {
     bubble.append(chartCard(
       data.columns,
@@ -992,33 +1022,40 @@ function resetConversation() {
   question.placeholder = "Example: top app labels by download bytes yesterday";
 }
 
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const text = question.value.trim();
-  if (!text) return;
-    const prior = history.slice(-12).map((turn) => ({
-      question: turn.question,
-      sql: (turn.sql || "").slice(0, 100000),
-      explanation: (turn.explanation || "").slice(0, 500)
-    }));
-  addUserBubble(text);
-  question.value = "";
-  if (chartDisplayRequest(text) && lastAnswer && lastAnswer.data.rows && lastAnswer.data.rows.length) {
-    addAnswerBubble(text, {
-      explanation: "This charts the rows already shown.",
-      columns: lastAnswer.data.columns,
-      rows: lastAnswer.data.rows,
-      sql: lastAnswer.data.sql,
-      chartQuestion: lastAnswer.question + "\n" + text
-    });
-    question.focus();
-    return;
+function historyPayload() {
+  return history.slice(-12).map((turn) => ({
+    question: turn.question,
+    sql: (turn.sql || "").slice(0, 100000),
+    explanation: (turn.explanation || "").slice(0, 500),
+    pending_sql: (turn.pending_sql || "").slice(0, 100000)
+  }));
+}
+
+function rememberTurn(asked, data) {
+  if (data.error) return;
+  history.push({
+    question: asked,
+    sql: data.sql || "",
+    explanation: data.explanation || data.clarify || data.error || "",
+    pending_sql: data.pending_sql || ""
+  });
+  if (data.confirm) {
+    document.getElementById("question-label").textContent = "Confirm";
+    question.placeholder = "Accept to run, or say what to change";
+  } else {
+    document.getElementById("question-label").textContent = "Follow-up";
+    question.placeholder = "Ask about the same result, or change one part of it";
   }
+}
+
+async function runAsk(text, options = {}) {
+  const accept = Boolean(options.accept);
+  const prior = historyPayload();
   const menu = document.getElementById("engine");
   askButton.disabled = true;
   busy.classList.add("hidden");
   const progress = startProgress();
-  progress.add("Sending the question");
+  progress.add(accept ? "Running the confirmed query" : "Sending the question");
   try {
     const response = await fetch("/api/ask", {
       method: "POST",
@@ -1027,7 +1064,8 @@ form.addEventListener("submit", async (event) => {
         question: text,
         history: prior,
         engine: menu.value || "local",
-        debug: debugMode
+        debug: debugMode,
+        accept
       })
     });
     const type = response.headers.get("content-type") || "";
@@ -1039,7 +1077,9 @@ form.addEventListener("submit", async (event) => {
         addAnswerBubble(text, {error: raw.slice(0, 500) || String(error), explanation: ""});
         return;
       }
-      addAnswerBubble(text, !response.ok ? {error: detailText(data.detail), explanation: ""} : data);
+      const payload = !response.ok ? {error: detailText(data.detail), explanation: ""} : data;
+      addAnswerBubble(text, payload);
+      rememberTurn(text, payload);
       return;
     }
     const reader = response.body.getReader();
@@ -1062,15 +1102,7 @@ form.addEventListener("submit", async (event) => {
     progress.finish();
     const data = result || {error: "The assistant stopped before returning an answer.", explanation: ""};
     addAnswerBubble(text, data);
-    if (!data.error) {
-      history.push({
-        question: text,
-        sql: data.sql || "",
-        explanation: data.explanation || data.clarify || data.error || ""
-      });
-      document.getElementById("question-label").textContent = "Follow-up";
-      question.placeholder = "Ask about the same result, or change one part of it";
-    }
+    rememberTurn(text, data);
   } catch (error) {
     progress.finish();
     addAnswerBubble(text, {error: String(error), explanation: ""});
@@ -1079,6 +1111,33 @@ form.addEventListener("submit", async (event) => {
     busy.classList.add("hidden");
     question.focus();
   }
+}
+
+async function acceptPendingQuery(acceptButton, row) {
+  if (askButton.disabled) return;
+  for (const button of row.querySelectorAll("button")) button.disabled = true;
+  addUserBubble("Accept");
+  await runAsk("Accept", {accept: true});
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const text = question.value.trim();
+  if (!text) return;
+  addUserBubble(text);
+  question.value = "";
+  if (chartDisplayRequest(text) && lastAnswer && lastAnswer.data.rows && lastAnswer.data.rows.length) {
+    addAnswerBubble(text, {
+      explanation: "This charts the rows already shown.",
+      columns: lastAnswer.data.columns,
+      rows: lastAnswer.data.rows,
+      sql: lastAnswer.data.sql,
+      chartQuestion: lastAnswer.question + "\n" + text
+    });
+    question.focus();
+    return;
+  }
+  await runAsk(text);
 });
 
 document.getElementById("reset").addEventListener("click", resetConversation);

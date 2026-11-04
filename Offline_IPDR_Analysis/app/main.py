@@ -14,11 +14,20 @@ from pydantic import BaseModel, Field
 
 from app.answer_check import check_sql, needs_clarification
 from app.clarify_gate import silently_weakens_prior, uncertain_followup_prompt
+from app.confirm_gate import (
+    answer_accepts,
+    pending_confirm,
+    pending_sql,
+    summarize_query_plan,
+)
 from app.app_map import AppMap, activate_app_map
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
 from app.explain_result import explain_rows
 from app.followup import (
+    _answer_drops,
+    _answer_keeps,
+    _pending,
     asked_unit,
     conversation_full_scan,
     limit_followup,
@@ -56,6 +65,7 @@ class Turn(BaseModel):
     question: str = Field(default="", max_length=4000)
     sql: str | None = Field(default=None, max_length=100000)
     explanation: str | None = Field(default=None, max_length=2000)
+    pending_sql: str | None = Field(default=None, max_length=100000)
 
 
 class Question(BaseModel):
@@ -63,6 +73,7 @@ class Question(BaseModel):
     history: list[Turn] = Field(default_factory=list, max_length=24)
     engine: str = ""
     debug: bool = False
+    accept: bool = False
 
 
 class LearnRequest(BaseModel):
@@ -254,12 +265,45 @@ def _ask_events(body: Question):
     engine_label = engine.label if engine else engine_id
     yield _status("Checking saved answers")
     history = _history_payload(body.history)
+    # Accept runs the paused SQL with no second confirm.
+    if body.accept or (pending_confirm(history) and answer_accepts(question)):
+        to_run = pending_sql(history)
+        if to_run:
+            origin = str(history[-1].get("question") or question).strip() or question
+            one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", to_run, flags=re.IGNORECASE))
+            full_scan = conversation_full_scan(origin, history) and not one_subscriber
+            yield _status(
+                "Running the query. This reads the whole table and can take several minutes."
+                if full_scan or sql_needs_full_scan(to_run)
+                else "Running the confirmed query"
+            )
+            replayed = _replay_saved(
+                {"sql": to_run, "full_scan": full_scan or sql_needs_full_scan(to_run)},
+                config,
+                database,
+                _followup_notice(origin, to_run),
+                allow_all_groups=wants_all_groups(origin) or _lists_every_app(to_run),
+            )
+            if replayed is not None:
+                if replayed.get("row_count") == 0 and "subscriber_id = " in to_run.lower():
+                    replayed["explanation"] = _empty_subscriber_result(to_run)
+                yield _status("Preparing the chart and the table")
+                yield _done(replayed)
+                return
+            yield _done(_failed("The confirmed query could not be run."))
+            return
     saved = saved_sql(_state["index"].examples, question, history)
     if saved:
-        yield _status("Running the saved query")
-        replayed = _replay_saved(saved, config, database)
-        if replayed is not None:
-            yield _done(replayed)
+        saved_text = str(saved.get("sql") or "").strip()
+        if saved_text:
+            yield _status("Confirming the saved query")
+            yield _done(
+                _confirm(
+                    question,
+                    saved_text,
+                    full_scan=bool(saved.get("full_scan")) or sql_needs_full_scan(saved_text),
+                )
+            )
             return
     yield _status("Matching this to the previous question")
     choice_sql, choice_question = limit_followup(question, history, config.max_rows)
@@ -271,6 +315,12 @@ def _ask_events(body: Question):
         prior_sql = str(turn.get("sql") or "").strip()
         if prior_sql:
             break
+    # App-scope clarify replies redo the deferred ask; that pending text is the scope source of truth.
+    weaken_question = question
+    if _pending(history) and (_answer_keeps(question) or _answer_drops(question)):
+        pending_ask = str(history[-1].get("question") or "").strip()
+        if pending_ask:
+            weaken_question = pending_ask
     tweak = bool(prior_sql and looks_like_result_tweak(question, history))
     # Patch the previous ranking before intent can rebuild a thinner query.
     resolved = safe_rerank_previous(question, history) if tweak else None
@@ -300,7 +350,7 @@ def _ask_events(body: Question):
                 resolved = build_sql(intent)
             except ValueError:
                 resolved = None
-            if resolved and prior_sql and silently_weakens_prior(question, prior_sql, resolved):
+            if resolved and prior_sql and silently_weakens_prior(weaken_question, prior_sql, resolved):
                 resolved = None
         if not resolved:
             # If the referee rejected this family, do not rebuild the same intent in follow-up.
@@ -308,7 +358,7 @@ def _ask_events(body: Question):
             # A local rule that returns the previous SQL unchanged did not understand the ask.
             if resolved and history and sql_unchanged(resolved, history):
                 resolved = None
-            if resolved and prior_sql and silently_weakens_prior(question, prior_sql, resolved):
+            if resolved and prior_sql and silently_weakens_prior(weaken_question, prior_sql, resolved):
                 resolved = None
             if not resolved and tweak:
                 resolved = safe_rerank_previous(question, history)
@@ -330,7 +380,7 @@ def _ask_events(body: Question):
                     rebuilt = build_sql(normalized)
                 except ValueError:
                     rebuilt = None
-                if rebuilt and not silently_weakens_prior(question, prior_sql, rebuilt):
+                if rebuilt and not silently_weakens_prior(weaken_question, prior_sql, rebuilt):
                     resolved = rebuilt
     # Uncertain follow-up: ask instead of free-form SQL that often invents the wrong grain.
     if not resolved and prior_sql:
@@ -340,24 +390,9 @@ def _ask_events(body: Question):
         resolved = repair_sql(question, resolved, history)
         one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))
         full_scan = conversation_full_scan(question, history) and not one_subscriber
-        yield _status(
-            "Running the follow-up. This reads the whole table and can take several minutes."
-            if full_scan
-            else "Running the follow-up"
-        )
-        replayed = _replay_saved(
-            {"sql": resolved, "full_scan": full_scan},
-            config,
-            database,
-            _followup_notice(question, resolved),
-            allow_all_groups=wants_all_groups(question) or _lists_every_app(resolved),
-        )
-        if replayed is not None:
-            if replayed.get("row_count") == 0 and "subscriber_id = " in resolved.lower():
-                replayed["explanation"] = _empty_subscriber_result(resolved)
-            yield _status("Preparing the chart and the table")
-            yield _done(replayed)
-            return
+        yield _status("Confirming the follow-up")
+        yield _done(_confirm(question, resolved, full_scan=full_scan or sql_needs_full_scan(resolved)))
+        return
     clarification = needs_clarification(question, history)
     if clarification:
         yield _done(_clarify(clarification))
@@ -462,42 +497,8 @@ def _ask_events(body: Question):
             error = str(exc)
             previous_sql = sql
             continue
-        yield _status(
-            "Running the query. This reads the whole table and can take several minutes."
-            if full_scan
-            else "Running the query"
-        )
-        try:
-            columns, rows, warning = database.query(
-                safe_sql,
-                max_execution_ms=config.full_scan_execution_ms if full_scan else None,
-                unbounded=wants_all_groups(question),
-            )
-        except DatabaseError as exc:
-            error = str(exc)
-            previous_sql = safe_sql
-            continue
-        shown = present_rows(columns, rows, config)
-        if full_scan:
-            if wants_full_table(question) or _phrase_asks_for_all_data(question):
-                scan_note = "This query reads the whole table because you asked for no time filter. On a large table it can take several minutes."
-            elif conversation_full_scan(question, history):
-                scan_note = "This keeps the previous time scope, so it reads the whole table. On a large table it can take several minutes."
-            else:
-                scan_note = "This query reads the whole table because you marked an answer with no time range as correct. On a large table it can take several minutes."
-            warning = f"{scan_note} {warning}" if warning else scan_note
-        explanation = explain_rows(columns, shown, safe_sql)
-        yield _status("Preparing the chart and the table")
-        yield _done({
-            "ok": True,
-            "clarify": None,
-            "sql": safe_sql,
-            "columns": columns,
-            "rows": shown,
-            "explanation": explanation,
-            "warning": warning,
-            "row_count": len(shown),
-        })
+        yield _status("Confirming the query")
+        yield _done(_confirm(question, safe_sql, full_scan=full_scan or sql_needs_full_scan(safe_sql)))
         return
     yield _done(_failed("I could not turn that into a query."))
 
@@ -655,11 +656,28 @@ def _write_learned(path: Path, record: dict) -> None:
 def _clarify(text: str) -> dict:
     return {
         "ok": True,
+        "confirm": False,
         "clarify": text,
         "sql": None,
+        "pending_sql": None,
         "columns": [],
         "rows": [],
         "explanation": text,
+        "warning": None,
+    }
+
+
+def _confirm(question: str, sql: str, *, full_scan: bool | None = None) -> dict:
+    summary = summarize_query_plan(question, sql, full_scan=full_scan)
+    return {
+        "ok": True,
+        "confirm": True,
+        "clarify": summary,
+        "sql": None,
+        "pending_sql": sql,
+        "columns": [],
+        "rows": [],
+        "explanation": summary,
         "warning": None,
     }
 
@@ -990,6 +1008,7 @@ def _history_payload(history: list[Turn]) -> list[dict]:
                 "question": turn.question.strip(),
                 "sql": (turn.sql or "").strip(),
                 "explanation": (turn.explanation or "").strip()[:500],
+                "pending_sql": (turn.pending_sql or "").strip(),
             }
         )
     return payload
