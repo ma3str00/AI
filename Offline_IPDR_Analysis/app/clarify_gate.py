@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 
 from app.answer_check import drops_previous_apps
+from app.confirm_gate import answer_accepts
 from app.followup import (
     _app_stem_in_question,
     looks_like_result_tweak,
+    named_subscriber,
     preserves_prior_filters,
     preserves_result_shape,
 )
@@ -17,11 +19,7 @@ from app.places import mentioned_areas, mentioned_cities, mentioned_isps, mentio
 def uncertain_followup_prompt(question: str, history: list[dict] | None = None) -> str:
     """Clarify when a follow-up cannot be applied safely to the previous result."""
     history = history or []
-    prior_q = ""
-    for turn in reversed(history):
-        if str(turn.get("sql") or "").strip():
-            prior_q = str(turn.get("question") or "").strip()
-            break
+    prior_q = _prior_question_label(history)
     prior_bit = f' after “{prior_q}”' if prior_q else ""
     if looks_like_result_tweak(question, history):
         return (
@@ -36,6 +34,55 @@ def uncertain_followup_prompt(question: str, history: list[dict] | None = None) 
     )
 
 
+def _prior_question_label(history: list[dict]) -> str:
+    """Skip Accept/confirm replies when naming the previous ask in clarify text."""
+    for turn in reversed(history):
+        if not str(turn.get("sql") or turn.get("pending_sql") or "").strip():
+            continue
+        ask = str(turn.get("question") or "").strip()
+        if not ask or answer_accepts(ask):
+            continue
+        return ask
+    return ""
+
+
+def _drops_all_prior_filters(question: str) -> bool:
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"remove\s+(?:the\s+)?previous\s+filters?|"
+            r"drop\s+(?:the\s+)?previous\s+filters?|"
+            r"without\s+(?:the\s+)?previous\s+filters?|"
+            r"ignore\s+(?:the\s+)?previous\s+filters?|"
+            r"clear\s+(?:the\s+)?(?:previous\s+)?filters?|"
+            r"new\s+question|"
+            r"start\s+over"
+            r")\b",
+            folded,
+        )
+    )
+
+
+def _is_subscriber_drilldown(question: str, new_sql: str) -> bool:
+    """True when the ask targets one named subscriber (apps/websites/details)."""
+    subscriber = named_subscriber(question)
+    if not subscriber:
+        return False
+    compact = re.sub(r"\s+", "", new_sql.lower())
+    if f"subscriber_id='{subscriber.lower()}'" not in compact:
+        return False
+    folded = new_sql.lower()
+    return bool(
+        re.search(
+            r"\b(applications?|apps?|websites?|sites?|details?|activity|activities)\b",
+            question.lower(),
+        )
+        or "group by app_label" in folded
+        or "group by requested_server" in folded
+    )
+
+
 def silently_weakens_prior(
     question: str,
     prior_sql: str | None,
@@ -45,6 +92,9 @@ def silently_weakens_prior(
     if not prior_sql or not new_sql:
         return False
     if preserves_prior_filters(prior_sql, new_sql) and preserves_result_shape(prior_sql, new_sql):
+        return False
+    # Drill into one named subscriber (apps/websites/details) is an intentional new scope.
+    if _is_subscriber_drilldown(question, new_sql) or _drops_all_prior_filters(question):
         return False
     # User named a place / ISP / app → allowed to rebuild with that scope.
     if (

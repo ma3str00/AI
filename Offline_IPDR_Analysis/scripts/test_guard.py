@@ -3372,6 +3372,41 @@ def main() -> None:
             f"{(drop_pindi or '')[:500]}"
         )
     prepare(drop_pindi, 200, allow_full_scan=True)
+    from app.clarify_gate import silently_weakens_prior as weakens_after_accept
+
+    blocked_rank = (
+        "SELECT subscriber_id, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+        "WHERE (IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "AND (block_type IS NOT NULL AND block_type <> 0) "
+        "GROUP BY subscriber_id ORDER BY blocked_flows DESC LIMIT 20"
+    )
+    detail_sql = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE subscriber_id = '03334128404ASD' "
+        "GROUP BY app_label ORDER BY total_bytes DESC"
+    )
+    if weakens_after_accept("show details of 03334128404ASD", blocked_rank, detail_sql):
+        raise SystemExit("named-subscriber details after a ranking must not be treated as silent weakening")
+    sites_apps = (
+        "SELECT requested_server, app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE subscriber_id = '03334128404ASD' AND IFNULL(requested_server, '') <> '' "
+        "GROUP BY requested_server, app_label ORDER BY flows DESC LIMIT 50"
+    )
+    if weakens_after_accept(
+        "remove the previous filters. Just show the applications and websites accessed by 03334128404ASD",
+        blocked_rank,
+        sites_apps,
+    ):
+        raise SystemExit("remove previous filters + apps/websites for one user must be allowed")
+    accept_hist = [
+        {"question": "show me the top users with maximum blocked flows", "sql": "", "pending_sql": blocked_rank},
+        {"question": "Accept", "sql": blocked_rank},
+    ]
+    detail_follow = resolve_followup("show details of 03334128404ASD", accept_hist)
+    if not detail_follow or "subscriber_id = '03334128404ASD'" not in detail_follow or "group by app_label" not in detail_follow.lower():
+        raise SystemExit(f"post-Accept subscriber details failed: {detail_follow}")
     # Confirm responses must pause with pending_sql and no executed sql.
     confirm_payload = {
         "confirm": True,

@@ -1126,6 +1126,7 @@ function rememberTurn(asked, data) {
 
 async function runAsk(text, options = {}) {
   const accept = Boolean(options.accept);
+  const rememberAs = options.rememberAs || text;
   const prior = historyPayload();
   const menu = document.getElementById("engine");
   askButton.disabled = true;
@@ -1155,7 +1156,7 @@ async function runAsk(text, options = {}) {
       }
       const payload = !response.ok ? {error: detailText(data.detail), explanation: ""} : data;
       addAnswerBubble(text, payload);
-      rememberTurn(text, payload);
+      rememberTurn(rememberAs, payload);
       return;
     }
     const reader = response.body.getReader();
@@ -1178,7 +1179,7 @@ async function runAsk(text, options = {}) {
     progress.finish();
     const data = result || {error: "The assistant stopped before returning an answer.", explanation: ""};
     addAnswerBubble(text, data);
-    rememberTurn(text, data);
+    rememberTurn(rememberAs, data);
   } catch (error) {
     progress.finish();
     addAnswerBubble(text, {error: String(error), explanation: ""});
@@ -1192,8 +1193,10 @@ async function runAsk(text, options = {}) {
 async function acceptPendingQuery(acceptButton, row) {
   if (askButton.disabled) return;
   for (const button of row.querySelectorAll("button")) button.disabled = true;
+  const confirmTurn = [...history].reverse().find((turn) => turn.pending_sql);
+  const origin = (confirmTurn && confirmTurn.question) || "Accept";
   addUserBubble("Accept");
-  await runAsk("Accept", {accept: true});
+  await runAsk("Accept", {accept: true, rememberAs: origin});
 }
 
 form.addEventListener("submit", async (event) => {
