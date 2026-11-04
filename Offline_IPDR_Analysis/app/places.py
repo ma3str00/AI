@@ -548,7 +548,13 @@ def mentioned_isps(question: str) -> list[Place]:
 
 
 def asks_same_city(question: str) -> bool:
-    return bool(re.search(r"\b(?:same|that|this)\s+city\b", question.lower()))
+    """True for 'same city / location / place / area / address' follow-ups."""
+    return bool(
+        re.search(
+            r"\b(?:same|that|this)\s+(?:city|location|place|area|address|locality)\b",
+            question.lower(),
+        )
+    )
 
 
 def named_in(question: str) -> list[Place]:

@@ -1062,18 +1062,21 @@ def _apply_place_filters(
     cities: list | None = None,
     isps: list | None = None,
 ) -> str:
-    """Keep a ranking and set the city and ISP named in the question."""
+    """Keep a ranking and set the city/sector/ISP named in the question."""
     if cities is None:
         cities = [place for place in named_in(question) if place.kind == "city"] or mentioned_cities(question)
     if isps is None:
         isps = [place for place in named_in(question) if place.kind == "isp"] or mentioned_isps(question)
-    areas = mentioned_areas(question)
-    unknown = _from_place(question)
-    if not cities and not isps and not unknown and not areas:
+    street = street_before_city(question)
+    areas = [] if street else mentioned_areas(question)
+    unknown = None if street else _from_place(question)
+    if not cities and not isps and not unknown and not areas and not street:
         return text
-    if cities or unknown or areas:
+    if street or cities or unknown or areas:
         text = _strip_column_group(text, "loc")
-        if cities or unknown:
+        if street:
+            text = _inject_before_group_by(text, street_predicate(street))
+        elif cities or unknown:
             predicate = column_predicate("loc", cities[-1]) if cities else f"LOWER(loc) LIKE '%{unknown}%'"
             text = _inject_before_group_by(text, predicate)
         for area in areas:
@@ -1136,7 +1139,8 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
         )
     )
     named = named_in(question)
-    if fresh_ranking and not narrows and not named:
+    street = street_before_city(question)
+    if fresh_ranking and not narrows and not named and not street:
         return None
     place_cities = [place for place in named if place.kind == "city"]
     isps = [place for place in named if place.kind == "isp"]
@@ -1145,17 +1149,25 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
         place_cities = mentioned_cities(question)
     if not isps:
         isps = mentioned_isps(question)
-    if not place_cities and not isps and _from_place(question) is None and not mentioned_areas(question):
+    if (
+        not place_cities
+        and not isps
+        and not street
+        and _from_place(question) is None
+        and not mentioned_areas(question)
+    ):
         return None
     leftover = without_areas(without_named(question)).lower()
     for place in (*place_cities, *isps):
         for alias in sorted(place.aliases, key=len, reverse=True):
             leftover = re.sub(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", " ", leftover)
+    for word in street:
+        leftover = re.sub(rf"(?<![a-z0-9]){re.escape(word)}(?![a-z0-9])", " ", leftover)
     leftover = re.sub(
         r"\b("
         r"city|cities|users?|subscribers?|people|belong|belongs|belonging|only|those|these|that|"
         r"previous|query|building|want|see|show|list|from|in|to|of|the|a|an|"
-        r"apply|filter|filters|need|needed|please|you"
+        r"apply|filter|filters|need|needed|please|you|place|location|sector"
         r")\b",
         " ",
         leftover,
@@ -1186,6 +1198,7 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
         place_only = bool(
             narrows
             or place_cities
+            or street
             or mentioned_areas(question)
             or re.search(r"\b(from|in)\b.{0,40}\b(city|cities)?\b", folded)
             or re.search(r"\b(city|cities)\b", folded)
@@ -1763,10 +1776,14 @@ def _same_request_other_person(question: str, history: list[dict]) -> str | None
 
 
 def _saved_loc_predicate(sql: str) -> str | None:
+    """Copy the previous loc filter, including sector patterns like '%f-6%islamabad%'."""
     match = re.search(
         r"(?i)\(\s*LOWER\(loc\)\s+LIKE\s+'%[^']+%'(?:\s+OR\s+LOWER\(loc\)\s+LIKE\s+'%[^']+%')*\s*\)",
         sql or "",
     )
+    if match:
+        return match.group(0)
+    match = re.search(r"(?i)LOWER\(loc\)\s+LIKE\s+'%[^']+%'", sql or "")
     return match.group(0) if match else None
 
 

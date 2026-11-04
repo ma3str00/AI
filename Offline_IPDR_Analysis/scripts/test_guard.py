@@ -3488,6 +3488,49 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Same-location follow-up must keep sector+city (F-6 Islamabad), not drop loc.
+    f6_sql = resolve_followup("show me the top 10 users from F-6 Islamabad", [])
+    f6_folded = (f6_sql or "").lower()
+    if not f6_sql or "like '%f-6%islamabad%'" not in f6_folded:
+        raise SystemExit(f"F-6 Islamabad users failed: {f6_sql}")
+    same_loc = resolve_followup(
+        "now show me the top 10 whatsapp users from the same location",
+        [{"question": "show me the top 10 users from F-6 Islamabad", "sql": f6_sql}],
+    )
+    same_loc_folded = (same_loc or "").lower()
+    if (
+        not same_loc
+        or "like '%whatsapp%'" not in same_loc_folded
+        or "like '%f-6%islamabad%'" not in same_loc_folded
+        or "group by subscriber_id" not in same_loc_folded
+    ):
+        raise SystemExit(f"same location dropped F-6 Islamabad: {same_loc}")
+    apply_f6 = resolve_followup(
+        "apply the place filter of F-6 Islamabad",
+        [
+            {
+                "question": "now show me the top 10 whatsapp users from the same location",
+                "sql": "",
+                "pending_sql": (
+                    "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+                    "COUNT(*) AS flows FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+                    "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+                    "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
+                ),
+            }
+        ],
+    )
+    apply_f6_folded = (apply_f6 or "").lower()
+    if (
+        not apply_f6
+        or "like '%whatsapp%'" not in apply_f6_folded
+        or "like '%f-6%islamabad%'" not in apply_f6_folded
+        or ("like '%islamabad%'" in apply_f6_folded and "like '%f-6%islamabad%'" not in apply_f6_folded)
+    ):
+        raise SystemExit(f"apply F-6 Islamabad must keep WhatsApp and sector loc: {apply_f6}")
+    prepare(same_loc, 200, allow_full_scan=True)
+    prepare(apply_f6, 200, allow_full_scan=True)
+
     # Most popular ISP among social-media users — ISP grain + class filter, not subscribers.
     social_isp = resolve_followup("most popular ISP among the social media users", [])
     social_isp_folded = (social_isp or "").lower()

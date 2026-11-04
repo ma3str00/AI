@@ -286,14 +286,17 @@ def _canonical_places(tokens: list[str]) -> list[str]:
 
 
 def _like_values(folded_sql: str, column: str) -> list[str]:
-    return [
-        match.group(1)
-        for match in re.finditer(
-            rf"lower\s*\(\s*{re.escape(column)}\s*\)\s+like\s+'%([^%']+)%'",
-            folded_sql,
-            flags=re.IGNORECASE,
-        )
-    ]
+    """Extract LIKE stems, including multi-token sector patterns ('%f-6%islamabad%')."""
+    out: list[str] = []
+    for match in re.finditer(
+        rf"lower\s*\(\s*{re.escape(column)}\s*\)\s+like\s+'%((?:[^%']+%)*[^%']+)%'",
+        folded_sql,
+        flags=re.IGNORECASE,
+    ):
+        token = re.sub(r"%+", " ", match.group(1)).strip()
+        if token:
+            out.append(token)
+    return out
 
 
 def _app_filter_values(folded_sql: str) -> list[str]:
