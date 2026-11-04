@@ -21,8 +21,12 @@ from app.followup import (
     asked_unit,
     conversation_full_scan,
     limit_followup,
+    looks_like_result_tweak,
     named_subscriber,
+    patch_order_measure,
+    preserves_result_shape,
     resolve_followup,
+    safe_rerank_previous,
     sql_unchanged,
     subscriber_kind,
     use_full_scan,
@@ -286,10 +290,20 @@ def _ask_events(body: Question):
             # No model available: ask instead of guessing users vs totals.
             yield _done(_clarify(intent.clarify_prompt or "Do you want totals, or a ranked list?"))
             return
+    prior_sql = ""
+    for turn in reversed(history):
+        prior_sql = str(turn.get("sql") or "").strip()
+        if prior_sql:
+            break
+    tweak = bool(prior_sql and looks_like_result_tweak(question))
+
     if intent is not None:
         try:
             resolved = build_sql(intent)
         except ValueError:
+            resolved = None
+        # Do not let intent rebuild a different grain for "same but by flow count" asks.
+        if resolved and tweak and not preserves_result_shape(prior_sql, resolved):
             resolved = None
     else:
         resolved = None
@@ -299,6 +313,11 @@ def _ask_events(body: Question):
         # A local rule that returns the previous SQL unchanged did not understand the ask.
         if resolved and history and sql_unchanged(resolved, history):
             resolved = None
+        # A local rewrite that changes ranking shape (users → one total) is a miss.
+        if resolved and tweak and not preserves_result_shape(prior_sql, resolved):
+            resolved = None
+    if not resolved and tweak:
+        resolved = safe_rerank_previous(question, history)
     # Local rules missed a follow-up that still looks like a tweak of the last structured answer.
     if not resolved and not intent_rejected and llama is not None and history:
         yield _status("Checking how this relates to the last answer")
@@ -307,10 +326,25 @@ def _ask_events(body: Question):
             yield _done(_clarify(normalized))
             return
         if normalized is not None:
-            try:
-                resolved = build_sql(normalized)
-            except ValueError:
-                resolved = None
+            patched = patch_order_measure(prior_sql, normalized.measure) if prior_sql else None
+            if patched and preserves_result_shape(prior_sql, patched):
+                resolved = patched
+            else:
+                try:
+                    rebuilt = build_sql(normalized)
+                except ValueError:
+                    rebuilt = None
+                if rebuilt and (not tweak or preserves_result_shape(prior_sql, rebuilt)):
+                    resolved = rebuilt
+    # Tweaks with no local/normalizer SQL and no model: ask instead of guessing a new grain.
+    if not resolved and tweak and llama is None:
+        yield _done(
+            _clarify(
+                "Do you want to keep the previous result and only change how it is ranked "
+                "(for example by flow count vs traffic), or ask a new question?"
+            )
+        )
+        return
     if resolved:
         resolved = repair_sql(question, resolved, history)
         one_subscriber = bool(re.search(r"subscriber_id\s*=\s*'[^']+'", resolved, flags=re.IGNORECASE))

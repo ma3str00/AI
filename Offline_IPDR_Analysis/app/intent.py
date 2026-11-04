@@ -20,6 +20,7 @@ from app.followup import (
     _limit_in,
     _merge_app_exclusions,
     _ranks_isp_entities,
+    looks_like_result_tweak,
 )
 from app.places import (
     asks_same_city,
@@ -296,6 +297,15 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
     """Parse a structured intent for the high-value ISP/app follow-up family."""
     history = history or []
     folded = question.lower()
+
+    # Same/repeat/instead/rank-them tweaks belong to SQL patching / LLM normalize — not a new grain.
+    if (
+        _last_sql(history)
+        and looks_like_result_tweak(question)
+        and not _pending_open_clarify_question(history)
+        and not _pending_usage_clarify_question(history)
+    ):
+        return None
 
     # "based on traffic volume" after a clarify — redo the prior question with that measure.
     pending_open = _pending_open_clarify_question(history)

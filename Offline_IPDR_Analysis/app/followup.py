@@ -40,6 +40,10 @@ _TIME_WORDS = ("yesterday", "today", "last ", "hour", "between", "since", "this 
 def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     """Build SQL from the last real query when the reply only changes one part of it."""
     history = history or []
+    # Measure-only tweaks on the previous ranking must not rebuild a different grain.
+    reranked = safe_rerank_previous(question, history)
+    if reranked:
+        return reranked
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
@@ -1696,6 +1700,9 @@ def _asks_aggregate_total(question: str) -> bool:
     folded = question.lower()
     if re.search(r"\b(users?|subscribers?|top\s+\d+)\b", folded):
         return False
+    # Measure swaps on a previous list are not aggregate totals.
+    if looks_like_result_tweak(question):
+        return False
     if re.search(r"\b(i meant|meant the|just the|only the)\b", folded) and re.search(
         r"\b(total|overall|aggregate|sum|volume|flow count)\b", folded
     ):
@@ -1709,6 +1716,154 @@ def _asks_aggregate_total(question: str) -> bool:
         and re.search(r"\bflow counts?\b", folded)
         and not re.search(r"\b(per|each|wise)\b", folded)
     )
+
+
+def looks_like_result_tweak(question: str) -> bool:
+    """True when the user is tweaking the previous answer, not asking a brand-new listing."""
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"same(?:\s+(?:query|list|result|ranking|thing))?|"
+            r"repeat|"
+            r"instead(?:\s+of)?|"
+            r"rather\s+than|"
+            r"rank(?:\s+them|\s+it|\s+these)?|"
+            r"re-?rank|"
+            r"order(?:\s+them)?\s+by|"
+            r"sort(?:\s+them)?\s+by|"
+            r"based\s+on\s+(?:flow|traffic|volume|session|hit)"
+            r")\b",
+            folded,
+        )
+    )
+
+
+def result_shape(sql: str) -> tuple:
+    """Coarse grain of a result: aggregate vs grouped vs windowed ranking."""
+    folded = re.sub(r"\s+", " ", (sql or "").lower())
+    if "row_number()" in folded:
+        part = "city" if "partition by city" in folded else (
+            "client_asn" if "partition by client_asn" in folded else "window"
+        )
+        entity = "app_label" if "app_label" in folded else (
+            "client_asn" if "client_asn" in folded else "other"
+        )
+        return ("window", part, entity)
+    if not re.search(r"\bgroup\s+by\b", folded):
+        return ("aggregate",)
+    return ("group", _group_key(sql) or "unknown")
+
+
+def preserves_result_shape(previous: str | None, new_sql: str | None) -> bool:
+    """Local follow-ups must not silently change ranking grain (e.g. users → one total)."""
+    if not previous or not new_sql:
+        return False
+    return result_shape(previous) == result_shape(new_sql)
+
+
+def _measure_from_tweak(question: str) -> str | None:
+    """Target ranking measure for same/instead/rank-by follow-ups."""
+    folded = question.lower()
+    measure_text = re.sub(
+        r"\b(?:instead of|rather than|not)\s+(?:the\s+)?"
+        r"(?:traffic(?:\s+volum\w*)?|volum\w*|bytes|mb|gb|tb|"
+        r"flow\s+counts?|flows?|hits|session\s+counts?|sessions?|"
+        r"number\s+of\s+(?:flows?|sessions?|users?|subscribers?)|"
+        r"users?|subscribers?)\b",
+        " ",
+        folded,
+    )
+    measure_text = re.sub(r"\s+", " ", measure_text).strip()
+    if re.search(r"\b(flows?|flow count|hits|sessions?|session count)\b", measure_text) and not re.search(
+        r"\b(bytes|traffic|volume|mb|gb|tb|users?|subscribers?)\b", measure_text
+    ):
+        return "flows"
+    if re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", measure_text) and not re.search(
+        r"\b(flows?|flow count|hits|sessions?|session count|users?|subscribers?)\b",
+        measure_text,
+    ):
+        return "total_mb"
+    if re.search(r"\b(users?|subscribers?)\b", measure_text) and not re.search(
+        r"\b(flows?|flow count|hits|sessions?|session count|bytes|traffic|volume|mb|gb|tb)\b",
+        measure_text,
+    ):
+        return "users"
+    return None
+
+
+def _order_alias_for_measure(sql: str, measure: str) -> str | None:
+    folded = sql.lower()
+    if measure == "flows":
+        for name in ("flows", "flow_count", "sessions", "hits"):
+            if re.search(rf"\bas {name}\b", folded):
+                return name
+        if re.search(r"count\s*\(\s*\*\s*\)", folded):
+            return "flows"
+        return None
+    if measure == "users":
+        if re.search(r"\bas users\b", folded):
+            return "users"
+        return None
+    for name in ("total_mb", "total_bytes", "traffic_volume_mb", "traffic_volume"):
+        if re.search(rf"\bas {name}\b", folded):
+            return name
+    if re.search(r"sum\s*\(\s*c2s_byte_num\s*\+\s*s2c_byte_num\s*\)", folded):
+        return "total_mb"
+    return None
+
+
+def patch_order_measure(sql: str, measure: str) -> str | None:
+    """Change only the final ORDER BY measure; keep filters, columns, and LIMIT."""
+    if not sql or "row_number()" in sql.lower():
+        return None
+    alias = _order_alias_for_measure(sql, measure)
+    if not alias:
+        return None
+    text = re.sub(r"\s+", " ", sql).strip()
+    # Replace the trailing result ORDER BY (not ORDER BY inside GROUP_CONCAT).
+    replaced = re.sub(
+        r"(?i)\border\s+by\s+[\w.`]+\s+(desc|asc)(\s+limit\s+\d+)?\s*$",
+        lambda m: f"ORDER BY {alias} DESC{m.group(2) or ''}",
+        text,
+    )
+    if replaced != text:
+        return replaced.strip()
+    if re.search(r"(?i)\border\s+by\b", text) and re.search(r"(?i)\blimit\s+\d+\s*$", text):
+        # ORDER BY exists earlier in the statement; replace the last one before LIMIT.
+        replaced = re.sub(
+            r"(?i)\border\s+by\s+[\w.`]+\s+(desc|asc)\s+(?=limit\s+\d+\s*$)",
+            f"ORDER BY {alias} DESC ",
+            text,
+        )
+        if replaced != text:
+            return replaced.strip()
+    if re.search(r"(?i)\blimit\s+\d+\s*$", text) and not re.search(
+        r"(?i)\border\s+by\s+[\w.`]+\s+(?:desc|asc)\s+limit\s+\d+\s*$", text
+    ):
+        return re.sub(r"(?i)\blimit\s+(\d+)\s*$", f"ORDER BY {alias} DESC LIMIT \\1", text)
+    if not re.search(r"(?i)\border\s+by\b.+$", text):
+        return f"{text} ORDER BY {alias} DESC"
+    return None
+
+
+def safe_rerank_previous(question: str, history: list[dict] | None = None) -> str | None:
+    """Same result shape; only swap the ranking measure on the previous SQL."""
+    if not looks_like_result_tweak(question):
+        return None
+    previous = _last_sql(history or [])
+    if not previous:
+        return None
+    measure = _measure_from_tweak(question)
+    if not measure:
+        return None
+    if "row_number()" in previous.lower():
+        # Window rankings need the dedicated rebuild path.
+        return _rerank_window_measure(question, history or [])
+    patched = patch_order_measure(previous, measure)
+    if patched and preserves_result_shape(previous, patched):
+        return patched
+    return None
 
 
 def _isp_from_history_questions(history: list[dict] | None) -> list:

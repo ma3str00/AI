@@ -2977,6 +2977,51 @@ def main() -> None:
     if llm_reject is not None:
         raise SystemExit(f"new_question should fall through: {llm_reject}")
 
+    from app.followup import looks_like_result_tweak, preserves_result_shape
+
+    jazz_lahore = (
+        "SELECT subscriber_id, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END "
+        "ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
+        "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(geo, '') <> '' THEN geo END ORDER BY geo SEPARATOR ', ') AS geo "
+        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND (LOWER(loc) LIKE '%lahore%' OR LOWER(loc) LIKE '%lhr%') "
+        "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
+    )
+    same_by_flows_users = resolve_followup(
+        "repeat the same query but rank them by flow count instead of traffic volume",
+        [{"question": "show me the top 20 whatsapp Jazz users from Lahore", "sql": jazz_lahore}],
+    )
+    same_by_flows_users_folded = (same_by_flows_users or "").lower()
+    if (
+        not same_by_flows_users
+        or not looks_like_result_tweak(
+            "repeat the same query but rank them by flow count instead of traffic volume"
+        )
+        or not preserves_result_shape(jazz_lahore, same_by_flows_users)
+        or "group by subscriber_id" not in same_by_flows_users_folded
+        or "like '%lahore%'" not in same_by_flows_users_folded
+        or "like '%whatsapp%'" not in same_by_flows_users_folded
+        or "order by flows desc" not in same_by_flows_users_folded
+        or "limit 20" not in same_by_flows_users_folded
+        or "order by total_bytes" in same_by_flows_users_folded
+        or resolve_intent(
+            "repeat the same query but rank them by flow count instead of traffic volume",
+            [{"question": "show me the top 20 whatsapp Jazz users from Lahore", "sql": jazz_lahore}],
+        )
+        is not None
+    ):
+        raise SystemExit(
+            "same query by flow count must keep the subscriber ranking and Lahore filter: "
+            f"{(same_by_flows_users or '')[:500]}"
+        )
+    prepare(same_by_flows_users, 200, allow_full_scan=True)
+
     instead_of_traffic = resolve_followup(
         "rank them by flow count instead of traffic volme",
         [
