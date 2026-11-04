@@ -3488,6 +3488,27 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Most popular social-media platform in a city — class filter + loc (not LLM failure).
+    social_khi = resolve_followup("the most popular social media platform in Karachi", [])
+    social_khi_folded = (social_khi or "").lower()
+    social_khi_plan = summarize_query_plan(
+        "the most popular social media platform in Karachi", social_khi or "", full_scan=True
+    )
+    if (
+        not social_khi
+        or "group by app_label" not in social_khi_folded
+        or "like '%karachi%'" not in social_khi_folded
+        or "like '%facebook%'" not in social_khi_folded
+        or "like '%tiktok%'" not in social_khi_folded
+        or "group by subscriber_id" in social_khi_folded
+        or "Place:" not in social_khi_plan
+        or "Karachi" not in social_khi_plan
+    ):
+        raise SystemExit(
+            f"popular social media platform in Karachi failed: {social_khi}\n{social_khi_plan}"
+        )
+    prepare(social_khi, 200, allow_full_scan=True)
+
     # Most popular ISP in a named city — local client_asn ranking (time-clarify redo too).
     karachi_isp = resolve_followup("the most popular ISP in Karachi", [])
     karachi_isp_folded = (karachi_isp or "").lower()

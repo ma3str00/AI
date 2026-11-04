@@ -1361,11 +1361,16 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
 
 
 def _popular_apps(question: str, history: list[dict] | None = None) -> str | None:
-    """Most popular / top apps, optionally limited to a named city."""
+    """Most popular / top apps (or platforms), optionally limited to a named city/class."""
     folded = question.lower()
-    if not re.search(r"\b(apps?|applications?)\b", folded):
+    if not re.search(r"\b(apps?|applications?|platforms?)\b", folded):
         return None
-    if not re.search(r"\b(top|most|popular|highest|favourite|favorite)\b", folded):
+    if not re.search(r"\b(top|most|popular|highest|favourite|favorite|used)\b", folded):
+        return None
+    # One-subscriber activity lists belong on _apps_of_one_subscriber.
+    if named_subscriber(question) or _id_anywhere(question):
+        return None
+    if re.search(r"\b(other|used by|being used|by this|this user)\b", folded):
         return None
     # Leave blocked/duration/timeline/per-grain rankings to their dedicated builders.
     if re.search(
@@ -1377,12 +1382,12 @@ def _popular_apps(question: str, history: list[dict] | None = None) -> str | Non
         folded,
     ):
         return None
-    if class_from_question(question) or category_from_question(question):
-        return None
     if _asks_isp_breakdown(question):
         return None
     if _named_app_label(question) or _protocol_family(question):
         return None
+    class_id = class_from_question(question)
+    category = None if class_id else category_from_question(question)
     cities = mentioned_cities(question)
     isps = mentioned_isps(question)
     where = [
@@ -1390,12 +1395,26 @@ def _popular_apps(question: str, history: list[dict] | None = None) -> str | Non
         "LOCATE('_', subscriber_id) = 0",
         *_merge_app_exclusions(question, _last_sql(history or [])),
     ]
+    if class_id:
+        where.append(class_label_predicate(class_id))
+    elif category:
+        where.append(f"LOWER(app_category) = '{category}'")
     if cities:
         where.append(column_predicate("loc", cities[-1]))
     if isps:
         where.append(column_predicate("client_asn", isps[-1]))
-    limit = _limit_in(question) or 20
+    limit = _limit_in(question)
+    if limit is None:
+        singular = bool(re.search(r"\b(app|application|platform)\b", folded)) and not re.search(
+            r"\b(apps|applications|platforms)\b", folded
+        )
+        limit = 1 if singular else 20
     if re.search(r"\b(flows?|flow count|hits|sessions?)\b", folded):
+        order = "flows"
+    elif re.search(r"\b(bytes|traffic|volume|mb|gb|tb|popular)\b", folded):
+        order = "total_mb"
+    elif re.search(r"\b(most\s+used|highest\s+used|used)\b", folded):
+        # Match intent default: "most used" without a traffic word ranks by flows.
         order = "flows"
     else:
         order = "total_mb"
