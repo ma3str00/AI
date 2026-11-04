@@ -50,6 +50,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     dropped_place = _remove_place_alias_filter(question, history)
     if dropped_place:
         return dropped_place
+    timed = _answer_time_clarify(question, history)
+    if timed:
+        return timed
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
@@ -105,6 +108,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     apps_duration = _apps_by_duration(question)
     if apps_duration:
         return apps_duration
+    popular = _popular_apps(question, history)
+    if popular:
+        return popular
     # High-value ISP/app family goes through intent → SQL (see app.intent).
     from app.intent import build_sql, resolve_intent
 
@@ -1037,13 +1043,20 @@ def _from_place(question: str) -> str | None:
     return place
 
 
+def _inject_before_group_by(sql: str, predicate: str) -> str:
+    """Add a predicate before GROUP BY, using WHERE when the query has none yet."""
+    if re.search(r"(?i)\bWHERE\b", sql):
+        return re.sub(r"(?i)\bGROUP BY\b", f"AND {predicate} GROUP BY", sql, count=1)
+    return re.sub(r"(?i)\bGROUP BY\b", f"WHERE {predicate} GROUP BY", sql, count=1)
+
+
 def _apply_place_filters(
     text: str,
     question: str,
     cities: list | None = None,
     isps: list | None = None,
 ) -> str:
-    """Keep a subscriber ranking and set the city and ISP named in the question."""
+    """Keep a ranking and set the city and ISP named in the question."""
     if cities is None:
         cities = [place for place in named_in(question) if place.kind == "city"] or mentioned_cities(question)
     if isps is None:
@@ -1056,9 +1069,9 @@ def _apply_place_filters(
         text = _strip_column_group(text, "loc")
         if cities or unknown:
             predicate = column_predicate("loc", cities[-1]) if cities else f"LOWER(loc) LIKE '%{unknown}%'"
-            text = re.sub(r"(?i)\bGROUP BY\b", f"AND {predicate} GROUP BY", text, count=1)
+            text = _inject_before_group_by(text, predicate)
         for area in areas:
-            text = re.sub(r"(?i)\bGROUP BY\b", f"AND {area_predicate(area)} GROUP BY", text, count=1)
+            text = _inject_before_group_by(text, area_predicate(area))
         if not re.search(r"(?i)\bas loc\b", text):
             text = re.sub(
                 r"(?i)\bFROM\b",
@@ -1068,12 +1081,7 @@ def _apply_place_filters(
             )
     if isps:
         text = _strip_column_group(text, "client_asn")
-        text = re.sub(
-            r"(?i)\bGROUP BY\b",
-            f"AND {column_predicate('client_asn', isps[-1])} GROUP BY",
-            text,
-            count=1,
-        )
+        text = _inject_before_group_by(text, column_predicate("client_asn", isps[-1]))
         if not re.search(r"(?i)\bas client_asn\b", text):
             text = re.sub(r"(?i)\bFROM\b", ", " + _address_expression("client_asn") + " FROM", text, count=1)
     return text
@@ -1106,7 +1114,7 @@ def _strip_column_group(sql: str, column: str) -> str:
 
 
 def _users_from_place(question: str, history: list[dict]) -> str | None:
-    """Keep the subscriber ranking and apply a named city or ISP."""
+    """Keep the current ranking and apply a named city or ISP (subscribers or apps)."""
     if _mentions_fixed(question) or _mentions_mobile(question):
         return None
     folded = question.lower()
@@ -1114,7 +1122,10 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
     fresh_ranking = bool(re.search(r"\b(top|highest|maximum|most)\b", folded) and re.search(r"\b(users?|subscribers?)\b", folded))
     narrows = bool(
         re.search(
-            r"\b(belong|belongs|belonging|only those|only the|building on|previous query|same city|that city|this city)\b",
+            r"\b("
+            r"belong|belongs|belonging|only those|only the|building on|previous query|"
+            r"same city|that city|this city|apply|filter|add"
+            r")\b",
             folded,
         )
     )
@@ -1137,7 +1148,8 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
     leftover = re.sub(
         r"\b("
         r"city|cities|users?|subscribers?|people|belong|belongs|belonging|only|those|these|that|"
-        r"previous|query|building|want|see|show|list|from|in|to|of|the|a|an"
+        r"previous|query|building|want|see|show|list|from|in|to|of|the|a|an|"
+        r"apply|filter|filters|need|needed|please|you"
         r")\b",
         " ",
         leftover,
@@ -1145,14 +1157,158 @@ def _users_from_place(question: str, history: list[dict]) -> str | None:
     if _subject_filter(leftover):
         return None
     previous = _last_sql(history)
-    if not previous or "group by subscriber_id" not in previous.lower():
+    if not previous:
         return None
+    grain = previous.lower()
+    if not (
+        "group by subscriber_id" in grain
+        or "group by app_label" in grain
+        or "group by requested_server" in grain
+    ):
+        return None
+    # Column adds ("also show unique users") must not be treated as a place filter.
+    if re.search(
+        r"\b("
+        r"also\s+show|add\s+(?:the\s+)?(?:column|columns|users?|address)|"
+        r"unique\s+(?:number|count)\s+of|against\s+(?:the\s+)?"
+        r")\b",
+        folded,
+    ):
+        return None
+    # App/website rankings only accept an explicit city/ISP apply — not a bare ISP name.
+    if "group by subscriber_id" not in grain:
+        place_only = bool(
+            narrows
+            or place_cities
+            or mentioned_areas(question)
+            or re.search(r"\b(from|in)\b.{0,40}\b(city|cities)?\b", folded)
+            or re.search(r"\b(city|cities)\b", folded)
+        )
+        if not place_only:
+            return None
     text = _apply_place_filters(re.sub(r"\s+", " ", previous).strip(), question, place_cities, isps)
+    # App/website rankings do not need address columns forced into the SELECT list.
+    if "group by app_label" in grain or "group by requested_server" in grain:
+        text = re.sub(
+            r"(?i),\s*GROUP_CONCAT\(DISTINCT CASE WHEN IFNULL\(loc, ''\) <> '' THEN loc END ORDER BY loc SEPARATOR ', '\) AS loc",
+            "",
+            text,
+        )
+        text = re.sub(
+            r"(?i),\s*GROUP_CONCAT\(DISTINCT CASE WHEN IFNULL\(geo, ''\) <> '' THEN geo END ORDER BY geo SEPARATOR ', '\) AS geo",
+            "",
+            text,
+        )
+        text = re.sub(
+            r"(?i),\s*GROUP_CONCAT\(DISTINCT CASE WHEN IFNULL\(client_asn, ''\) <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', '\) AS client_asn",
+            "",
+            text,
+        )
     limit = _limit_in(question)
     if limit is not None:
         text = re.sub(r"(?i)\s+LIMIT\s+\d+\s*$", "", text).strip()
         text = f"{text} LIMIT {int(limit)}"
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _pending_time_clarify(history: list[dict]) -> bool:
+    if not history:
+        return False
+    last = history[-1]
+    if str(last.get("sql") or "").strip() or str(last.get("pending_sql") or "").strip():
+        return False
+    expl = str(last.get("explanation") or "").lower()
+    return bool(re.search(r"\btime\s+(range|filter|period|window)\b", expl))
+
+
+def _answers_no_time(question: str) -> bool:
+    folded = question.lower()
+    return bool(
+        re.search(
+            r"\b("
+            r"no\s+time\s+(?:filter|range|period|window)|"
+            r"without\s+(?:a\s+)?time\s+(?:filter|range)|"
+            r"all\s+(?:the\s+)?data|"
+            r"entire\s+(?:table|data)|"
+            r"whole\s+table|"
+            r"full\s+scan|"
+            r"doesn'?t\s+specify|"
+            r"does\s+not\s+specify"
+            r")\b",
+            folded,
+        )
+        or wants_full_table(question)
+    )
+
+
+def _answer_time_clarify(question: str, history: list[dict]) -> str | None:
+    """Redo the deferred ask after the user declines a time-range clarify."""
+    if not _pending_time_clarify(history) or not _answers_no_time(question):
+        return None
+    pending = str(history[-1].get("question") or "").strip()
+    if not pending:
+        return None
+    prior = history[:-1]
+    rebuilt = _popular_apps(pending, prior)
+    if rebuilt:
+        return rebuilt
+    from app.intent import build_sql, resolve_intent
+
+    intent = resolve_intent(pending, prior)
+    if intent and not getattr(intent, "ambiguous", False):
+        try:
+            return build_sql(intent)
+        except ValueError:
+            return None
+    return resolve_followup(pending, prior)
+
+
+def _popular_apps(question: str, history: list[dict] | None = None) -> str | None:
+    """Most popular / top apps, optionally limited to a named city."""
+    folded = question.lower()
+    if not re.search(r"\b(apps?|applications?)\b", folded):
+        return None
+    if not re.search(r"\b(top|most|popular|highest|favourite|favorite)\b", folded):
+        return None
+    # Leave blocked/duration/timeline/per-grain rankings to their dedicated builders.
+    if re.search(
+        r"\b("
+        r"users?|subscribers?|websites?|domains?|operators?|"
+        r"blocked|allowed|durations?|timeline|pattern|"
+        r"per\s+isp|each\s+(city|isp)|wise|longest"
+        r")\b",
+        folded,
+    ):
+        return None
+    if class_from_question(question) or category_from_question(question):
+        return None
+    if _asks_isp_breakdown(question):
+        return None
+    if _named_app_label(question) or _protocol_family(question):
+        return None
+    cities = mentioned_cities(question)
+    isps = mentioned_isps(question)
+    where = [
+        "IFNULL(subscriber_id, '') <> ''",
+        "LOCATE('_', subscriber_id) = 0",
+        *_merge_app_exclusions(question, _last_sql(history or [])),
+    ]
+    if cities:
+        where.append(column_predicate("loc", cities[-1]))
+    if isps:
+        where.append(column_predicate("client_asn", isps[-1]))
+    limit = _limit_in(question) or 20
+    if re.search(r"\b(flows?|flow count|hits|sessions?)\b", folded):
+        order = "flows"
+    else:
+        order = "total_mb"
+    return (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE "
+        f"{' AND '.join(where)} "
+        f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
+    )
 
 
 def _place_alias_stems_to_drop(question: str) -> list[str]:

@@ -124,9 +124,9 @@ def build_query_plan(question: str, sql: str, *, full_scan: bool | None = None) 
     if isps:
         conditions.append({"label": "ISP", "value": ", ".join(_title_tokens(isps))})
 
-    places = _unique_keep_order(_like_values(folded, "loc") + _like_values(folded, "geo"))
+    places = _canonical_places(_like_values(folded, "loc") + _like_values(folded, "geo"))
     if places:
-        conditions.append({"label": "Place", "value": ", ".join(_title_tokens(places))})
+        conditions.append({"label": "Place", "value": ", ".join(places)})
 
     if "locate('_', subscriber_id) = 0" in folded.replace(" ", "") and not subscriber:
         conditions.append({"label": "Users", "value": "Identified subscribers only"})
@@ -257,6 +257,32 @@ def _select_alias(expression: str) -> str | None:
 
 def _title_tokens(items: list[str]) -> list[str]:
     return [item[:1].upper() + item[1:] if item else item for item in items]
+
+
+def _canonical_places(tokens: list[str]) -> list[str]:
+    """Collapse loc/geo LIKE stems (lahore, lhr) to one city name when known."""
+    from app.places import CITIES
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        folded = (token or "").strip().lower()
+        if not folded:
+            continue
+        label = None
+        for place in CITIES:
+            aliases = {place.name.lower(), *(alias.lower() for alias in place.aliases)}
+            if folded in aliases:
+                label = place.name
+                break
+        if label is None:
+            label = folded[:1].upper() + folded[1:]
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(label)
+    return out
 
 
 def _like_values(folded_sql: str, column: str) -> list[str]:

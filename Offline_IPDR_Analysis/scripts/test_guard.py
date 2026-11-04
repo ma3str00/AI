@@ -3473,6 +3473,69 @@ def main() -> None:
     ):
         raise SystemExit("Jazz every-application SQL should be usable as pending_sql")
 
+    # Most popular apps in a named city — local SQL with loc filter (no LLM).
+    lahore_apps = resolve_followup("the most popular apps in Lahore", [])
+    lahore_folded = (lahore_apps or "").lower()
+    if (
+        not lahore_apps
+        or "group by app_label" not in lahore_folded
+        or "like '%lahore%'" not in lahore_folded
+        or "group by subscriber_id" in lahore_folded
+    ):
+        raise SystemExit(f"popular apps in Lahore must rank app_label with loc filter: {lahore_apps}")
+    prepare(lahore_apps, 200, allow_full_scan=True)
+    plan = summarize_query_plan("the most popular apps in Lahore", lahore_apps, full_scan=True)
+    if "Place:" not in plan or "Lahore" not in plan:
+        raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
+
+    # Declining a time-range clarify redoes the deferred popular-apps-in-city ask.
+    after_time = resolve_followup(
+        "no time filter required",
+        [
+            {
+                "question": "the most popular apps in Lahore",
+                "sql": "",
+                "pending_sql": "",
+                "explanation": "Please provide a specific time range for the data you want to analyze.",
+            }
+        ],
+    )
+    after_time_folded = (after_time or "").lower()
+    if (
+        not after_time
+        or "group by app_label" not in after_time_folded
+        or "like '%lahore%'" not in after_time_folded
+    ):
+        raise SystemExit(f"no time filter must redo popular apps in Lahore: {after_time}")
+
+    # Apply a city filter onto a pending app-label ranking (no WHERE yet).
+    bare_apps = (
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+    )
+    with_lahore = resolve_followup(
+        "You need to apply the filter of Lahore city",
+        [
+            {
+                "question": "no time filter required",
+                "sql": "",
+                "pending_sql": bare_apps,
+                "explanation": "confirm",
+            }
+        ],
+    )
+    with_lahore_folded = (with_lahore or "").lower()
+    if (
+        not with_lahore
+        or "group by app_label" not in with_lahore_folded
+        or "like '%lahore%'" not in with_lahore_folded
+        or "from ntc_ssl_logs and " in with_lahore_folded
+        or " as loc" in with_lahore_folded
+    ):
+        raise SystemExit(f"apply Lahore city on app ranking failed: {with_lahore}")
+    prepare(with_lahore, 200, allow_full_scan=True)
+
     print(f"ok examples={len(examples)} sql={sql_count} clarify={len(examples) - sql_count}")
 
 
