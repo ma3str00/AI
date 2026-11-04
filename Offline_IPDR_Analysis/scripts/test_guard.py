@@ -3488,6 +3488,32 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Fresh ask: top ISPs in a city by YouTube user count (not a subscriber ranking).
+    yt_isps = resolve_followup(
+        "I want to see the top 5 ISPs of Karachi that have the maximum number of youtube users",
+        [],
+    )
+    yt_isps_folded = (yt_isps or "").lower()
+    yt_isps_plan = summarize_query_plan(
+        "I want to see the top 5 ISPs of Karachi that have the maximum number of youtube users",
+        yt_isps or "",
+        full_scan=True,
+    )
+    if (
+        not yt_isps
+        or "group by client_asn" not in yt_isps_folded
+        or "like '%youtube%'" not in yt_isps_folded
+        or "like '%karachi%'" not in yt_isps_folded
+        or "order by users" not in yt_isps_folded
+        or "limit 5" not in yt_isps_folded
+        or "group by subscriber_id" in yt_isps_folded
+        or "One row per ISP" not in yt_isps_plan
+    ):
+        raise SystemExit(
+            f"top ISPs by YouTube users in Karachi failed: {yt_isps}\n{yt_isps_plan}"
+        )
+    prepare(yt_isps, 200, allow_full_scan=True)
+
     # Rank ISP list by unique WhatsApp users — keep Lahore, add app filter.
     lahore_users_sql = (
         "SELECT client_asn, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "

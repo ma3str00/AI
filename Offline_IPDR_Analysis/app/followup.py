@@ -1327,8 +1327,7 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
         return None
     if class_from_question(question) or category_from_question(question):
         return None
-    if _named_app_label(question) or known_app_token(question, _NOT_AN_APP):
-        return None
+    app = _app_stem_in_question(question)
     cities = mentioned_cities(question)
     where = [
         "IFNULL(client_asn, '') <> ''",
@@ -1336,15 +1335,19 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
         "LOCATE('_', subscriber_id) = 0",
         *_merge_app_exclusions(question, _last_sql(history or [])),
     ]
+    if app:
+        where.append(f"LOWER(app_label) LIKE '%{app.replace(chr(39), '')}%'")
     if cities:
         where.append(column_predicate("loc", cities[-1]))
     limit = _limit_in(question)
     if limit is None:
         singular = bool(re.search(r"\bisp\b", folded)) and not re.search(r"\bisps\b", folded)
         limit = 1 if singular else 20
-    if re.search(r"\b(users?|subscribers?)\b", folded) and not re.search(
-        r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded
-    ):
+    # "top ISPs … maximum number of youtube users" ranks by unique users of that app.
+    if (
+        re.search(r"\b(users?|subscribers?)\b", folded)
+        and not re.search(r"\b(bytes|traffic|volume|mb|gb|tb)\b", folded)
+    ) or (app and re.search(r"\b(maximum|most|highest)\b.{0,40}\b(users?|subscribers?)\b", folded)):
         order = "users"
     elif re.search(r"\b(flows?|flow count|hits|sessions?)\b", folded):
         order = "flows"
