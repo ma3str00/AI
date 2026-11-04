@@ -3032,6 +3032,25 @@ def main() -> None:
             f"{(critique_flows or '')[:500]}"
         )
     prepare(critique_flows, 200, allow_full_scan=True)
+    from app.clarify_gate import silently_weakens_prior, uncertain_followup_prompt
+
+    weak = (
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
+    )
+    if not silently_weakens_prior(
+        "you have ranked the users by traffic volume. I need to see the top 10 by flow count",
+        zong_isb,
+        weak,
+    ):
+        raise SystemExit("dropping Islamabad/Zong filters should be treated as uncertain")
+    if not uncertain_followup_prompt(
+        "hmm do something else",
+        [{"question": "show me the top 20 whatsapp Zong users from Islamabad", "sql": zong_isb}],
+    ):
+        raise SystemExit("uncertain follow-up should produce a clarify prompt")
 
     same_by_flows_users = resolve_followup(
         "repeat the same query but rank them by flow count instead of traffic volume",

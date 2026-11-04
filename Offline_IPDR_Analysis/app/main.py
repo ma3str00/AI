@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.answer_check import check_sql, needs_clarification
+from app.clarify_gate import silently_weakens_prior, uncertain_followup_prompt
 from app.app_map import AppMap, activate_app_map
 from app.config import Config, load_config
 from app.db import Database, DatabaseError
@@ -38,7 +39,7 @@ from app.preferences import absorb_marked_answers, lesson_from_marked_answer, lo
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
 from app.prompts import sql_messages
-from app.referee import normalize_followup, referee_intent
+from app.referee import normalize_followup
 from app.retrieve import ExampleIndex, load_examples
 from app.rules import dictionary_problem, repair_sql
 from app.schema import DEAD_COLUMNS, STARTER_QUESTIONS
@@ -279,38 +280,21 @@ def _ask_events(body: Question):
         # Intent → optional LLM grain/slot referee → deterministic SQL.
         intent = resolve_intent(question, history)
         if intent:
-            # Measure-only asks (traffic vs flows) go straight to the user — no LLM referee.
-            if intent.ambiguous and intent.source in {
-                "top_app_per_isp_measure",
-                "top_app_per_city_measure",
-            }:
-                yield _done(_clarify(intent.clarify_prompt or "Traffic volume or number of flows?"))
-                return
-            if intent.ambiguous and llama is not None:
-                yield _status("Checking what you meant")
-                verdict = referee_intent(llama, intent, question, history)
-                if isinstance(verdict, str):
-                    yield _done(_clarify(verdict))
-                    return
-                if verdict is None:
-                    intent = None
-                    intent_rejected = True
-                else:
-                    intent = verdict
-            elif intent.ambiguous and llama is None:
-                # No model available: ask instead of guessing users vs totals.
-                yield _done(_clarify(intent.clarify_prompt or "Do you want totals, or a ranked list?"))
+            # Prefer asking the user over assuming when the intent is ambiguous.
+            if intent.ambiguous:
+                yield _done(
+                    _clarify(
+                        intent.clarify_prompt
+                        or "Do you want totals, a ranked list, traffic volume, or number of flows?"
+                    )
+                )
                 return
         if intent is not None:
             try:
                 resolved = build_sql(intent)
             except ValueError:
                 resolved = None
-            # Do not let intent drop filters or change grain on a follow-up tweak.
-            if resolved and tweak and (
-                not preserves_result_shape(prior_sql, resolved)
-                or not preserves_prior_filters(prior_sql, resolved)
-            ):
+            if resolved and prior_sql and silently_weakens_prior(question, prior_sql, resolved):
                 resolved = None
         if not resolved:
             # If the referee rejected this family, do not rebuild the same intent in follow-up.
@@ -318,11 +302,7 @@ def _ask_events(body: Question):
             # A local rule that returns the previous SQL unchanged did not understand the ask.
             if resolved and history and sql_unchanged(resolved, history):
                 resolved = None
-            # A local rewrite that changes ranking shape or drops city/ISP filters is a miss.
-            if resolved and tweak and (
-                not preserves_result_shape(prior_sql, resolved)
-                or not preserves_prior_filters(prior_sql, resolved)
-            ):
+            if resolved and prior_sql and silently_weakens_prior(question, prior_sql, resolved):
                 resolved = None
             if not resolved and tweak:
                 resolved = safe_rerank_previous(question, history)
@@ -335,23 +315,20 @@ def _ask_events(body: Question):
             return
         if normalized is not None:
             patched = patch_order_measure(prior_sql, normalized.measure) if prior_sql else None
-            if patched and preserves_result_shape(prior_sql, patched):
+            if patched and preserves_result_shape(prior_sql, patched) and preserves_prior_filters(
+                prior_sql, patched
+            ):
                 resolved = patched
             else:
                 try:
                     rebuilt = build_sql(normalized)
                 except ValueError:
                     rebuilt = None
-                if rebuilt and (not tweak or preserves_result_shape(prior_sql, rebuilt)):
+                if rebuilt and not silently_weakens_prior(question, prior_sql, rebuilt):
                     resolved = rebuilt
-    # Tweaks with no local/normalizer SQL and no model: ask instead of guessing a new grain.
-    if not resolved and tweak and llama is None:
-        yield _done(
-            _clarify(
-                "Do you want to keep the previous result and only change how it is ranked "
-                "(for example by flow count vs traffic), or ask a new question?"
-            )
-        )
+    # Uncertain follow-up: ask instead of free-form SQL that often invents the wrong grain.
+    if not resolved and prior_sql:
+        yield _done(_clarify(uncertain_followup_prompt(question, history)))
         return
     if resolved:
         resolved = repair_sql(question, resolved, history)
