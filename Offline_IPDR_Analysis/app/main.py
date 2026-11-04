@@ -388,8 +388,9 @@ def _ask_events(body: Question):
                     rebuilt = None
                 if rebuilt and not silently_weakens_prior(weaken_question, prior_sql, rebuilt):
                     resolved = rebuilt
-    # Uncertain follow-up: ask instead of free-form SQL that often invents the wrong grain.
-    if not resolved and prior_sql:
+    # Ambiguous tweaks of the last ranking: ask instead of free-form SQL.
+    # Clear new asks (subscriber/app/website, "new query", etc.) fall through to the LLM.
+    if not resolved and prior_sql and looks_like_result_tweak(question, history):
         yield _done(_clarify(uncertain_followup_prompt(question, history)))
         return
     if resolved:

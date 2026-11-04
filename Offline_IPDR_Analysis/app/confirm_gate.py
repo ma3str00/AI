@@ -110,11 +110,15 @@ def build_query_plan(question: str, sql: str, *, full_scan: bool | None = None) 
     folded = text.lower()
     conditions: list[dict[str, str]] = []
 
-    apps = _like_values(folded, "app_label")
+    apps = _app_filter_values(folded)
     if apps:
         conditions.append({"label": "App", "value": ", ".join(_title_tokens(apps))})
     else:
         conditions.append({"label": "App", "value": "Every application (no app filter)"})
+
+    subscriber = _subscriber_filter_value(text)
+    if subscriber:
+        conditions.append({"label": "Subscriber", "value": subscriber})
 
     isps = _unique_keep_order(_like_values(folded, "client_asn"))
     if isps:
@@ -124,7 +128,7 @@ def build_query_plan(question: str, sql: str, *, full_scan: bool | None = None) 
     if places:
         conditions.append({"label": "Place", "value": ", ".join(_title_tokens(places))})
 
-    if "locate('_', subscriber_id) = 0" in folded.replace(" ", ""):
+    if "locate('_', subscriber_id) = 0" in folded.replace(" ", "") and not subscriber:
         conditions.append({"label": "Users", "value": "Identified subscribers only"})
 
     mobile = re.sub(r"\s+", " ", MOBILE_SQL).lower()
@@ -264,6 +268,25 @@ def _like_values(folded_sql: str, column: str) -> list[str]:
             flags=re.IGNORECASE,
         )
     ]
+
+
+def _app_filter_values(folded_sql: str) -> list[str]:
+    """App stems from LIKE and equality filters."""
+    found = _like_values(folded_sql, "app_label")
+    for match in re.finditer(
+        r"lower\s*\(\s*app_label\s*\)\s*=\s*'([^']+)'",
+        folded_sql,
+        flags=re.IGNORECASE,
+    ):
+        value = match.group(1).strip()
+        if value and value not in found:
+            found.append(value)
+    return found
+
+
+def _subscriber_filter_value(folded_sql: str) -> str | None:
+    match = re.search(r"subscriber_id\s*=\s*'([^']+)'", folded_sql, flags=re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def _unique_keep_order(items: list[str]) -> list[str]:

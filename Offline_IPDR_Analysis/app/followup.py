@@ -514,11 +514,20 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
         subscriber = _subscriber_from_history(history)
     if not subscriber and _asks_for_websites(question) and _adds_to_current(question):
         subscriber = _subscriber_in_sql(previous or "")
+    # "websites against nordvpn" after a one-subscriber result — keep that subscriber.
+    if not subscriber and _asks_for_websites(question) and _named_app_label(question):
+        subscriber = _subscriber_in_sql(previous or "") or _subscriber_from_history(history)
     if not subscriber:
         return None
     supplying_name = bool(named_subscriber(question) or _id_anywhere(question)) or "referring to" in question.lower()
     if not _asks_for_websites(question) and not (supplying_name and _recent_unanswered(history, _asks_for_websites)):
-        return None
+        # "filter against X app and user Y" after apps/websites context → websites for that app.
+        if not (
+            _named_app_label(question)
+            and named_subscriber(question)
+            and re.search(r"\b(filter|against)\b", question.lower())
+        ):
+            return None
     app_label = _named_app_label(question)
     with_app = _wants_site_and_app(question) or _adds_sites_to_apps(question, previous)
     where = [f"subscriber_id = '{subscriber}'", "IFNULL(requested_server, '') <> ''"]
@@ -848,6 +857,20 @@ def _named_app_label(text: str) -> str | None:
     if not match:
         # Bare "X app" — only real labels (not "popular app" / "citywise app").
         match = re.search(r"\b([a-z0-9][a-z0-9_.-]{1,40})\s+app(?:lication)?\b", folded)
+    if not match:
+        # "websites against nordvpn" / "filter against nordvpn"
+        match = re.search(
+            r"\b(?:against|for)\s+(?:the\s+)?([a-z0-9][a-z0-9_.-]{1,40})\b",
+            folded,
+        )
+        if match:
+            label = match.group(1)
+            if label in _NOT_AN_APP or label in {"type", "label", "the", "user", "users", "app", "application"}:
+                match = None
+            elif not (exact_app_label(label) or known_app_token(label, set()) == label):
+                match = None
+            else:
+                explicit = True
     if not match:
         return None
     label = match.group(1)

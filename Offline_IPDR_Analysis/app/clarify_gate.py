@@ -65,22 +65,24 @@ def _drops_all_prior_filters(question: str) -> bool:
 
 
 def _is_subscriber_drilldown(question: str, new_sql: str) -> bool:
-    """True when the ask targets one named subscriber (apps/websites/details)."""
-    subscriber = named_subscriber(question)
-    if not subscriber:
+    """True when the ask targets one subscriber's apps/websites/details."""
+    folded = (new_sql or "").lower()
+    compact = re.sub(r"\s+", "", folded)
+    sub = re.search(r"subscriber_id='([^']+)'", compact)
+    if not sub:
         return False
-    compact = re.sub(r"\s+", "", new_sql.lower())
-    if f"subscriber_id='{subscriber.lower()}'" not in compact:
+    named = named_subscriber(question)
+    if named and named.lower() != sub.group(1).lower():
         return False
-    folded = new_sql.lower()
-    return bool(
+    ask = question.lower()
+    grain_ok = "group by app_label" in folded or "group by requested_server" in folded
+    ask_ok = bool(
         re.search(
-            r"\b(applications?|apps?|websites?|sites?|details?|activity|activities)\b",
-            question.lower(),
+            r"\b(applications?|apps?|websites?|sites?|details?|activity|activities|against|filter)\b",
+            ask,
         )
-        or "group by app_label" in folded
-        or "group by requested_server" in folded
     )
+    return grain_ok and (ask_ok or bool(named))
 
 
 def silently_weakens_prior(
