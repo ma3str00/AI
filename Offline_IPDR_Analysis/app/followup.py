@@ -44,6 +44,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     reranked = safe_rerank_previous(question, history)
     if reranked:
         return reranked
+    with_app = _apply_named_app_on_ranking(question, history)
+    if with_app:
+        return with_app
     dropped_app = _remove_app_filter(question, history)
     if dropped_app:
         return dropped_app
@@ -2375,6 +2378,58 @@ def patch_order_measure(sql: str, measure: str) -> str | None:
     return None
 
 
+def _apply_named_app_on_ranking(question: str, history: list[dict]) -> str | None:
+    """Keep the current ISP/subscriber/website ranking and filter to a named app.
+
+    Example: after top ISPs in Lahore, 'rank them by unique WhatsApp user count'
+    keeps GROUP BY client_asn + Lahore and adds LOWER(app_label) LIKE '%whatsapp%'.
+    """
+    previous = _last_sql(history)
+    if not previous:
+        return None
+    grain = _group_key(previous)
+    if grain not in {"client_asn", "subscriber_id", "requested_server"}:
+        return None
+    app = _app_stem_in_question(question)
+    if not app:
+        return None
+    folded = question.lower()
+    # Connection-type / app-scope clarify answers belong on the rewrite path.
+    if _mentions_mobile(question) or _mentions_fixed(question):
+        return None
+    if _pending(history) and (_answer_keeps(question) or _answer_drops(question)):
+        return None
+    if not looks_like_result_tweak(question, history):
+        return None
+    if not re.search(r"\b(rank|order|sort|by)\b", folded):
+        return None
+    text = _strip_app_predicates(re.sub(r"\s+", " ", previous).strip())
+    text = _with_app_predicate(text, f"LOWER(app_label) LIKE '%{app.replace(chr(39), '')}%'")
+    wants_users = bool(
+        _measure_from_tweak(question) == "users"
+        or re.search(r"\b(unique\s+)?(?:user\s+count|users?|subscribers?)\b", folded)
+    )
+    if wants_users:
+        if not re.search(r"(?i)\bas users\b", text):
+            text = re.sub(
+                r"(?i)\bFROM\b",
+                ", COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+                "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users FROM",
+                text,
+                count=1,
+            )
+        patched = patch_order_measure(text, "users")
+        if patched:
+            text = patched
+    else:
+        measure = _measure_from_tweak(question)
+        if measure:
+            patched = patch_order_measure(text, measure)
+            if patched:
+                text = patched
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def safe_rerank_previous(question: str, history: list[dict] | None = None) -> str | None:
     """Same result shape; only swap the ranking measure (and optional LIMIT) on the previous SQL."""
     history = history or []
@@ -2386,6 +2441,9 @@ def safe_rerank_previous(question: str, history: list[dict] | None = None) -> st
         r"\b(upload|download|also\s+(?:show|give|display|include|add)|add\s+(?:a\s+)?column)\b",
         folded,
     ):
+        return None
+    # A newly named application must go through _apply_named_app_on_ranking.
+    if _app_stem_in_question(question):
         return None
     previous = _last_sql(history)
     if not previous:

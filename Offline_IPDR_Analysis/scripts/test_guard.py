@@ -3488,6 +3488,37 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Rank ISP list by unique WhatsApp users — keep Lahore, add app filter.
+    lahore_users_sql = (
+        "SELECT client_asn, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users, "
+        "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
+        "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
+        "FROM ntc_ssl_logs WHERE IFNULL(client_asn, '') <> '' AND IFNULL(subscriber_id, '') <> '' "
+        "AND LOCATE('_', subscriber_id) = 0 AND (LOWER(loc) LIKE '%lahore%' OR LOWER(loc) LIKE '%lhr%') "
+        "GROUP BY client_asn ORDER BY users DESC LIMIT 5"
+    )
+    wa_isp = resolve_followup(
+        "rank them by unique whatsapp user count",
+        [{"question": "rank them by user count", "sql": lahore_users_sql}],
+    )
+    wa_isp_folded = (wa_isp or "").lower()
+    wa_isp_plan = summarize_query_plan(
+        "rank them by unique whatsapp user count", wa_isp or "", full_scan=True
+    )
+    if (
+        not wa_isp
+        or "group by client_asn" not in wa_isp_folded
+        or "like '%whatsapp%'" not in wa_isp_folded
+        or "like '%lahore%'" not in wa_isp_folded
+        or "order by users" not in wa_isp_folded
+        or "App: Whatsapp" not in wa_isp_plan and "whatsapp" not in wa_isp_plan.lower()
+    ):
+        raise SystemExit(
+            f"rank ISPs by unique WhatsApp users dropped the app filter: {wa_isp}\n{wa_isp_plan}"
+        )
+    prepare(wa_isp, 200, allow_full_scan=True)
+
     # Bare "show the top 5" after a confirm-paused ISP ranking should retarget LIMIT.
     from app.followup import limit_followup
 
