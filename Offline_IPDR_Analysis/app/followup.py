@@ -3274,7 +3274,17 @@ def _is_limit_only(question: str) -> bool:
 
 
 def _saved_sqls(history: list[dict]) -> list[str]:
-    return [str(item.get("sql") or "").strip() for item in history if str(item.get("sql") or "").strip()]
+    """Executed SQL first; fall back to confirm-before-run pending_sql on that turn."""
+    out: list[str] = []
+    for item in history:
+        sql = str(item.get("sql") or "").strip()
+        if sql:
+            out.append(sql)
+            continue
+        pending = str(item.get("pending_sql") or "").strip()
+        if pending:
+            out.append(pending)
+    return out
 
 
 def _result_description(sql: str) -> str:
@@ -3288,6 +3298,8 @@ def _result_description(sql: str) -> str:
         return f"the applications for {named.group(1)}"
     if "group by subscriber_id" in folded:
         return "the subscriber ranking"
+    if "group by client_asn" in folded:
+        return "the ISP ranking"
     if "group by app_label" in folded:
         return "the application list"
     if "group by requested_server" in folded:
@@ -3320,13 +3332,15 @@ def _pick_saved_sql(question: str, sqls: list[str]) -> str | None:
     folded = question.lower()
     website = bool(re.search(r"\b(websites?|sites?|domains?)\b", folded))
     people = bool(re.search(r"\b(users?|subscribers?|ranking|people)\b", folded))
+    isps = bool(re.search(r"\b(isps?|operators?|providers?|asns?)\b", folded))
+    apps = bool(re.search(r"\b(apps?|applications?|platforms?)\b", folded))
     if website and people:
         if re.search(r"\b(ranking|by website count|the users|the subscribers)\b", folded):
             website = False
         else:
             people = False
     last = bool(re.search(r"\b(those|that list|last one|on screen|this list)\b", folded))
-    if last and not website and not people:
+    if last and not website and not people and not isps and not apps:
         return sqls[-1]
     chosen = []
     for sql in sqls:
@@ -3335,9 +3349,13 @@ def _pick_saved_sql(question: str, sqls: list[str]) -> str | None:
             chosen.append(sql)
         elif people and "subscriber" in described:
             chosen.append(sql)
+        elif isps and "ISP" in described:
+            chosen.append(sql)
+        elif apps and "application" in described:
+            chosen.append(sql)
     if len(chosen) == 1:
         return chosen[0]
-    if not website and not people and len(sqls) == 1:
+    if not website and not people and not isps and not apps and len(sqls) == 1:
         return sqls[-1]
     return None
 
@@ -3350,6 +3368,9 @@ def limit_followup(question: str, history: list[dict] | None, max_rows: int) -> 
         pending = str(history[-1].get("explanation") or "")
         chosen = _pick_saved_sql(question, sqls) or _settled_sql(pending, sqls)
         if chosen is None:
+            # Full re-ask (e.g. "top 5 most popular ISPs of Lahore") — not answering the limit prompt.
+            if not _is_limit_only(question):
+                return None, None
             return None, f"{_LIMIT_MARK} Say which list you mean, and whether you want the top {max_rows} or every row."
         if wants_all_groups(question) or re.search(r"\b(every row|all rows|every website|every subscriber)\b", question.lower()):
             return _with_limit(chosen, None, True), None
@@ -3374,7 +3395,7 @@ def limit_followup(question: str, history: list[dict] | None, max_rows: int) -> 
             )
         return None, None
     if not sqls:
-        return None, f"{_LIMIT_MARK} Top {number} of what? Name the users, applications, or websites."
+        return None, f"{_LIMIT_MARK} Top {number} of what? Name the users, applications, websites, or ISPs."
     if len(sqls) >= 2 and _group_key(sqls[-1]) != _group_key(sqls[-2]):
         cap = f" One result can show {max_rows} rows, so also say {max_rows} or all." if number > max_rows else ""
         return None, (

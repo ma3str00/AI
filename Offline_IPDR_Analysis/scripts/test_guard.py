@@ -3488,6 +3488,45 @@ def main() -> None:
     if "Place:" not in plan or "Lahore" not in plan:
         raise SystemExit(f"confirm plan must surface Place Lahore: {plan}")
 
+    # Bare "show the top 5" after a confirm-paused ISP ranking should retarget LIMIT.
+    from app.followup import limit_followup
+
+    lahore_isp = resolve_followup("the most popular ISP of Lahore", [])
+    if not lahore_isp or "group by client_asn" not in lahore_isp.lower() or "limit 1" not in lahore_isp.lower():
+        raise SystemExit(f"most popular ISP of Lahore failed: {lahore_isp}")
+    top5_sql, top5_ask = limit_followup(
+        "show the top 5",
+        [
+            {
+                "question": "the most popular ISP of Lahore",
+                "sql": "",
+                "pending_sql": lahore_isp,
+                "explanation": "confirm",
+            }
+        ],
+        200,
+    )
+    if top5_ask or not top5_sql or "limit 5" not in top5_sql.lower() or "group by client_asn" not in top5_sql.lower():
+        raise SystemExit(f"show the top 5 on pending ISP ranking failed: sql={top5_sql} ask={top5_ask}")
+    # After a needless limit clarify, a full ISP re-ask must not stay stuck asking for a limit.
+    full_isp, stuck_ask = limit_followup(
+        "top 5 most popular ISPs of Lahore",
+        [
+            {
+                "question": "show the top 5",
+                "sql": "",
+                "pending_sql": "",
+                "explanation": "Which result should use the new limit? Top 5 of what? Name the users, applications, or websites.",
+            }
+        ],
+        200,
+    )
+    if stuck_ask:
+        raise SystemExit(f"full ISP re-ask must not stay on limit clarify: {stuck_ask}")
+    rebuilt_isp = full_isp or resolve_followup("top 5 most popular ISPs of Lahore", [])
+    if not rebuilt_isp or "group by client_asn" not in rebuilt_isp.lower() or "limit 5" not in rebuilt_isp.lower():
+        raise SystemExit(f"top 5 most popular ISPs of Lahore failed: {rebuilt_isp}")
+
     # Most popular social-media platform in a city — class filter + loc (not LLM failure).
     social_khi = resolve_followup("the most popular social media platform in Karachi", [])
     social_khi_folded = (social_khi or "").lower()
