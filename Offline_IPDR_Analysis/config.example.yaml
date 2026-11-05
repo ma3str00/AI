@@ -2,10 +2,12 @@
 
 clickhouse:
   host: "127.0.0.1"
-  # HTTP interface: 8123 (plain) or 8443 (TLS). Native protocol is not used.
-  port: 8123
+  # Native TCP protocol (same port DBeaver/clickhouse-client use). Not MySQL.
+  # Plain: 9000. TLS: 9440 with secure: true. Do not use HTTP 8123 here.
+  port: 9000
   user: "default"
   password: "change-me"
+  # Must be the database that actually contains ntc_ssl_logs (SHOW TABLES FROM ...).
   database: "ipdr"
   secure: false
 

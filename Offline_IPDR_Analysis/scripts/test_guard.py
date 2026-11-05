@@ -106,7 +106,7 @@ def main() -> None:
 
     config = Config(
         ch_host="127.0.0.1",
-        ch_port=8123,
+        ch_port=9000,
         ch_user="default",
         ch_password="",
         ch_database="ipdr",

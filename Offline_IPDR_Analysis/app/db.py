@@ -1,4 +1,4 @@
-"""One ClickHouse connection, read-only queries against ntc_ssl_logs."""
+"""One ClickHouse connection (native protocol), read-only queries against ntc_ssl_logs."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class Database:
         with self._lock:
             if self._client is not None:
                 try:
-                    self._client.close()
+                    self._client.disconnect()
                 except Exception:
                     pass
                 self._client = None
@@ -31,8 +31,7 @@ class Database:
         try:
             with self._lock:
                 client = self._connection()
-                result = client.query("SELECT 1 AS ok")
-                _ = result.result_rows
+                client.execute("SELECT 1")
             return True, "ok"
         except Exception as exc:
             self._client = None
@@ -56,10 +55,14 @@ class Database:
                     # Soft cap; LIMIT in SQL is still the primary guard.
                     settings["max_result_rows"] = int(self.config.max_rows)
                 warning = self._scan_warning(clickhouse_sql)
-                result = client.query(clickhouse_sql, settings=settings or None)
-                columns = list(result.column_names)
-                rows = [dict(zip(columns, row)) for row in result.result_rows]
-                return columns, rows, warning
+                rows, col_types = client.execute(
+                    clickhouse_sql,
+                    with_column_types=True,
+                    settings=settings or None,
+                )
+                columns = [name for name, _type in col_types]
+                dict_rows = [dict(zip(columns, row)) for row in rows]
+                return columns, dict_rows, warning
             except Exception as exc:
                 self._client = None
                 raise DatabaseError(str(exc)) from exc
@@ -68,15 +71,16 @@ class Database:
         if self._client is not None:
             return self._client
         try:
-            import clickhouse_connect
+            from clickhouse_driver import Client
         except ImportError as exc:
             raise DatabaseError(
-                "clickhouse-connect is not installed. Run: pip install clickhouse-connect"
+                "clickhouse-driver is not installed. Run: pip install clickhouse-driver"
             ) from exc
-        self._client = clickhouse_connect.get_client(
+        # Native TCP protocol (default port 9000). Not MySQL — ClickHouse's own wire format.
+        self._client = Client(
             host=self.config.ch_host,
             port=self.config.ch_port,
-            username=self.config.ch_user,
+            user=self.config.ch_user,
             password=self.config.ch_password,
             database=self.config.ch_database,
             secure=self.config.ch_secure,
