@@ -47,6 +47,12 @@ def _check_dialect() -> None:
     )
     if "toUnixTimestamp(now() - toIntervalDay(7))" not in week:
         raise SystemExit(f"UNIX_TIMESTAMP(NOW()-INTERVAL) rewrite failed:\n{week}")
+    mins = to_clickhouse(
+        "SELECT COUNT(*) FROM ntc_ssl_logs "
+        "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 5 MINUTE)"
+    )
+    if "toUnixTimestamp(now() - toIntervalMinute(5))" not in mins:
+        raise SystemExit(f"UNIX_TIMESTAMP(NOW()-INTERVAL MINUTE) rewrite failed:\n{mins}")
 
 
 def main() -> None:
@@ -3508,6 +3514,31 @@ def main() -> None:
         ]
     ):
         raise SystemExit("Jazz every-application SQL should be usable as pending_sql")
+
+    # "last 5 minutes" must become a start_time window, not a full-table scan.
+    last5 = resolve_followup("show the top 5 applications used in last 5 minutes", [])
+    last5_folded = (last5 or "").lower()
+    if (
+        not last5
+        or "group by app_label" not in last5_folded
+        or "limit 5" not in last5_folded
+        or "interval 5 minute" not in last5_folded
+        or "start_time >=" not in last5_folded
+    ):
+        raise SystemExit(f"top apps in last 5 minutes dropped the time window: {last5}")
+    prepare(last5, 200, allow_full_scan=False)
+    last5_plan = summarize_query_plan(
+        "show the top 5 applications used in last 5 minutes",
+        last5,
+        full_scan=False,
+    )
+    if "Last 5 minutes" not in last5_plan or "full table scan" in last5_plan.lower():
+        raise SystemExit(f"confirm plan must show Last 5 minutes: {last5_plan}")
+    from app.dialect import to_clickhouse
+
+    last5_ch = to_clickhouse(last5)
+    if "toIntervalMinute(5)" not in last5_ch:
+        raise SystemExit(f"ClickHouse rewrite missed 5-minute interval: {last5_ch}")
 
     # Most popular apps in a named city — local SQL with loc filter (no LLM).
     lahore_apps = resolve_followup("the most popular apps in Lahore", [])

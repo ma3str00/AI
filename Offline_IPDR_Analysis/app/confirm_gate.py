@@ -147,8 +147,11 @@ def build_query_plan(question: str, sql: str, *, full_scan: bool | None = None) 
     if limit:
         conditions.append({"label": "Limit", "value": f"Top {limit.group(1)} rows"})
 
+    time_label = _time_filter_label(text)
     scan = sql_needs_full_scan(text) if full_scan is None else full_scan
-    if scan:
+    if time_label:
+        conditions.append({"label": "Time", "value": time_label})
+    elif scan:
         conditions.append(
             {"label": "Time", "value": "No filter (full table scan; may take several minutes)"}
         )
@@ -169,6 +172,28 @@ def build_query_plan(question: str, sql: str, *, full_scan: bool | None = None) 
         "columns": columns,
         "footer": "Accept to run it, or Change if this is wrong.",
     }
+
+
+def _time_filter_label(sql: str) -> str | None:
+    """Human label for a start_time / end_time / recv_time window already in SQL."""
+    folded = re.sub(r"\s+", " ", (sql or "").lower())
+    if not re.search(r"\b(?:start_time|end_time|recv_time)\s*(?:>=|<=|<>|!=|=|>|<)", folded):
+        return None
+    if "curdate() - interval 1 day" in folded and "start_time < unix_timestamp(curdate())" in folded:
+        return "Yesterday"
+    if "unix_timestamp(curdate())" in folded and "curdate() + interval 1 day" in folded:
+        return "Today"
+    relative = re.search(
+        r"unix_timestamp\s*\(\s*now\s*\(\s*\)\s*-\s*interval\s+(\d+)\s+(minute|hour|day|week)\s*\)",
+        folded,
+    )
+    if relative:
+        amount = int(relative.group(1))
+        unit = relative.group(2)
+        if amount == 1:
+            return f"Last {unit}"
+        return f"Last {amount} {unit}s"
+    return "Filtered by start/end/recv time"
 
 
 def summarize_query_plan(question: str, sql: str, *, full_scan: bool | None = None) -> str:

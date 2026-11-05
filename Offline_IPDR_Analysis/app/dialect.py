@@ -112,9 +112,21 @@ def _rewrite_unix_timestamp(sql: str) -> str:
         r"toUnixTimestamp(toStartOfDay(now()) - toIntervalDay(\1))",
         text,
     )
+    def _now_minus(match: re.Match[str]) -> str:
+        amount = match.group(1)
+        unit = match.group(2).upper()
+        names = {
+            "MINUTE": "Minute",
+            "HOUR": "Hour",
+            "DAY": "Day",
+            "WEEK": "Week",
+        }
+        ch_unit = names.get(unit, "Day")
+        return f"toUnixTimestamp(now() - toInterval{ch_unit}({amount}))"
+
     text = re.sub(
-        r"(?i)UNIX_TIMESTAMP\s*\(\s*NOW\s*\(\s*\)\s*-\s*INTERVAL\s+(\d+)\s+DAY\s*\)",
-        r"toUnixTimestamp(now() - toIntervalDay(\1))",
+        r"(?i)UNIX_TIMESTAMP\s*\(\s*NOW\s*\(\s*\)\s*-\s*INTERVAL\s+(\d+)\s+(MINUTE|HOUR|DAY|WEEK)\s*\)",
+        _now_minus,
         text,
     )
     text = re.sub(

@@ -20,6 +20,7 @@ from app.followup import (
     _limit_in,
     _merge_app_exclusions,
     _ranks_isp_entities,
+    _relative_start_time_predicate,
     looks_like_result_tweak,
 )
 from app.places import (
@@ -870,6 +871,9 @@ def _subject_filters(
     category: str | None,
 ) -> list[str] | None:
     where = _base_identified_where()
+    time_pred = _relative_start_time_predicate(question)
+    if time_pred:
+        where.append(time_pred)
     previous = _last_sql(history)
     if class_id:
         predicate = class_label_predicate(class_id)

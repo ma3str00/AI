@@ -1352,6 +1352,9 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
         "LOCATE('_', subscriber_id) = 0",
         *_merge_app_exclusions(question, _last_sql(history or [])),
     ]
+    time_pred = _relative_start_time_predicate(question)
+    if time_pred:
+        where.append(time_pred)
     if class_id:
         where.append(class_label_predicate(class_id))
     elif category:
@@ -1391,6 +1394,50 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
     )
 
 
+def _relative_start_time_predicate(question: str) -> str | None:
+    """Parse 'last N minutes/hours/days', today, yesterday into a start_time filter."""
+    folded = (question or "").lower()
+    if re.search(r"\byesterday\b", folded):
+        return (
+            "start_time >= UNIX_TIMESTAMP(CURDATE() - INTERVAL 1 DAY) "
+            "AND start_time < UNIX_TIMESTAMP(CURDATE())"
+        )
+    if re.search(r"\btoday\b", folded):
+        return (
+            "start_time >= UNIX_TIMESTAMP(CURDATE()) "
+            "AND start_time < UNIX_TIMESTAMP(CURDATE() + INTERVAL 1 DAY)"
+        )
+    numbered = re.search(
+        r"\b(?:in\s+the\s+|over\s+the\s+|during\s+the\s+|for\s+the\s+|within\s+the\s+|in\s+)?"
+        r"last\s+(\d+)\s*(minutes?|mins?|hours?|hrs?|days?|weeks?)\b",
+        folded,
+    )
+    if numbered:
+        amount = max(1, int(numbered.group(1)))
+        unit = _sql_interval_unit(numbered.group(2))
+        return f"start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL {amount} {unit})"
+    bare = re.search(
+        r"\b(?:in\s+the\s+|over\s+the\s+|during\s+the\s+|for\s+the\s+|within\s+the\s+|in\s+)?"
+        r"last\s+(minute|min|hour|hr|day|week)\b",
+        folded,
+    )
+    if bare:
+        unit = _sql_interval_unit(bare.group(1))
+        return f"start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 1 {unit})"
+    return None
+
+
+def _sql_interval_unit(token: str) -> str:
+    folded = (token or "").lower()
+    if folded.startswith("min"):
+        return "MINUTE"
+    if folded.startswith("hr") or folded.startswith("hour"):
+        return "HOUR"
+    if folded.startswith("week"):
+        return "WEEK"
+    return "DAY"
+
+
 def _popular_apps(question: str, history: list[dict] | None = None) -> str | None:
     """Most popular / top apps (or platforms), optionally limited to a named city/class."""
     folded = question.lower()
@@ -1426,6 +1473,9 @@ def _popular_apps(question: str, history: list[dict] | None = None) -> str | Non
         "LOCATE('_', subscriber_id) = 0",
         *_merge_app_exclusions(question, _last_sql(history or [])),
     ]
+    time_pred = _relative_start_time_predicate(question)
+    if time_pred:
+        where.append(time_pred)
     if class_id:
         where.append(class_label_predicate(class_id))
     elif category:
