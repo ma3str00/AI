@@ -1,11 +1,13 @@
-# Copy to config.yaml. Change mysql.host when the database moves off this VM.
+# Copy to config.yaml. Point clickhouse.host at your production ClickHouse.
 
-mysql:
+clickhouse:
   host: "127.0.0.1"
-  port: 3306
-  user: "ipdr_ro"
+  # HTTP interface: 8123 (plain) or 8443 (TLS). Native protocol is not used.
+  port: 8123
+  user: "default"
   password: "change-me"
   database: "ipdr"
+  secure: false
 
 # llama-server.service already listens on 11434.
 # The page also lists every server in engines.yaml. kind is llama.cpp or ollama.

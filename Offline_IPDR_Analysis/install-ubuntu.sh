@@ -15,7 +15,7 @@ fi
 
 if [ ! -f config.yaml ]; then
   cp config.example.yaml config.yaml
-  echo "Edit config.yaml and set the MySQL password before asking questions."
+  echo "Edit config.yaml and set the ClickHouse host/password before asking questions."
 fi
 
 sudo tee /etc/systemd/system/ipdr-assistant.service >/dev/null <<EOF

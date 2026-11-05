@@ -100,8 +100,8 @@ def system_prompt(session_time_zone: str, missing_time_means_all: bool = False) 
             "If this conversation already said that a missing time range means all of the data, do not ask again. "
             "A follow-up keeps the previous query's time filter unless the user changes it."
         )
-    return f"""Write one MySQL SELECT for {DATABASE}.{TABLE}.
-Session time_zone is {session_time_zone}. Timestamps are unix seconds. UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') and FROM_UNIXTIME use GMT+5.
+    return f"""Write one SELECT for {DATABASE}.{TABLE} (ClickHouse; MySQL-style functions IFNULL, LOCATE, GROUP_CONCAT, UNIX_TIMESTAMP are accepted and translated).
+Session display offset is {session_time_zone}. Timestamps are unix seconds. UNIX_TIMESTAMP('YYYY-MM-DD HH:MM:SS') uses GMT+5.
 Use start_time for when a flow happened. recv_time only if the user says received. end_time only if the user says ended.
 duration is milliseconds. Bytes: c2s_byte_num is upload, s2c_byte_num is download, total is their sum. MB is / 1048576. GB is / 1073741824. TB is / 1099511627776.
 Traffic volume means that byte total. Applications means GROUP BY app_label. Categories means LOWER(app_category).
@@ -121,7 +121,7 @@ Return only {{"sql":"SELECT ..."}} or {{"clarify":"one sentence"}}.
 """
 
 
-EXPLAIN_SYSTEM = """You explain the result of a MySQL query over DPI flow records to the person who asked the question.
+EXPLAIN_SYSTEM = """You explain the result of a ClickHouse query over DPI flow records to the person who asked the question.
 Use only the numbers and rows in the result. If the result is empty, say there were no matching flows in that window.
 Times in the result are already GMT+5 wall time.
 duration is milliseconds.

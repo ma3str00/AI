@@ -1,4 +1,4 @@
-"""Local web API. SQL is generated on this machine, then run against MySQL read-only."""
+"""Local web API. SQL is generated on this machine, then run against ClickHouse read-only."""
 
 from __future__ import annotations
 
@@ -125,7 +125,7 @@ def page():
 def health():
     config: Config = _state["config"]
     database: Database = _state["db"]
-    mysql_ok, mysql_detail = database.ping()
+    ch_ok, ch_detail = database.ping()
     engines = []
     for engine in config.engines:
         server: LlamaServer = _state["engines"][engine.id]
@@ -144,7 +144,19 @@ def health():
         })
     local = next(item for item in engines if item["id"] == "local")
     return {
-        "mysql": {"ok": mysql_ok, "detail": mysql_detail, "host": config.mysql_host, "database": config.mysql_database},
+        "clickhouse": {
+            "ok": ch_ok,
+            "detail": ch_detail,
+            "host": config.ch_host,
+            "database": config.ch_database,
+        },
+        # Back-compat for older UI builds that still read data.mysql.
+        "mysql": {
+            "ok": ch_ok,
+            "detail": ch_detail,
+            "host": config.ch_host,
+            "database": config.ch_database,
+        },
         "llama": local,
         "engines": engines,
         "examples": len(_state["index"].examples),

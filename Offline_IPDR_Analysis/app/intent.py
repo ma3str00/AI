@@ -564,7 +564,7 @@ def resolve_intent(question: str, history: list[dict] | None = None) -> Intent |
 
 
 def build_sql(intent: Intent) -> str:
-    """Compile Intent into a single MySQL SELECT."""
+    """Compile Intent into a single SELECT (MySQL-shaped; executed on ClickHouse)."""
     where_sql = " AND ".join(intent.where) if intent.where else "1=1"
     order = (
         intent.measure

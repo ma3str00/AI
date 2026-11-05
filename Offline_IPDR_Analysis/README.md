@@ -1,10 +1,10 @@
 # IPDR assistant
 
-Offline question answering for `ipdr.ntc_ssl_logs`. The llama.cpp server already running on this VM writes one read-only `SELECT`, MySQL runs it, and the same server explains the rows.
+Offline question answering for `ipdr.ntc_ssl_logs`. The llama.cpp server already running on this VM writes one read-only `SELECT`, ClickHouse runs it (MySQL-shaped SQL is translated at the edge), and the same server explains the rows.
 
 ## Time
 
-`start_time`, `end_time`, and `recv_time` are Unix epoch seconds. The sample value `1790604000` is 2026-09-28 19:00:00 GMT+5. The MySQL session uses `+05:00`. If every answer is five hours off, set `time.stored_as` to `local_epoch` and restart the web app.
+`start_time`, `end_time`, and `recv_time` are Unix epoch seconds. The sample value `1790604000` is 2026-09-28 19:00:00 GMT+5. Display and question times use GMT+5. If every answer is five hours off, set `time.stored_as` to `local_epoch` and restart the web app.
 
 ## Mobile and fixed-line
 
@@ -15,10 +15,8 @@ A numeric `subscriber_id` can be either. A row is mobile when `mcc`, `mnc`, `lac
 llama-server stays on port 11434. This page uses port 8090.
 
 1. Clone the repo and enter `Offline_IPDR_Analysis`.
-2. Create the read-only user in `scripts/readonly-user.sql`.
-3. In a maintenance window, run `scripts/recommended-indexes.sql`. `start_time` is not indexed yet.
-4. Run `bash install-ubuntu.sh`.
-5. Set the MySQL password in `config.yaml`. Change `mysql.host` when MySQL moves. Restart with `sudo systemctl restart ipdr-assistant`.
+2. Run `bash install-ubuntu.sh` (installs `clickhouse-connect` and the app).
+3. Copy `config.example.yaml` to `config.yaml`. Set `clickhouse.host`, `port` (8123 HTTP / 8443 TLS), `user`, `password`, and `database`. Restart with `sudo systemctl restart ipdr-assistant`.
 
 Open `http://<this-machine>:8090` from any host that can reach the VM.
 

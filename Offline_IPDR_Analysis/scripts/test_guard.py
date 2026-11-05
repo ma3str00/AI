@@ -10,14 +10,49 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from app.dialect import to_clickhouse
 from app.present import present_rows
 from app.sql_guard import GuardError, prepare, wants_full_table
 from app.config import Config
 
 
+def _check_dialect() -> None:
+    located = to_clickhouse(
+        "SELECT subscriber_id FROM ntc_ssl_logs "
+        "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0"
+    )
+    if "ifNull(subscriber_id, '')" not in located or "position(subscriber_id, '_')" not in located:
+        raise SystemExit(f"LOCATE/IFNULL rewrite failed:\n{located}")
+    if "LOCATE(" in located or "IFNULL(" in located:
+        raise SystemExit(f"MySQL functions left after rewrite:\n{located}")
+
+    concat = to_clickhouse(
+        "SELECT GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END "
+        "ORDER BY loc SEPARATOR ', ') AS loc FROM ntc_ssl_logs"
+    )
+    if "groupUniqArray" not in concat or "arrayStringConcat" not in concat:
+        raise SystemExit(f"GROUP_CONCAT rewrite failed:\n{concat}")
+    if "GROUP_CONCAT" in concat.upper():
+        raise SystemExit(f"GROUP_CONCAT left after rewrite:\n{concat}")
+
+    unix = to_clickhouse(
+        "SELECT COUNT(*) FROM ntc_ssl_logs WHERE start_time >= UNIX_TIMESTAMP(CURDATE())"
+    )
+    if "toUnixTimestamp(toStartOfDay(now()))" not in unix:
+        raise SystemExit(f"UNIX_TIMESTAMP(CURDATE()) rewrite failed:\n{unix}")
+
+    week = to_clickhouse(
+        "SELECT COUNT(*) FROM ntc_ssl_logs "
+        "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)"
+    )
+    if "toUnixTimestamp(now() - toIntervalDay(7))" not in week:
+        raise SystemExit(f"UNIX_TIMESTAMP(NOW()-INTERVAL) rewrite failed:\n{week}")
+
+
 def main() -> None:
     from app.app_map import AppMap, activate_app_map
 
+    _check_dialect()
     activate_app_map(AppMap.load(ROOT / "data" / "app_category_to_app_label_mapping.csv"))
     path = ROOT / "data" / "training_examples.jsonl"
     examples = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -64,11 +99,12 @@ def main() -> None:
         raise SystemExit(f"limit was not capped:\n{capped}")
 
     config = Config(
-        mysql_host="127.0.0.1",
-        mysql_port=3306,
-        mysql_user="x",
-        mysql_password="",
-        mysql_database="ipdr",
+        ch_host="127.0.0.1",
+        ch_port=8123,
+        ch_user="default",
+        ch_password="",
+        ch_database="ipdr",
+        ch_secure=False,
         llama_base_url="http://127.0.0.1:8080",
         llama_model="qwen2.5-coder-3b-instruct-q4_k_m.gguf",
         llama_timeout=30,

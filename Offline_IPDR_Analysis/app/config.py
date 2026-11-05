@@ -22,11 +22,12 @@ class Engine:
 
 @dataclass(frozen=True)
 class Config:
-    mysql_host: str
-    mysql_port: int
-    mysql_user: str
-    mysql_password: str
-    mysql_database: str
+    ch_host: str
+    ch_port: int
+    ch_user: str
+    ch_password: str
+    ch_database: str
+    ch_secure: bool
     llama_base_url: str
     llama_model: str
     llama_timeout: float
@@ -45,12 +46,19 @@ class Config:
     learned_jsonl: Path
     engines: tuple[Engine, ...] = ()
 
+    # Back-compat aliases used by older status/health code paths.
+    @property
+    def mysql_host(self) -> str:
+        return self.ch_host
+
+    @property
+    def mysql_database(self) -> str:
+        return self.ch_database
+
     @property
     def session_time_zone(self) -> str:
-        # utc_epoch: the integer is a real Unix instant, so the session must be GMT+5
-        # for UNIX_TIMESTAMP('wall clock') to mean GMT+5.
-        # local_epoch: the integer was built from a GMT+5 wall clock. Keep the session
-        # at UTC so the same SQL literal still matches the stored integer.
+        # utc_epoch: integers are real Unix instants; display/questions use GMT+5.
+        # local_epoch: integers were built from a GMT+5 wall clock.
         if self.stored_as == "local_epoch":
             return "+00:00"
         return self.display_offset
@@ -66,7 +74,7 @@ def load_config() -> Config:
     path = Path(os.environ.get("IPDR_CONFIG", ROOT / "config.yaml"))
     if not path.exists():
         raise FileNotFoundError(
-            f"Missing {path}. Copy config.example.yaml to config.yaml and set the MySQL host."
+            f"Missing {path}. Copy config.example.yaml to config.yaml and set the ClickHouse host."
         )
     with path.open(encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
@@ -77,7 +85,8 @@ def load_config() -> Config:
             candidate = (path.parent / candidate).resolve()
         return candidate
 
-    mysql = raw.get("mysql") or {}
+    # Prefer clickhouse:; accept legacy mysql: during migration.
+    ch = raw.get("clickhouse") or raw.get("mysql") or {}
     llama = raw.get("llama") or {}
     server = raw.get("server") or {}
     timing = raw.get("time") or {}
@@ -104,12 +113,14 @@ def load_config() -> Config:
             continue
         engines.append(engine)
         seen.add(engine.id)
+    default_port = 8443 if bool(ch.get("secure", False)) else 8123
     return Config(
-        mysql_host=str(mysql.get("host", "127.0.0.1")),
-        mysql_port=int(mysql.get("port", 3306)),
-        mysql_user=str(mysql.get("user", "ipdr_ro")),
-        mysql_password=str(mysql.get("password", "")),
-        mysql_database=str(mysql.get("database", "ipdr")),
+        ch_host=str(ch.get("host", "127.0.0.1")),
+        ch_port=int(ch.get("port", default_port)),
+        ch_user=str(ch.get("user", "default")),
+        ch_password=str(ch.get("password", "")),
+        ch_database=str(ch.get("database", "ipdr")),
+        ch_secure=bool(ch.get("secure", False)),
         llama_base_url=str(llama.get("base_url", "http://127.0.0.1:11434")),
         llama_model=str(llama.get("model", "qwen2.5-coder-3b-instruct-q4_k_m.gguf")),
         llama_timeout=float(llama.get("timeout_seconds", 300)),

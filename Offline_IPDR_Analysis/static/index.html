@@ -256,7 +256,12 @@ async function loadHealth() {
     const data = await response.json();
     const llama = data.llama || {};
     status.append(
-      pill(data.mysql.ok ? "MySQL " + data.mysql.host : "MySQL down", data.mysql.ok ? "ok" : "bad"),
+      pill(
+        (data.clickhouse || data.mysql).ok
+          ? "ClickHouse " + (data.clickhouse || data.mysql).host
+          : "ClickHouse down",
+        (data.clickhouse || data.mysql).ok ? "ok" : "bad"
+      ),
       pill(llama.ok ? (llama.label || "Local") + " · " + (llama.model || "") : "local model not ready", llama.ok ? "ok" : "bad"),
       pill(data.examples + " examples"),
       pill((data.learned || 0) + " learned"),
@@ -264,7 +269,7 @@ async function loadHealth() {
       pill(data.labels + " app labels"),
       pill(data.time.note)
     );
-    if (!data.mysql.ok) status.append(pill(data.mysql.detail, "bad"));
+    if (!(data.clickhouse || data.mysql).ok) status.append(pill((data.clickhouse || data.mysql).detail, "bad"));
     if (llama.ok === false) status.append(pill(llama.detail, "bad"));
     const engines = Array.isArray(data.engines) ? data.engines : [];
     fillEngines(engines);
