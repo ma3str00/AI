@@ -1,6 +1,6 @@
 # IPDR assistant
 
-Offline question answering for `ipdr.ntc_ssl_logs`. The llama.cpp server already running on this VM writes one read-only `SELECT`, ClickHouse runs it (MySQL-shaped SQL is translated at the edge), and the same server explains the rows.
+Offline question answering for `ipdr.ntc_ssl_log`. The llama.cpp server already running on this VM writes one read-only `SELECT`, ClickHouse runs it (MySQL-shaped SQL is translated at the edge), and the same server explains the rows.
 
 ## Time
 
@@ -16,7 +16,7 @@ llama-server stays on port 11434. This page uses port 8090.
 
 1. Clone the repo and enter `Offline_IPDR_Analysis`.
 2. Run `bash install-ubuntu.sh` (installs `clickhouse-connect` and the app).
-3. Copy `config.example.yaml` to `config.yaml`. Set `clickhouse.host`, `port` (9000 native / 9440 TLS), `user`, `password`, and `database` (must contain `ntc_ssl_logs`). Restart with `sudo systemctl restart ipdr-assistant`.
+3. Copy `config.example.yaml` to `config.yaml`. Set `clickhouse.host`, `port` (8123 HTTP / 8443 TLS), `user`, `password`, and `database`. Restart with `sudo systemctl restart ipdr-assistant`.
 
 Open `http://<this-machine>:8090` from any host that can reach the VM.
 

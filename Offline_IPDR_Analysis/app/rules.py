@@ -68,7 +68,7 @@ def dictionary_problem(question: str, sql: str) -> str | None:
     folded = sql.lower()
     for column, why in DEAD_COLUMNS.items():
         if re.search(rf"\b{re.escape(column)}\b", folded):
-            return f"{column} is {why} in ntc_ssl_logs, so this cannot be answered from that column."
+            return f"{column} is {why} in ntc_ssl_log, so this cannot be answered from that column."
     kind = subscriber_kind([question])
     if kind == "mobile" and not _positive_cell(sql):
         return (

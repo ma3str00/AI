@@ -18,7 +18,7 @@ from app.config import Config
 
 def _check_dialect() -> None:
     located = to_clickhouse(
-        "SELECT subscriber_id FROM ntc_ssl_logs "
+        "SELECT subscriber_id FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0"
     )
     if "ifNull(subscriber_id, '')" not in located or "position(subscriber_id, '_')" not in located:
@@ -28,7 +28,7 @@ def _check_dialect() -> None:
 
     concat = to_clickhouse(
         "SELECT GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END "
-        "ORDER BY loc SEPARATOR ', ') AS loc FROM ntc_ssl_logs"
+        "ORDER BY loc SEPARATOR ', ') AS loc FROM ntc_ssl_log"
     )
     if "groupUniqArray" not in concat or "arrayStringConcat" not in concat:
         raise SystemExit(f"GROUP_CONCAT rewrite failed:\n{concat}")
@@ -36,19 +36,19 @@ def _check_dialect() -> None:
         raise SystemExit(f"GROUP_CONCAT left after rewrite:\n{concat}")
 
     unix = to_clickhouse(
-        "SELECT COUNT(*) FROM ntc_ssl_logs WHERE start_time >= UNIX_TIMESTAMP(CURDATE())"
+        "SELECT COUNT(*) FROM ntc_ssl_log WHERE start_time >= UNIX_TIMESTAMP(CURDATE())"
     )
     if "toUnixTimestamp(toStartOfDay(now()))" not in unix:
         raise SystemExit(f"UNIX_TIMESTAMP(CURDATE()) rewrite failed:\n{unix}")
 
     week = to_clickhouse(
-        "SELECT COUNT(*) FROM ntc_ssl_logs "
+        "SELECT COUNT(*) FROM ntc_ssl_log "
         "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)"
     )
     if "toUnixTimestamp(now() - toIntervalDay(7))" not in week:
         raise SystemExit(f"UNIX_TIMESTAMP(NOW()-INTERVAL) rewrite failed:\n{week}")
     mins = to_clickhouse(
-        "SELECT COUNT(*) FROM ntc_ssl_logs "
+        "SELECT COUNT(*) FROM ntc_ssl_log "
         "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 5 MINUTE)"
     )
     if "toUnixTimestamp(now() - toIntervalMinute(5))" not in mins:
@@ -76,13 +76,13 @@ def main() -> None:
         except GuardError as exc:
             raise SystemExit(f"guard rejected training SQL:\n{item['question']}\n{item['sql']}\n{exc}") from exc
     rejected = [
-        "DROP TABLE ntc_ssl_logs",
-        "SELECT * FROM ntc_ssl_logs",
-        "SELECT * FROM ntc_ssl_logs WHERE client_ip = '203.0.113.10'",
-        "SELECT SLEEP(10) FROM ntc_ssl_logs WHERE start_time > 1",
-        "SELECT * FROM ntc_ssl_logs WHERE start_time > 1; SELECT * FROM ntc_ssl_logs",
+        "DROP TABLE ntc_ssl_log",
+        "SELECT * FROM ntc_ssl_log",
+        "SELECT * FROM ntc_ssl_log WHERE client_ip = '203.0.113.10'",
+        "SELECT SLEEP(10) FROM ntc_ssl_log WHERE start_time > 1",
+        "SELECT * FROM ntc_ssl_log WHERE start_time > 1; SELECT * FROM ntc_ssl_log",
         "SELECT * FROM other_table WHERE start_time > 1",
-        "SELECT * FROM ntc_ssl_logs WHERE start_time > 1 INTO OUTFILE '/tmp/x'",
+        "SELECT * FROM ntc_ssl_log WHERE start_time > 1 INTO OUTFILE '/tmp/x'",
     ]
     for sql in rejected:
         try:
@@ -91,14 +91,14 @@ def main() -> None:
             continue
         raise SystemExit(f"guard allowed unsafe SQL: {sql}")
     allowed = prepare(
-        "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE start_time >= UNIX_TIMESTAMP(CURDATE()) GROUP BY app_label ORDER BY flows DESC",
         max_rows=200,
     )
     if "LIMIT 200" not in allowed:
         raise SystemExit(f"limit was not applied:\n{allowed}")
     capped = prepare(
-        "SELECT id FROM ntc_ssl_logs WHERE start_time >= UNIX_TIMESTAMP(CURDATE()) LIMIT 5000",
+        "SELECT id FROM ntc_ssl_log WHERE start_time >= UNIX_TIMESTAMP(CURDATE()) LIMIT 5000",
         max_rows=200,
     )
     if "5000" in capped:
@@ -106,7 +106,7 @@ def main() -> None:
 
     config = Config(
         ch_host="127.0.0.1",
-        ch_port=9000,
+        ch_port=8123,
         ch_user="default",
         ch_password="",
         ch_database="ipdr",
@@ -136,7 +136,7 @@ def main() -> None:
         raise SystemExit("full-table question was not recognized")
     top5 = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
-        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+        "FROM ntc_ssl_log GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
     )
     try:
         prepare(top5, max_rows=200, allow_full_scan=False)
@@ -152,7 +152,7 @@ def main() -> None:
     grouped_by_app = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+        "FROM ntc_ssl_log GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
     )
     rejected = check_sql(
         "If the time filter is not specified then the query should be applied on all the data",
@@ -165,7 +165,7 @@ def main() -> None:
     whatsapp_users = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
     )
@@ -173,13 +173,13 @@ def main() -> None:
         raise SystemExit("valid WhatsApp subscriber ranking was rejected")
     without_filter = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
-        "FROM ntc_ssl_logs GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
+        "FROM ntc_ssl_log GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
     )
     rejected = check_sql("By users I meant the top 5 subscriber_id", without_filter, history, True)
     if not rejected or "whatsapp" not in rejected.lower() or "LOCATE" not in rejected:
         raise SystemExit(f"unfiltered subscriber ranking was accepted: {rejected}")
     lost = (
-        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes FROM ntc_ssl_logs "
+        "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes FROM ntc_ssl_log "
         "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY) AND app_label = 'ipv6_over_ipv4' "
         "GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
     )
@@ -193,7 +193,7 @@ def main() -> None:
         raise SystemExit("rewritten query was accepted")
     bad_mobile = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%mobile%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%mobile%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND subscriber_id NOT LIKE '%_%' "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
@@ -208,7 +208,7 @@ def main() -> None:
         raise SystemExit(f"mobile app_label query was accepted: {rejected}")
     mobile_sql = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
         "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
@@ -243,7 +243,7 @@ def main() -> None:
     from app.learned import saved_sql, sql_needs_full_scan
 
     learned_sql = (
-        "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "SELECT subscriber_id FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "GROUP BY subscriber_id LIMIT 5"
     )
     if not sql_needs_full_scan(learned_sql):
@@ -262,7 +262,7 @@ def main() -> None:
     previous = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 5"
     )
@@ -298,7 +298,7 @@ def main() -> None:
 
     copied = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%mobile%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%mobile%' "
         "AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
         "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
         "OR NULLIF(usr_loc_info, '') IS NOT NULL) "
@@ -315,7 +315,7 @@ def main() -> None:
     from app.preferences import lesson_from_marked_answer, missing_time_means_all
 
     whole_table = (
-        "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "SELECT subscriber_id FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "GROUP BY subscriber_id LIMIT 5"
     )
     if not lesson_from_marked_answer(["give me the top 5 whatsapp users by traffic volume"], whole_table):
@@ -324,7 +324,7 @@ def main() -> None:
         raise SystemExit("a marked yesterday question was treated as the time rule")
     if lesson_from_marked_answer(
         ["give me the top 5 whatsapp users by traffic volume"],
-        "SELECT subscriber_id FROM ntc_ssl_logs WHERE start_time >= 1 GROUP BY subscriber_id LIMIT 5",
+        "SELECT subscriber_id FROM ntc_ssl_log WHERE start_time >= 1 GROUP BY subscriber_id LIMIT 5",
     ):
         raise SystemExit("a marked time filter was treated as the time rule")
     if missing_time_means_all():
@@ -335,12 +335,12 @@ def main() -> None:
         raise SystemExit("a learned rule did not run a new question on all of the data")
     if use_full_scan("top 5 whatsapp users yesterday", [], True):
         raise SystemExit("yesterday was widened to the whole table")
-    timed = [{"question": "top apps yesterday", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE start_time >= 1 GROUP BY app_label"}]
+    timed = [{"question": "top apps yesterday", "sql": "SELECT app_label FROM ntc_ssl_log WHERE start_time >= 1 GROUP BY app_label"}]
     if use_full_scan("top 10 mobile users for the same", timed, True):
         raise SystemExit("a follow-up dropped the previous time filter")
     youtube = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) IN ('youtube') "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) IN ('youtube') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (NULLIF(mcc, '') IS NOT NULL OR NULLIF(mnc, '') IS NOT NULL "
         "OR NULLIF(lac, '') IS NOT NULL OR NULLIF(cid, '') IS NOT NULL "
@@ -379,7 +379,7 @@ def main() -> None:
         raise SystemExit(f"yes did not keep the application and apply the metric: {affirmed}")
     facebook = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%facebook%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%facebook%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
     )
@@ -421,7 +421,7 @@ def main() -> None:
         raise SystemExit(f"flow ranking was described as bytes: {told}")
     apps = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 10"
+        "FROM ntc_ssl_log GROUP BY app_label ORDER BY total_bytes DESC LIMIT 10"
     )
     split = resolve_followup(
         "now give me the corresponding upload and download traffic volume along with the flows",
@@ -491,7 +491,7 @@ def main() -> None:
 
     guard_prepare(users, max_rows=200, allow_full_scan=True)
     streaming = (
-        "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
+        "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_log "
         "WHERE LOWER(app_category) IN ('streaming') GROUP BY app_label LIMIT 200"
     )
     counted = resolve_followup(
@@ -513,7 +513,7 @@ def main() -> None:
         "SELECT app_label, COUNT(*) AS flow_count, SUM(c2s_byte_num) AS upload_traffic, "
         "SUM(s2c_byte_num) AS download_traffic, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
-        "FROM ntc_ssl_logs WHERE LOWER(app_category) IN ('streaming') GROUP BY app_label LIMIT 200"
+        "FROM ntc_ssl_log WHERE LOWER(app_category) IN ('streaming') GROUP BY app_label LIMIT 200"
     )
     by_users = resolve_followup(
         "show the traffic volumes in gigabytes. You are still showing the data in alphabetical order, I want them ordered by user count",
@@ -540,7 +540,7 @@ def main() -> None:
         "ROUND(SUM(s2c_byte_num) / 1073741824, 2) AS download_traffic_gb, "
         "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
-        "FROM ntc_ssl_logs WHERE LOWER(app_category) IN ('game') "
+        "FROM ntc_ssl_log WHERE LOWER(app_category) IN ('game') "
         "GROUP BY app_label ORDER BY users DESC LIMIT 200"
     )
     megabytes = resolve_followup(
@@ -565,7 +565,7 @@ def main() -> None:
     whatsapp_users = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
     )
@@ -601,7 +601,7 @@ def main() -> None:
     if check_sql("I am referring to user htr897713", referred_user, named_again, True):
         raise SystemExit("listing one subscriber's applications was rejected")
     listing = (
-        "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_logs "
+        "SELECT app_label, COUNT(*) AS flow_count FROM ntc_ssl_log "
         "WHERE LOWER(app_category) = 'web_browsing' GROUP BY app_label LIMIT 200"
     )
     opened = resolve_followup(
@@ -617,7 +617,7 @@ def main() -> None:
         raise SystemExit(f"the guard put the limit back: {shown_all}")
     twitter_users = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) IN ('twitter_upload', 'twitter') "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) IN ('twitter_upload', 'twitter') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
     )
@@ -659,7 +659,7 @@ def main() -> None:
         raise SystemExit(f"websites for one application were not filtered: {http_sites}")
     with_label = resolve_followup(
         "show me the websites accessed by 0333319067AQ and app_label",
-        [{"question": "show me the activities of 0333319067AQ", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE subscriber_id = '0333319067AQ' GROUP BY app_label"}],
+        [{"question": "show me the activities of 0333319067AQ", "sql": "SELECT app_label FROM ntc_ssl_log WHERE subscriber_id = '0333319067AQ' GROUP BY app_label"}],
     )
     folded_label = (with_label or "").lower()
     if (
@@ -683,7 +683,7 @@ def main() -> None:
         raise SystemExit(f"flows did not include the website and application: {named_flows}")
     facebook_sites = (
         "SELECT requested_server, COUNT(*) AS flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes "
-        "FROM ntc_ssl_logs WHERE subscriber_id = '03339169479abhd' AND LOWER(app_label) = 'facebook' "
+        "FROM ntc_ssl_log WHERE subscriber_id = '03339169479abhd' AND LOWER(app_label) = 'facebook' "
         "AND IFNULL(requested_server, '') <> '' GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
     )
     same_ssl = resolve_followup(
@@ -701,7 +701,7 @@ def main() -> None:
     ranking = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 25"
     )
     details = resolve_followup(
@@ -717,7 +717,7 @@ def main() -> None:
     ):
         raise SystemExit(f"activity details repeated the subscriber total: {details}")
     punjab_ranking = (
-        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE NOT (NULLIF(mcc, '') IS NULL) AND (LOWER(loc) LIKE '%punjab%' OR LOWER(loc) LIKE '%lahore%') "
         "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
     )
@@ -738,7 +738,7 @@ def main() -> None:
     more = resolve_followup(
         "show me more details about 3499227512",
         [{"question": "show me the top 30 fixedline users by hit count from kpk", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE NOT (NULLIF(mcc, '') IS NULL) AND (LOWER(loc) LIKE '%peshawar%') "
             "AND LOWER(client_asn) LIKE '%pakistan telecommunication%' "
             "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 30"
@@ -758,7 +758,7 @@ def main() -> None:
     details_for = resolve_followup(
         "details for 92305319067A",
         [{"question": "show me the top 30 mobile users by hit count from Punjab", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE (NULLIF(mcc, '') IS NOT NULL) AND (LOWER(loc) LIKE '%rawalpindi%') "
             "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 30"
         )}],
@@ -775,7 +775,7 @@ def main() -> None:
         raise SystemExit(f"details for an id repeated the ranking: {details_for}")
     one_apps = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE subscriber_id = '923325034073' GROUP BY app_label ORDER BY total_bytes DESC"
+        "FROM ntc_ssl_log WHERE subscriber_id = '923325034073' GROUP BY app_label ORDER BY total_bytes DESC"
     )
     also_sites = resolve_followup(
         "also show the websites",
@@ -792,7 +792,7 @@ def main() -> None:
     including = resolve_followup(
         "details for a 923325034073 including websites",
         [{"question": "show me the top 30 mobile users by hit count from Peshawar", "sql": (
-            "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(loc) LIKE '%peshawar%' GROUP BY subscriber_id LIMIT 30"
+            "SELECT subscriber_id FROM ntc_ssl_log WHERE LOWER(loc) LIKE '%peshawar%' GROUP BY subscriber_id LIMIT 30"
         )}],
     )
     folded_including = (including or "").lower()
@@ -804,7 +804,7 @@ def main() -> None:
     ):
         raise SystemExit(f"details including websites stayed on applications: {including}")
     one_sites = (
-        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE subscriber_id = '923325034073' AND IFNULL(requested_server, '') <> '' "
         "GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
     )
@@ -821,7 +821,7 @@ def main() -> None:
     ):
         raise SystemExit(f"corresponding apps dropped the websites: {corresponding}")
     hostel_sites = (
-        "SELECT requested_server, app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT requested_server, app_label, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE subscriber_id = 'studentsgirlshostel3' AND IFNULL(requested_server, '') <> '' "
         "AND IFNULL(app_label, '') <> '' GROUP BY requested_server, app_label ORDER BY total_bytes DESC LIMIT 50"
     )
@@ -871,7 +871,7 @@ def main() -> None:
     cafe = resolve_followup(
         "apps and websites used by farshacafe",
         [{"question": "show top 10 nayatel users by flow count from Islamabad", "sql": (
-            "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(loc) LIKE '%islamabad%' "
+            "SELECT subscriber_id FROM ntc_ssl_log WHERE LOWER(loc) LIKE '%islamabad%' "
             "AND LOWER(client_asn) LIKE '%nayatel%' GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
         )}],
     )
@@ -1076,7 +1076,7 @@ def main() -> None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb, "
         "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
-        "FROM ntc_ssl_logs WHERE IFNULL(requested_server, '') <> '' "
+        "FROM ntc_ssl_log WHERE IFNULL(requested_server, '') <> '' "
         "GROUP BY requested_server LIMIT 10"
     )
     restored = resolve_followup(
@@ -1118,7 +1118,7 @@ def main() -> None:
     blocked_users = resolve_followup(
         "show me the top 20 users who have the most blocked flows",
         [{"question": "top 10 whatsapp users", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE LOWER(app_label) LIKE '%whatsapp%' GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
         )}],
     )
@@ -1181,7 +1181,7 @@ def main() -> None:
     punjab = resolve_followup(
         "show me the top 10 fixedline users by flow count from punjab",
         [{"question": "keep the same app but operator should be jazz", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE LOWER(app_label) LIKE '%instagram%' AND (LOWER(loc) LIKE '%sahiwal%') "
             "AND (LOWER(client_asn) LIKE '%jazz%') GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 20"
         )}],
@@ -1202,7 +1202,7 @@ def main() -> None:
         raise SystemExit(f"Punjab fixed-line users kept the previous filters: {punjab}")
     mobile_only = resolve_followup(
         "now give me the top 10 mobile users",
-        [{"question": "youtube users", "sql": "SELECT subscriber_id FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%youtube%' GROUP BY subscriber_id"}],
+        [{"question": "youtube users", "sql": "SELECT subscriber_id FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%youtube%' GROUP BY subscriber_id"}],
     )
     if mobile_only is not None:
         raise SystemExit(f"mobile users were rebuilt instead of keeping the previous app: {mobile_only}")
@@ -1237,7 +1237,7 @@ def main() -> None:
     either = resolve_followup(
         "did 03146883G access any blocked website or app ?",
         [{"question": "show me the websites visited by 03146883G of app type http", "sql": (
-            "SELECT requested_server FROM ntc_ssl_logs WHERE subscriber_id = '03146883G' "
+            "SELECT requested_server FROM ntc_ssl_log WHERE subscriber_id = '03146883G' "
             "AND LOWER(app_label) = 'http' GROUP BY requested_server"
         )}],
     )
@@ -1255,7 +1255,7 @@ def main() -> None:
     printed = resolve_followup(
         "also print the block type column",
         [{"question": "show me top 20 users from kpk that tried to access blocked content the most", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS blocked_flows FROM ntc_ssl_log "
             "WHERE (block_type IS NOT NULL AND block_type <> 0) AND (LOWER(loc) LIKE '%peshawar%') "
             "GROUP BY subscriber_id ORDER BY blocked_flows DESC LIMIT 20"
         )}],
@@ -1286,7 +1286,7 @@ def main() -> None:
     with_apps = resolve_followup(
         "show me the blocked websites along with the corresponding apps",
         [{"question": "which blocked websites and apps accessed by 923421012400", "sql": (
-            "SELECT requested_server, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+            "SELECT requested_server, COUNT(*) AS blocked_flows FROM ntc_ssl_log "
             "WHERE subscriber_id = '923421012400' AND (block_type IS NOT NULL AND block_type <> 0) "
             "GROUP BY requested_server ORDER BY blocked_flows DESC"
         )}],
@@ -1301,7 +1301,7 @@ def main() -> None:
     meant = resolve_followup(
         "I meant for user 923421012400",
         [{"question": "show me the blocked websites along with the corresponding apps", "sql": (
-            "SELECT requested_server, app_label, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+            "SELECT requested_server, app_label, COUNT(*) AS blocked_flows FROM ntc_ssl_log "
             "WHERE (block_type IS NOT NULL AND block_type <> 0) "
             "GROUP BY requested_server, app_label ORDER BY blocked_flows DESC LIMIT 200"
         )}],
@@ -1320,7 +1320,7 @@ def main() -> None:
         raise SystemExit("a user ranking was read as one person's applications")
     previous_person = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE subscriber_id = '03225007549uu' GROUP BY app_label ORDER BY total_bytes DESC"
+        "FROM ntc_ssl_log WHERE subscriber_id = '03225007549uu' GROUP BY app_label ORDER BY total_bytes DESC"
     )
     swapped = resolve_followup(
         "what about 03315446519QAE?",
@@ -1338,7 +1338,7 @@ def main() -> None:
         "SELECT app_label, COUNT(*) AS flows, "
         "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
-        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY flows DESC LIMIT 20"
+        "FROM ntc_ssl_log GROUP BY app_label ORDER BY flows DESC LIMIT 20"
     )
     tiktok_users = resolve_followup(
         "show me the top 50 tiktok users",
@@ -1578,7 +1578,7 @@ def main() -> None:
     same_city = resolve_followup(
         "now show me the top 10 whatsapp Nayatel users from the same city",
         [{"question": "show me the top 10 whatsapp users from Faisalabad", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE LOWER(app_label) LIKE '%whatsapp%' AND IFNULL(subscriber_id, '') <> '' "
             "AND LOCATE('_', subscriber_id) = 0 AND (LOWER(loc) LIKE '%faisalabad%' OR LOWER(loc) LIKE '%fsd%' "
             "OR LOWER(loc) LIKE '%lyallpur%') GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
@@ -1602,7 +1602,7 @@ def main() -> None:
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (LOWER(loc) LIKE '%dera ghazi khan%' OR LOWER(loc) LIKE '%dg khan%' "
         "OR LOWER(loc) LIKE '%d.g.khan%' OR LOWER(loc) LIKE '%dgk%') "
@@ -1631,7 +1631,7 @@ def main() -> None:
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%instagram%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%instagram%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (LOWER(loc) LIKE '%hyderabad%' OR LOWER(loc) LIKE '%hyd%') "
         "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%pmcl%') "
@@ -1661,13 +1661,13 @@ def main() -> None:
     copied = (
         "SELECT subscriber_id, COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%tiktok%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%tiktok%' "
         "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 50"
     )
     if not check_sql("show me the top 50 tiktok users", copied, [{"question": "unique users", "sql": apps_with_users}], True):
         raise SystemExit("a user ranking of IP_port ids was accepted")
     one_site = (
-        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE subscriber_id = '92343809067' AND IFNULL(requested_server, '') <> '' "
         "GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
     )
@@ -1689,11 +1689,11 @@ def main() -> None:
 
     user_rank = (
         "SELECT subscriber_id, COUNT(DISTINCT requested_server) AS websites, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY websites DESC LIMIT 10"
     )
     site_list = (
-        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT requested_server, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE subscriber_id = '030944736121' AND IFNULL(requested_server, '') <> '' "
         "GROUP BY requested_server ORDER BY total_bytes DESC LIMIT 50"
     )
@@ -1727,7 +1727,7 @@ def main() -> None:
         raise SystemExit(f"a size reply forgot the chosen list: {kept} {kept_again}")
     subscriber_rank = (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs GROUP BY subscriber_id ORDER BY flows DESC LIMIT 30"
+        "FROM ntc_ssl_log GROUP BY subscriber_id ORDER BY flows DESC LIMIT 30"
     )
     youtube_protocols = resolve_followup(
         "show the traffic and flows for all the youtube protocols",
@@ -1846,7 +1846,7 @@ def main() -> None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, requested_server, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(geo, '') <> '' THEN geo END ORDER BY geo SEPARATOR ', ') AS geo "
-        "FROM ntc_ssl_logs WHERE (block_type IS NOT NULL AND block_type <> 0) AND (LOWER(client_asn) LIKE '%telenor%') "
+        "FROM ntc_ssl_log WHERE (block_type IS NOT NULL AND block_type <> 0) AND (LOWER(client_asn) LIKE '%telenor%') "
         "AND LOWER(app_label) IN ('vkontakte_music', 'vkontakte', 'vkontakte_video') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id, requested_server ORDER BY blocked_flows DESC LIMIT 10"
@@ -1869,7 +1869,7 @@ def main() -> None:
     snap_users = (
         "SELECT subscriber_id, COUNT(*) AS blocked_flows, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) IN ('snapchat', 'snapchat_voip') "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) IN ('snapchat', 'snapchat_voip') "
         "AND (LOWER(client_asn) LIKE '%zong%') AND IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 GROUP BY subscriber_id ORDER BY blocked_flows DESC LIMIT 10"
     )
@@ -1890,7 +1890,7 @@ def main() -> None:
     prepare(with_address, 200, allow_full_scan=True)
     access_times = resolve_followup(
         "at what time did 210317380 try to access xhamster",
-        [{"question": "other activities", "sql": "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = '210317380' GROUP BY app_label ORDER BY flows DESC"}],
+        [{"question": "other activities", "sql": "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_log WHERE subscriber_id = '210317380' GROUP BY app_label ORDER BY flows DESC"}],
     )
     login_times = resolve_followup(
         "what was the time when ayanjutt accessed nordvpn?",
@@ -1899,7 +1899,7 @@ def main() -> None:
                 "question": "other activities",
                 "sql": (
                     "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
-                    "COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = 'ayanjutt' "
+                    "COUNT(*) AS flows FROM ntc_ssl_log WHERE subscriber_id = 'ayanjutt' "
                     "GROUP BY app_label ORDER BY total_bytes DESC"
                 ),
             }
@@ -1919,7 +1919,7 @@ def main() -> None:
     weather_times = (
         "SELECT FROM_UNIXTIME(start_time) AS start_gmt5, app_label, requested_server, "
         "c2s_byte_num + s2c_byte_num AS total_bytes, duration, block_type "
-        "FROM ntc_ssl_logs WHERE subscriber_id = '03076195547' AND LOWER(app_label) LIKE '%weather%' "
+        "FROM ntc_ssl_log WHERE subscriber_id = '03076195547' AND LOWER(app_label) LIKE '%weather%' "
         "ORDER BY start_time LIMIT 50"
     )
     duration_minutes = resolve_followup(
@@ -1939,7 +1939,7 @@ def main() -> None:
     prepare(duration_minutes, 200, allow_full_scan=True)
     nordvpn_user = (
         "SELECT subscriber_id, app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
-        "COUNT(*) AS flows FROM ntc_ssl_logs WHERE subscriber_id = '03334128404ASD' "
+        "COUNT(*) AS flows FROM ntc_ssl_log WHERE subscriber_id = '03334128404ASD' "
         "AND LOWER(app_label) IN ('nordvpn', 'vpn_connect') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id, app_label ORDER BY total_bytes DESC LIMIT 200"
@@ -1989,7 +1989,7 @@ def main() -> None:
     from app.learned import saved_sql, sql_needs_full_scan
 
     nayatel_apps = (
-        "SELECT app_label, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+        "SELECT app_label, COUNT(*) AS blocked_flows FROM ntc_ssl_log "
         "WHERE (block_type IS NOT NULL AND block_type <> 0) AND LOWER(client_asn) LIKE '%nayatel%' "
         "GROUP BY app_label ORDER BY blocked_flows DESC LIMIT 10"
     )
@@ -1998,7 +1998,7 @@ def main() -> None:
         "sql": (
             "SELECT app_label, COUNT(*) AS blocked_flows, "
             "COUNT(DISTINCT CASE WHEN IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
-            "THEN subscriber_id END) AS users FROM ntc_ssl_logs "
+            "THEN subscriber_id END) AS users FROM ntc_ssl_log "
             "WHERE (block_type IS NOT NULL AND block_type <> 0) AND LOWER(client_asn) LIKE '%twa%' "
             "GROUP BY app_label ORDER BY blocked_flows DESC LIMIT 10"
         ),
@@ -2028,7 +2028,7 @@ def main() -> None:
         raise SystemExit(f"unique users dropped the Nayatel filter: {with_nayatel_users}")
     prepare(with_nayatel_users, 200, allow_full_scan=True)
     cyber_karachi = (
-        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (LOWER(loc) LIKE '%karachi%' OR LOWER(loc) LIKE '%khi%') "
         "AND (LOWER(client_asn) LIKE '%stormfiber%' OR LOWER(client_asn) LIKE '%cybernet%') "
@@ -2054,7 +2054,7 @@ def main() -> None:
         "SELECT requested_server, app_label, COUNT(*) AS flows, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        "FROM ntc_ssl_logs WHERE subscriber_id = '923000953218' "
+        "FROM ntc_ssl_log WHERE subscriber_id = '923000953218' "
         "AND IFNULL(requested_server, '') <> '' AND IFNULL(app_label, '') <> '' "
         "GROUP BY requested_server, app_label ORDER BY total_bytes DESC LIMIT 50"
     )
@@ -2122,7 +2122,7 @@ def main() -> None:
         raise SystemExit(f"ISP was not added beside the flow list: {with_isp}")
     prepare(with_isp, 200, allow_full_scan=True)
     app_duration = (
-        "SELECT app_label, SUM(duration) AS total_duration FROM ntc_ssl_logs "
+        "SELECT app_label, SUM(duration) AS total_duration FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration DESC LIMIT 10"
     )
@@ -2143,7 +2143,7 @@ def main() -> None:
     prepare(duration_hours, 200, allow_full_scan=True)
     hours_only = (
         "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 10"
     )
     with_flows = resolve_followup(
@@ -2162,7 +2162,7 @@ def main() -> None:
     prepare(with_flows, 200, allow_full_scan=True)
     hours_sessions = (
         "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
-        "COUNT(*) AS sessions FROM ntc_ssl_logs "
+        "COUNT(*) AS sessions FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 10"
     )
@@ -2185,7 +2185,7 @@ def main() -> None:
     hours_flows_volume = (
         "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
         "COUNT(*) AS flows, SUM(c2s_byte_num + s2c_byte_num) AS traffic_volume "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 10"
     )
     volume_gb = resolve_followup(
@@ -2205,7 +2205,7 @@ def main() -> None:
         raise SystemExit(f"GB conversion re-ranked by traffic: {volume_gb}")
     prepare(volume_gb, 200, allow_full_scan=True)
     max_duration = (
-        "SELECT app_label, MAX(duration) AS max_duration FROM ntc_ssl_logs "
+        "SELECT app_label, MAX(duration) AS max_duration FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY max_duration DESC LIMIT 20"
     )
@@ -2246,7 +2246,7 @@ def main() -> None:
                 "question": "top apps by duration",
                 "sql": (
                     "SELECT app_label, SUM(duration) AS total_duration, COUNT(*) AS flows "
-                    "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+                    "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
                     "GROUP BY app_label ORDER BY total_duration DESC LIMIT 20"
                 ),
             }
@@ -2265,7 +2265,7 @@ def main() -> None:
     still_ms = (
         "SELECT app_label, SUM(duration) AS total_duration, COUNT(*) AS flows, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1073741824, 2) AS traffic_volume_gb "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration DESC LIMIT 20"
     )
     fixed_ms = resolve_followup(
@@ -2283,7 +2283,7 @@ def main() -> None:
     prepare(fixed_ms, 200, allow_full_scan=True)
     hours_flows_only = (
         "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
-        "COUNT(*) AS flows FROM ntc_ssl_logs "
+        "COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 20"
     )
@@ -2309,7 +2309,7 @@ def main() -> None:
     with_avg = (
         "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
         "COUNT(*) AS flows, ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1073741824, 2) AS traffic_volume_gb, "
-        "ROUND(AVG(duration), 2) AS average_session_duration FROM ntc_ssl_logs "
+        "ROUND(AVG(duration), 2) AS average_session_duration FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 20"
     )
@@ -2337,7 +2337,7 @@ def main() -> None:
                 "sql": (
                     "SELECT app_label, ROUND(SUM(duration) / 3600000, 2) AS total_duration_hours, "
                     "COUNT(*) AS flows, ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1073741824, 2) AS traffic_volume_gb "
-                    "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+                    "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
                     "GROUP BY app_label ORDER BY total_duration_hours DESC LIMIT 20"
                 ),
             }
@@ -2354,7 +2354,7 @@ def main() -> None:
     prepare(added_avg, 200, allow_full_scan=True)
     lower_apps = (
         "SELECT LOWER(app_label) AS app_label, SUM(duration) AS total_duration "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY LOWER(app_label) ORDER BY total_duration DESC LIMIT 20"
     )
     lower_combo = resolve_followup(
@@ -2433,7 +2433,7 @@ def main() -> None:
     daily_tiktok = (
         "SELECT DATE(FROM_UNIXTIME(start_time)) AS day_gmt5, COUNT(*) AS flows, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND LOWER(app_label) = 'tiktok' GROUP BY day_gmt5 ORDER BY day_gmt5 ASC LIMIT 200"
     )
     finer = resolve_followup(
@@ -2453,7 +2453,7 @@ def main() -> None:
     fb_hourly = (
         "SELECT FROM_UNIXTIME(FLOOR(start_time / 3600) * 3600) AS hour_gmt5, COUNT(*) AS flows, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND LOWER(app_label) = 'facebook' GROUP BY hour_gmt5 ORDER BY hour_gmt5 ASC LIMIT 200"
     )
     minute_fb = resolve_followup(
@@ -2471,7 +2471,7 @@ def main() -> None:
         raise SystemExit(f"minute timeline follow-up was wrong: {minute_fb}")
     prepare(minute_fb, 200, allow_full_scan=True)
     social_sql = (
-        "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE (LOWER(app_label) LIKE '%facebook%' OR LOWER(app_label) LIKE '%youtube%') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY app_label ORDER BY flows DESC LIMIT 20"
@@ -2704,7 +2704,7 @@ def main() -> None:
     telenor_ig = (
         "SELECT SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%instagram%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%instagram%' "
         "AND (LOWER(client_asn) LIKE '%telenor%') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 LIMIT 200"
     )
@@ -2728,7 +2728,7 @@ def main() -> None:
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
         "ROW_NUMBER() OVER (PARTITION BY client_asn ORDER BY COUNT(*) DESC) AS rn "
-        "FROM ntc_ssl_logs WHERE IFNULL(client_asn, '') <> '' "
+        "FROM ntc_ssl_log WHERE IFNULL(client_asn, '') <> '' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND LOWER(app_category) = 'streaming' "
         "GROUP BY client_asn, app_label) ranked WHERE rn <= 1 ORDER BY flows DESC LIMIT 20"
@@ -3033,7 +3033,7 @@ def main() -> None:
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(geo, '') <> '' THEN geo END ORDER BY geo SEPARATOR ', ') AS geo "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND (LOWER(loc) LIKE '%lahore%' OR LOWER(loc) LIKE '%lhr%') "
         "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
@@ -3047,7 +3047,7 @@ def main() -> None:
         "ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (LOWER(loc) LIKE '%islamabad%' OR LOWER(loc) LIKE '%isb%') "
         "AND (LOWER(client_asn) LIKE '%zong%' OR LOWER(client_asn) LIKE '%cmpak%') "
@@ -3077,7 +3077,7 @@ def main() -> None:
     from app.clarify_gate import silently_weakens_prior, uncertain_followup_prompt
 
     weak = (
-        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
@@ -3111,7 +3111,7 @@ def main() -> None:
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(client_asn, '') <> '' THEN client_asn END ORDER BY client_asn SEPARATOR ', ') AS client_asn, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND (LOWER(loc) LIKE '%rawalpindi%' OR LOWER(loc) LIKE '%rwp%') "
         "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%' "
         "OR LOWER(client_asn) LIKE '%pmcl%' OR LOWER(client_asn) LIKE '%pakistan mobile communication%' "
@@ -3149,7 +3149,7 @@ def main() -> None:
         "include every application",
         jazz_rwp_flows,
         (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
             "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
         ),
@@ -3160,7 +3160,7 @@ def main() -> None:
     drop_wa = resolve_followup(
         "do not apply the whatsapp filter",
         [{"question": "show me the top 10 Jazz users by flow count", "sql": (
-            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_logs "
+            "SELECT subscriber_id, COUNT(*) AS flows FROM ntc_ssl_log "
             "WHERE LOWER(app_label) LIKE '%whatsapp%' "
             "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
             "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
@@ -3286,7 +3286,7 @@ def main() -> None:
     vpn_no_ssl = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_category) = 'tunneling' "
+        "FROM ntc_ssl_log WHERE LOWER(app_category) = 'tunneling' "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND app_label NOT LIKE '%ssl%' GROUP BY app_label ORDER BY flows DESC LIMIT 20"
     )
@@ -3334,7 +3334,7 @@ def main() -> None:
     rejected = check_sql(
         "at what time did 210317380 try to access xhamster",
         access_times,
-        [{"question": "other activities", "sql": "SELECT app_label FROM ntc_ssl_logs WHERE subscriber_id = '210317380' GROUP BY app_label"}],
+        [{"question": "other activities", "sql": "SELECT app_label FROM ntc_ssl_log WHERE subscriber_id = '210317380' GROUP BY app_label"}],
         True,
     )
     if rejected:
@@ -3353,7 +3353,7 @@ def main() -> None:
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
-        "COUNT(*) AS flows FROM ntc_ssl_logs "
+        "COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "GROUP BY subscriber_id ORDER BY flows DESC LIMIT 10"
@@ -3381,7 +3381,7 @@ def main() -> None:
         "SELECT subscriber_id, "
         "GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END ORDER BY loc SEPARATOR ', ') AS loc, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+        "FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
         "AND (LOWER(loc) LIKE '%rawalpindi%' OR LOWER(loc) LIKE '%rwp%' OR LOWER(loc) LIKE '%pindi%') "
         "AND (LOWER(client_asn) LIKE '%jazz%' OR LOWER(client_asn) LIKE '%mobilink%') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
@@ -3417,7 +3417,7 @@ def main() -> None:
     from app.clarify_gate import silently_weakens_prior as weakens_after_accept
 
     blocked_rank = (
-        "SELECT subscriber_id, COUNT(*) AS blocked_flows FROM ntc_ssl_logs "
+        "SELECT subscriber_id, COUNT(*) AS blocked_flows FROM ntc_ssl_log "
         "WHERE (IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '') "
         "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND (block_type IS NOT NULL AND block_type <> 0) "
@@ -3425,14 +3425,14 @@ def main() -> None:
     )
     detail_sql = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
-        "COUNT(*) AS flows FROM ntc_ssl_logs "
+        "COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE subscriber_id = '03334128404ASD' "
         "GROUP BY app_label ORDER BY total_bytes DESC"
     )
     if weakens_after_accept("show details of 03334128404ASD", blocked_rank, detail_sql):
         raise SystemExit("named-subscriber details after a ranking must not be treated as silent weakening")
     sites_apps = (
-        "SELECT requested_server, app_label, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT requested_server, app_label, COUNT(*) AS flows FROM ntc_ssl_log "
         "WHERE subscriber_id = '03334128404ASD' AND IFNULL(requested_server, '') <> '' "
         "GROUP BY requested_server, app_label ORDER BY flows DESC LIMIT 50"
     )
@@ -3580,7 +3580,7 @@ def main() -> None:
                 "sql": "",
                 "pending_sql": (
                     "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
-                    "COUNT(*) AS flows FROM ntc_ssl_logs WHERE LOWER(app_label) LIKE '%whatsapp%' "
+                    "COUNT(*) AS flows FROM ntc_ssl_log WHERE LOWER(app_label) LIKE '%whatsapp%' "
                     "AND IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
                     "GROUP BY subscriber_id ORDER BY total_bytes DESC LIMIT 10"
                 ),
@@ -3651,7 +3651,7 @@ def main() -> None:
         "AND LOCATE('_', subscriber_id) = 0 THEN subscriber_id END) AS users, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE IFNULL(client_asn, '') <> '' AND IFNULL(subscriber_id, '') <> '' "
+        "FROM ntc_ssl_log WHERE IFNULL(client_asn, '') <> '' AND IFNULL(subscriber_id, '') <> '' "
         "AND LOCATE('_', subscriber_id) = 0 AND (LOWER(loc) LIKE '%lahore%' OR LOWER(loc) LIKE '%lhr%') "
         "GROUP BY client_asn ORDER BY users DESC LIMIT 5"
     )
@@ -3845,7 +3845,7 @@ def main() -> None:
     bare_apps = (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
+        "FROM ntc_ssl_log GROUP BY app_label ORDER BY total_bytes DESC LIMIT 5"
     )
     with_lahore = resolve_followup(
         "You need to apply the filter of Lahore city",
@@ -3863,7 +3863,7 @@ def main() -> None:
         not with_lahore
         or "group by app_label" not in with_lahore_folded
         or "like '%lahore%'" not in with_lahore_folded
-        or "from ntc_ssl_logs and " in with_lahore_folded
+        or "from ntc_ssl_log and " in with_lahore_folded
         or " as loc" in with_lahore_folded
     ):
         raise SystemExit(f"apply Lahore city on app ranking failed: {with_lahore}")

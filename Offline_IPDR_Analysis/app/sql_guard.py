@@ -1,4 +1,4 @@
-"""Reject anything except a single read of ntc_ssl_logs, and cap the result size."""
+"""Reject anything except a single read of ntc_ssl_log, and cap the result size."""
 
 from __future__ import annotations
 

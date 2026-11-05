@@ -113,8 +113,7 @@ def load_config() -> Config:
             continue
         engines.append(engine)
         seen.add(engine.id)
-    # Native TCP protocol defaults to 9000 (9440 when TLS). HTTP 8123 is not used.
-    default_port = 9440 if bool(ch.get("secure", False)) else 9000
+    default_port = 8443 if bool(ch.get("secure", False)) else 8123
     return Config(
         ch_host=str(ch.get("host", "127.0.0.1")),
         ch_port=int(ch.get("port", default_port)),

@@ -1,4 +1,4 @@
-"""MySQL → ClickHouse SQL translation for ntc_ssl_logs queries.
+"""MySQL → ClickHouse SQL translation for ntc_ssl_log queries.
 
 Builders and the LLM historically emit MySQL. Execution targets ClickHouse, so
 every SELECT is normalized here before it reaches the database.

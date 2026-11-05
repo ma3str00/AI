@@ -1,8 +1,8 @@
-"""Column rules for ipdr.ntc_ssl_logs. The model, the example bank, and the UI all use these."""
+"""Column rules for ipdr.ntc_ssl_log. The model, the example bank, and the UI all use these."""
 
 from app.glossary import prompt_block
 
-TABLE = "ntc_ssl_logs"
+TABLE = "ntc_ssl_log"
 DATABASE = "ipdr"
 
 # A numeric subscriber_id can still be fixed-line. Mobile vs fixed is decided only by cell fields.

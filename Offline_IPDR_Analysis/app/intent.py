@@ -577,7 +577,7 @@ def build_sql(intent: Intent) -> str:
             "SELECT SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
             "COUNT(*) AS flows "
-            f"FROM ntc_ssl_logs WHERE {where_sql}"
+            f"FROM ntc_ssl_log WHERE {where_sql}"
         )
     if intent.grain == GRAIN_TOP_USERS:
         return (
@@ -586,7 +586,7 @@ def build_sql(intent: Intent) -> str:
             + ", SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
             "COUNT(*) AS flows "
-            f"FROM ntc_ssl_logs WHERE {where_sql} "
+            f"FROM ntc_ssl_log WHERE {where_sql} "
             f"GROUP BY subscriber_id ORDER BY {order} DESC LIMIT {int(intent.limit)}"
         )
     if intent.grain == GRAIN_USAGE_BY_ISP:
@@ -596,7 +596,7 @@ def build_sql(intent: Intent) -> str:
         return (
             "SELECT client_asn, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-            f"FROM ntc_ssl_logs WHERE {' AND '.join(filters)} "
+            f"FROM ntc_ssl_log WHERE {' AND '.join(filters)} "
             f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(intent.limit)}"
         )
     if intent.grain == GRAIN_TOP_APP_PER_ISP:
@@ -615,7 +615,7 @@ def build_sql(intent: Intent) -> str:
             "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
             f"ROW_NUMBER() OVER (PARTITION BY client_asn ORDER BY {window_order}) AS rn "
-            f"FROM ntc_ssl_logs WHERE {' AND '.join(filters)} "
+            f"FROM ntc_ssl_log WHERE {' AND '.join(filters)} "
             "GROUP BY client_asn, app_label"
             f") ranked WHERE rn <= {int(intent.top_n)} "
             f"ORDER BY {outer_order} DESC LIMIT {int(intent.limit)}"
@@ -639,7 +639,7 @@ def build_sql(intent: Intent) -> str:
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
             f"ROW_NUMBER() OVER (PARTITION BY city ORDER BY {window_order}) AS rn FROM ("
             f"SELECT {city_expr} AS city, app_label, c2s_byte_num, s2c_byte_num "
-            f"FROM ntc_ssl_logs WHERE {where_sql}"
+            f"FROM ntc_ssl_log WHERE {where_sql}"
             ") labeled WHERE city IS NOT NULL "
             "GROUP BY city, app_label"
             f") ranked WHERE rn <= {int(intent.top_n)} "
@@ -688,7 +688,7 @@ def build_sql(intent: Intent) -> str:
             f"SELECT city, client_asn, {inner_measures}, "
             f"ROW_NUMBER() OVER (PARTITION BY city ORDER BY {window_order}) AS rn FROM ("
             f"SELECT {city_expr} AS city, client_asn, subscriber_id, c2s_byte_num, s2c_byte_num "
-            f"FROM ntc_ssl_logs WHERE {where_sql}"
+            f"FROM ntc_ssl_log WHERE {where_sql}"
             ") labeled WHERE city IS NOT NULL "
             "GROUP BY city, client_asn"
             f") ranked WHERE rn <= {int(intent.top_n)} "
@@ -698,7 +698,7 @@ def build_sql(intent: Intent) -> str:
         return (
             "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
             "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-            f"FROM ntc_ssl_logs WHERE {where_sql} "
+            f"FROM ntc_ssl_log WHERE {where_sql} "
             f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(intent.limit)}"
         )
     raise ValueError(f"unsupported grain: {intent.grain}")
@@ -737,9 +737,9 @@ def apply_referee_decision(intent: Intent, decision: dict) -> Intent | str | Non
 
 
 def _innermost_where_clauses(sql: str) -> list[str]:
-    """WHERE predicates on the base ntc_ssl_logs scan inside a compiled intent query."""
+    """WHERE predicates on the base ntc_ssl_log scan inside a compiled intent query."""
     match = re.search(
-        r"from\s+ntc_ssl_logs\s+where\s+(.+?)(?=\)\s*labeled|\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)",
+        r"from\s+ntc_ssl_log\s+where\s+(.+?)(?=\)\s*labeled|\bgroup\s+by\b|\border\s+by\b|\blimit\b|$)",
         sql,
         flags=re.IGNORECASE | re.DOTALL,
     )

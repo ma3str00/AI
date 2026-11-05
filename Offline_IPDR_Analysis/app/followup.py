@@ -343,7 +343,7 @@ def _blocked_activity_of_one(question: str, history: list[dict]) -> str | None:
     where = [f"subscriber_id = '{subscriber}'", status, *extra]
     grouped = ", ".join(columns)
     return (
-        f"SELECT {grouped}, COUNT(*) AS {measure} FROM ntc_ssl_logs "
+        f"SELECT {grouped}, COUNT(*) AS {measure} FROM ntc_ssl_log "
         f"WHERE {' AND '.join(where)} "
         f"GROUP BY {grouped} ORDER BY {measure} DESC{limit_sql}"
     )
@@ -466,7 +466,7 @@ def _access_times_of_one(question: str, history: list[dict]) -> str | None:
         limit_sql = " LIMIT 50"
     return (
         f"SELECT {', '.join(columns)} "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"ORDER BY start_time{limit_sql}"
     )
 
@@ -565,7 +565,7 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
         f"SELECT {columns}, COUNT(*) AS flows, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY {grouped} ORDER BY total_bytes DESC{limit_sql}"
     )
 
@@ -629,7 +629,7 @@ def _top_websites(question: str) -> str | None:
         "SELECT requested_server, COUNT(*) AS flows, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY requested_server ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
@@ -655,7 +655,7 @@ def _people_by_website_count(question: str) -> str | None:
     limit = _limit_in(question) or 10
     return (
         "SELECT subscriber_id, COUNT(DISTINCT requested_server) AS websites, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         "AND IFNULL(requested_server, '') <> '' "
         f"GROUP BY subscriber_id ORDER BY websites DESC LIMIT {int(limit)}"
     )
@@ -762,7 +762,7 @@ def _cities_by_usage(question: str, history: list[dict] | None = None) -> str | 
         measures = "COUNT(DISTINCT subscriber_id) AS users, " + measures
     return (
         f"SELECT {city_from_loc()} AS city, {measures} "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY city HAVING city IS NOT NULL ORDER BY {order} "
         f"{'ASC' if order == 'city' else 'DESC'} LIMIT {int(limit)}"
     )
@@ -782,7 +782,7 @@ def _users_of_website(question: str) -> str | None:
     return (
         "SELECT subscriber_id, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
+        "FROM ntc_ssl_log WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         f"AND {_site_label_predicate(brand)} "
         f"GROUP BY subscriber_id ORDER BY {order} DESC{limit_sql}"
     )
@@ -1016,7 +1016,7 @@ def _place_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     if not subscriber:
         return None
     return (
-        "SELECT loc, geo, COUNT(*) AS flows FROM ntc_ssl_logs "
+        "SELECT loc, geo, COUNT(*) AS flows FROM ntc_ssl_log "
         f"WHERE subscriber_id = '{subscriber}' AND (IFNULL(loc, '') <> '' OR IFNULL(geo, '') <> '') "
         "GROUP BY loc, geo ORDER BY flows DESC LIMIT 20"
     )
@@ -1388,7 +1388,7 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
         "COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -1502,7 +1502,7 @@ def _popular_apps(question: str, history: list[dict] | None = None) -> str | Non
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -1872,7 +1872,7 @@ def _flows_by_operator(question: str) -> str | None:
         f"COUNT(*) AS {measure}, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
@@ -1957,7 +1957,7 @@ def _usage_timeline(question: str, history: list[dict] | None = None) -> str | N
     return (
         f"SELECT {bucket}, COUNT(*) AS flows, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS traffic_volume_mb "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY {alias} ORDER BY {alias} ASC LIMIT {int(limit)}"
     )
 
@@ -1995,7 +1995,7 @@ def _apps_by_duration(question: str) -> str | None:
         measure = "SUM(duration) AS total_duration, COUNT(*) AS flows"
         order = "total_duration"
     return (
-        f"SELECT app_label, {measure} FROM ntc_ssl_logs "
+        f"SELECT app_label, {measure} FROM ntc_ssl_log "
         "WHERE IFNULL(subscriber_id, '') <> '' AND LOCATE('_', subscriber_id) = 0 "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -2093,7 +2093,7 @@ def _top_app_per_isp(question: str, history: list[dict] | None = None) -> str | 
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
         f"ROW_NUMBER() OVER (PARTITION BY client_asn ORDER BY {window_order}) AS rn "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         "GROUP BY client_asn, app_label"
         f") ranked WHERE rn <= {int(top_n)} "
@@ -2638,7 +2638,7 @@ def _aggregate_app_on_isp(question: str, history: list[dict] | None = None) -> s
         "SELECT SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
         "COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)}"
     )
 
@@ -2685,7 +2685,7 @@ def _app_usage_on_isp(question: str, history: list[dict] | None = None) -> str |
         + ", SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, "
         "COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         f"GROUP BY subscriber_id ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -2750,7 +2750,7 @@ def _usage_by_isp(question: str, history: list[dict] | None = None) -> str | Non
     return (
         "SELECT client_asn, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         f"GROUP BY client_asn ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -2788,7 +2788,7 @@ def _apps_by_class(question: str) -> str | None:
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -2822,7 +2822,7 @@ def _apps_by_category(question: str) -> str | None:
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs WHERE "
+        "FROM ntc_ssl_log WHERE "
         f"{' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY {order} DESC LIMIT {int(limit)}"
     )
@@ -2884,7 +2884,7 @@ def _top_flows(question: str, history: list[dict] | None = None) -> str | None:
         "SELECT FROM_UNIXTIME(start_time) AS start_gmt5, FROM_UNIXTIME(end_time) AS end_gmt5, "
         "subscriber_id, app_label, requested_server, "
         f"c2s_byte_num + s2c_byte_num AS total_bytes, {duration_col}, block_type "
-        f"FROM ntc_ssl_logs{where_sql} "
+        f"FROM ntc_ssl_log{where_sql} "
         f"ORDER BY {order} LIMIT {int(limit)}"
     )
 
@@ -2997,7 +2997,7 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
     )
     return (
         f"SELECT {', '.join(columns)} "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY subscriber_id ORDER BY {order} DESC LIMIT {int(limit)}"
     )
 
@@ -3210,7 +3210,7 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY total_bytes DESC{limit_sql}"
     )
 
@@ -4209,7 +4209,7 @@ def _blocked_protocols(question: str, history: list[dict]) -> str | None:
         f"SELECT app_label, COUNT(*) AS {measure}, "
         "SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb "
-        f"FROM ntc_ssl_logs WHERE {' AND '.join(where)} "
+        f"FROM ntc_ssl_log WHERE {' AND '.join(where)} "
         f"GROUP BY app_label ORDER BY {order} DESC{limit_sql}"
     )
 
@@ -4227,7 +4227,7 @@ def _protocols_by_usage(question: str) -> str | None:
     return (
         "SELECT app_label, SUM(c2s_byte_num + s2c_byte_num) AS total_bytes, "
         "ROUND(SUM(c2s_byte_num + s2c_byte_num) / 1048576, 2) AS total_mb, COUNT(*) AS flows "
-        "FROM ntc_ssl_logs "
+        "FROM ntc_ssl_log "
         f"WHERE LOWER(app_label) LIKE '%{family}%' "
         f"GROUP BY app_label ORDER BY total_mb DESC{limit_sql}"
     )

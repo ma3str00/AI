@@ -3,7 +3,7 @@
 -- recv_time, client_ip, subscriber_id, app_label, and log_id are already indexed.
 -- start_time is the column questions filter on, and it is not indexed yet.
 
-ALTER TABLE ntc_ssl_logs
+ALTER TABLE ntc_ssl_log
   ADD INDEX idx_start_time (start_time),
   ADD INDEX idx_subscriber_start (subscriber_id, start_time),
   ADD INDEX idx_client_ip_start (client_ip, start_time),
