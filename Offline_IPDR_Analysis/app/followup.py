@@ -438,7 +438,9 @@ def _access_times_of_one(question: str, history: list[dict]) -> str | None:
         )
         if inherited and not drops_app:
             where.append(inherited)
-    time_clause = _time_clause(previous)
+    time_clause = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_clause:
         where.append(time_clause)
     # duration is stored in milliseconds. Flow lists show seconds by default so the
@@ -550,7 +552,9 @@ def _websites_of_one_subscriber(question: str, history: list[dict]) -> str | Non
         where.insert(1, f"LOWER(app_label) = '{app_label}'")
     elif with_app:
         where.append("IFNULL(app_label, '') <> ''")
-    time_clause = _time_clause(_last_sql(history))
+    time_clause = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_clause:
         where.append(time_clause)
     texts = [question, *[str(item.get("question") or "") for item in history[-6:]]]
@@ -2944,7 +2948,9 @@ def _top_flows(question: str, history: list[dict] | None = None) -> str | None:
     for city in mentioned_cities(question)[-1:]:
         where.append(column_predicate("loc", city))
     previous = _last_sql(history or [])
-    time_clause = _time_clause(previous or "")
+    time_clause = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_clause:
         where.append(time_clause)
     if mentions(question, "blocked"):
@@ -3279,7 +3285,9 @@ def _apps_of_one_subscriber(question: str, history: list[dict]) -> str | None:
     if not _asks_for_their_apps(question) and not (supplying_name and _recent_unanswered(history, _asks_for_their_apps)):
         return None
     where = [f"subscriber_id = '{subscriber}'"]
-    time_clause = _time_clause(_last_sql(history))
+    time_clause = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_clause:
         where.append(time_clause)
     texts = [question, *[str(item.get("question") or "") for item in history[-6:]]]

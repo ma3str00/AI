@@ -31,6 +31,11 @@ def to_clickhouse(sql: str) -> str:
         text,
     )
     text = _rewrite_unix_timestamp(text)
+    text = re.sub(
+        r"(?i)\bFROM_UNIXTIME\s*\(\s*([^)]+?)\s*\)",
+        r"fromUnixTimestamp(\1)",
+        text,
+    )
     # ClickHouse prefers != ; keep <> which also works.
     return re.sub(r"\s+", " ", text).strip()
 
@@ -65,8 +70,6 @@ def _rewrite_group_concat(sql: str) -> str:
     )
     text = pattern_case.sub(lambda m: blank_skip(m.group(1)), text)
 
-    # Same with ifNull already rewritten? Keep MySQL IFNULL form only above.
-
     # GROUP_CONCAT(DISTINCT col ORDER BY col SEPARATOR ', ') AS col
     pattern_plain = re.compile(
         r"(?i)GROUP_CONCAT\s*\(\s*DISTINCT\s+([a-z0-9_]+)\s+ORDER\s+BY\s+\1\s+SEPARATOR\s+', '\s*\)\s+AS\s+\1"
@@ -94,39 +97,49 @@ def _rewrite_group_concat(sql: str) -> str:
     return text
 
 
+def _interval_amount(raw: str) -> str:
+    return (raw or "").strip().strip("'\"")
+
+
+def _ch_interval(amount: str, unit: str) -> str:
+    names = {
+        "MINUTE": "Minute",
+        "HOUR": "Hour",
+        "DAY": "Day",
+        "WEEK": "Week",
+    }
+    return f"toInterval{names.get(unit.upper(), 'Day')}({_interval_amount(amount)})"
+
+
 def _rewrite_unix_timestamp(sql: str) -> str:
     text = sql
-    # UNIX_TIMESTAMP(CURDATE()) → start of today in session TZ as unix seconds.
+    # sqlglot may emit INTERVAL '5' MINUTE (quoted); builders emit INTERVAL 5 MINUTE.
+    interval = r"(?:'(\d+)'|(\d+))\s+(MINUTE|HOUR|DAY|WEEK)"
+
     text = re.sub(
         r"(?i)UNIX_TIMESTAMP\s*\(\s*CURDATE\s*\(\s*\)\s*\)",
         "toUnixTimestamp(toStartOfDay(now()))",
         text,
     )
     text = re.sub(
-        r"(?i)UNIX_TIMESTAMP\s*\(\s*CURDATE\s*\(\s*\)\s*\+\s*INTERVAL\s+(\d+)\s+DAY\s*\)",
-        r"toUnixTimestamp(toStartOfDay(now()) + toIntervalDay(\1))",
+        rf"(?i)UNIX_TIMESTAMP\s*\(\s*CURDATE\s*\(\s*\)\s*\+\s*INTERVAL\s+{interval}\s*\)",
+        lambda m: f"toUnixTimestamp(toStartOfDay(now()) + {_ch_interval(m.group(1) or m.group(2), m.group(3))})",
         text,
     )
     text = re.sub(
-        r"(?i)UNIX_TIMESTAMP\s*\(\s*CURDATE\s*\(\s*\)\s*-\s*INTERVAL\s+(\d+)\s+DAY\s*\)",
-        r"toUnixTimestamp(toStartOfDay(now()) - toIntervalDay(\1))",
+        rf"(?i)UNIX_TIMESTAMP\s*\(\s*CURDATE\s*\(\s*\)\s*-\s*INTERVAL\s+{interval}\s*\)",
+        lambda m: f"toUnixTimestamp(toStartOfDay(now()) - {_ch_interval(m.group(1) or m.group(2), m.group(3))})",
         text,
     )
-    def _now_minus(match: re.Match[str]) -> str:
-        amount = match.group(1)
-        unit = match.group(2).upper()
-        names = {
-            "MINUTE": "Minute",
-            "HOUR": "Hour",
-            "DAY": "Day",
-            "WEEK": "Week",
-        }
-        ch_unit = names.get(unit, "Day")
-        return f"toUnixTimestamp(now() - toInterval{ch_unit}({amount}))"
-
     text = re.sub(
-        r"(?i)UNIX_TIMESTAMP\s*\(\s*NOW\s*\(\s*\)\s*-\s*INTERVAL\s+(\d+)\s+(MINUTE|HOUR|DAY|WEEK)\s*\)",
-        _now_minus,
+        rf"(?i)UNIX_TIMESTAMP\s*\(\s*NOW\s*\(\s*\)\s*-\s*INTERVAL\s+{interval}\s*\)",
+        lambda m: f"toUnixTimestamp(now() - {_ch_interval(m.group(1) or m.group(2), m.group(3))})",
+        text,
+    )
+    # Already partially rewritten (e.g. NOW→now left UNIX_TIMESTAMP wrapping toInterval*).
+    text = re.sub(
+        r"(?i)UNIX_TIMESTAMP\s*\(\s*now\s*\(\s*\)\s*-\s*toInterval(Minute|Hour|Day|Week)\(\s*'?(\d+)'?\s*\)\s*\)",
+        lambda m: f"toUnixTimestamp(now() - toInterval{m.group(1)}({m.group(2)}))",
         text,
     )
     text = re.sub(
@@ -134,6 +147,21 @@ def _rewrite_unix_timestamp(sql: str) -> str:
         r"toUnixTimestamp(toDateTime('\1'))",
         text,
     )
+    # Last resort: any remaining UNIX_TIMESTAMP(expr) → toUnixTimestamp(expr).
+    def _unix_any(match: re.Match[str]) -> str:
+        body = match.group(1).strip()
+        body = re.sub(rf"(?i)\bINTERVAL\s+{interval}\b", lambda m: _ch_interval(m.group(1) or m.group(2), m.group(3)), body)
+        body = re.sub(r"(?i)\bCURDATE\s*\(\s*\)", "toDate(now())", body)
+        body = re.sub(r"(?i)\bNOW\s*\(\s*\)", "now()", body)
+        return f"toUnixTimestamp({body})"
+
+    text = re.sub(r"(?i)\bUNIX_TIMESTAMP\s*\(\s*([^()]*(?:\([^()]*\)[^()]*)*)\s*\)", _unix_any, text)
     text = re.sub(r"(?i)\bCURDATE\s*\(\s*\)", "toDate(now())", text)
     text = re.sub(r"(?i)\bNOW\s*\(\s*\)", "now()", text)
+    # Bare MySQL INTERVAL leftovers outside UNIX_TIMESTAMP.
+    text = re.sub(
+        rf"(?i)\bINTERVAL\s+{interval}\b",
+        lambda m: _ch_interval(m.group(1) or m.group(2), m.group(3)),
+        text,
+    )
     return text

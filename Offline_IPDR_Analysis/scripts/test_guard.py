@@ -53,6 +53,25 @@ def _check_dialect() -> None:
     )
     if "toUnixTimestamp(now() - toIntervalMinute(5))" not in mins:
         raise SystemExit(f"UNIX_TIMESTAMP(NOW()-INTERVAL MINUTE) rewrite failed:\n{mins}")
+    quoted = to_clickhouse(
+        "SELECT COUNT(*) FROM ntc_ssl_log "
+        "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL '5' MINUTE)"
+    )
+    if "UNIX_TIMESTAMP" in quoted.upper() or "toIntervalMinute(5)" not in quoted:
+        raise SystemExit(f"quoted INTERVAL '5' MINUTE rewrite failed:\n{quoted}")
+    from app.sql_guard import prepare as guard_prepare_ch
+
+    unlimited = guard_prepare_ch(
+        "SELECT app_label, COUNT(*) AS flows FROM ntc_ssl_log "
+        "WHERE start_time >= UNIX_TIMESTAMP(NOW() - INTERVAL 5 MINUTE) "
+        "GROUP BY app_label ORDER BY flows DESC",
+        max_rows=200,
+        allow_full_scan=True,
+        allow_all_groups=True,
+    )
+    unlimited_ch = to_clickhouse(unlimited)
+    if "UNIX_TIMESTAMP" in unlimited_ch.upper() or "toIntervalMinute(5)" not in unlimited_ch:
+        raise SystemExit(f"allow_all_groups sqlglot INTERVAL rewrite failed:\n{unlimited_ch}")
 
 
 def main() -> None:
@@ -3588,6 +3607,27 @@ def main() -> None:
     ):
         raise SystemExit(f"keep-time reply rewrote the pending facebook users query: {restored}")
     prepare(restored, 200, allow_full_scan=False)
+
+    # Activity details for a named id must prefer "last 30 minutes" over prior 5.
+    activity_30 = resolve_followup(
+        "show me activity details of 510302234 in the last 30 minutes",
+        [{"question": "show the top 5 applications used in last 5 minutes", "sql": last5}],
+    )
+    activity_folded = (activity_30 or "").lower()
+    if (
+        not activity_30
+        or "510302234" not in activity_folded
+        or "interval 30 minute" not in activity_folded
+        or "interval 5 minute" in activity_folded
+        or "group by app_label" not in activity_folded
+    ):
+        raise SystemExit(f"activity details ignored last 30 minutes: {activity_30}")
+    prepare(activity_30, 200, allow_full_scan=False, allow_all_groups=True)
+    activity_ch = to_clickhouse(
+        prepare(activity_30, 200, allow_full_scan=False, allow_all_groups=True)
+    )
+    if "UNIX_TIMESTAMP" in activity_ch.upper() or "toIntervalMinute(30)" not in activity_ch:
+        raise SystemExit(f"activity details ClickHouse rewrite failed: {activity_ch}")
 
     # Most popular apps in a named city — local SQL with loc filter (no LLM).
     lahore_apps = resolve_followup("the most popular apps in Lahore", [])
