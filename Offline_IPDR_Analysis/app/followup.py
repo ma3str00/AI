@@ -56,6 +56,9 @@ def resolve_followup(question: str, history: list[dict] | None) -> str | None:
     timed = _answer_time_clarify(question, history)
     if timed:
         return timed
+    kept_time = _restore_time_on_pending(question, history)
+    if kept_time:
+        return kept_time
     swapped = _same_request_other_person(question, history)
     if swapped:
         return swapped
@@ -1352,7 +1355,9 @@ def _popular_isps(question: str, history: list[dict] | None = None) -> str | Non
         "LOCATE('_', subscriber_id) = 0",
         *_merge_app_exclusions(question, _last_sql(history or [])),
     ]
-    time_pred = _relative_start_time_predicate(question)
+    time_pred = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_pred:
         where.append(time_pred)
     if class_id:
@@ -1438,6 +1443,74 @@ def _sql_interval_unit(token: str) -> str:
     return "DAY"
 
 
+def _inherited_time_predicate(question: str, history: list[dict] | None) -> str | None:
+    """Reuse the prior query's start_time window when this ask does not name a new one."""
+    if _relative_start_time_predicate(question):
+        return None
+    if wants_full_table(question) or _answers_no_time(question):
+        return None
+    previous = _last_sql(history or [])
+    clause = _time_clause(previous)
+    return clause or None
+
+
+def _asks_keep_time(question: str) -> bool:
+    folded = (question or "").lower()
+    if re.search(r"\btime\s+filter\b.{0,60}\b(remain|keep|same|still|restore|apply)\b", folded):
+        return True
+    if re.search(r"\b(remain|keep|same|still|restore|reapply|apply)\b.{0,60}\btime\s*(filter|range|window)?\b", folded):
+        return True
+    if re.search(r"\blast\s+\d+\s*(?:min|minute|hour|day)", folded) and re.search(
+        r"\b(remain|keep|same|still|has\s+to|must|should)\b",
+        folded,
+    ):
+        return True
+    return False
+
+
+def _inject_time_predicate(sql: str, time_pred: str) -> str:
+    """Add a start_time window to WHERE without changing columns or grain."""
+    text = re.sub(r"\s+", " ", (sql or "").strip())
+    pred = (time_pred or "").strip()
+    if not text or not pred:
+        return text
+    if _time_clause(text):
+        return text
+    if re.search(r"(?i)\bWHERE\b", text):
+        return re.sub(r"(?i)\bWHERE\b", f"WHERE {pred} AND", text, count=1)
+    if re.search(r"(?i)\bGROUP\s+BY\b", text):
+        return re.sub(r"(?i)\bGROUP\s+BY\b", f"WHERE {pred} GROUP BY", text, count=1)
+    return f"{text} WHERE {pred}"
+
+
+def _restore_time_on_pending(question: str, history: list[dict]) -> str | None:
+    """When confirm is open and the user insists the prior time stays, patch pending SQL only."""
+    if not _asks_keep_time(question):
+        return None
+    pending = ""
+    for item in reversed(history or []):
+        pending = str(item.get("pending_sql") or "").strip()
+        if pending:
+            break
+        if str(item.get("sql") or "").strip():
+            return None
+    if not pending or _time_clause(pending):
+        return None
+    time_pred = _relative_start_time_predicate(question)
+    if not time_pred:
+        for item in reversed(history or []):
+            executed = str(item.get("sql") or "").strip()
+            if not executed:
+                continue
+            clause = _time_clause(executed)
+            if clause:
+                time_pred = clause
+                break
+    if not time_pred:
+        return None
+    return _inject_time_predicate(pending, time_pred)
+
+
 def _popular_apps(question: str, history: list[dict] | None = None) -> str | None:
     """Most popular / top apps (or platforms), optionally limited to a named city/class."""
     folded = question.lower()
@@ -1473,7 +1546,9 @@ def _popular_apps(question: str, history: list[dict] | None = None) -> str | Non
         "LOCATE('_', subscriber_id) = 0",
         *_merge_app_exclusions(question, _last_sql(history or [])),
     ]
-    time_pred = _relative_start_time_predicate(question)
+    time_pred = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_pred:
         where.append(time_pred)
     if class_id:
@@ -2918,6 +2993,11 @@ def _top_people(question: str, history: list[dict] | None = None) -> str | None:
         flow_name = "flows"
         order = "total_bytes"
     where = ["IFNULL(subscriber_id, '') <> ''", "LOCATE('_', subscriber_id) = 0"]
+    time_pred = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
+    if time_pred:
+        where.append(time_pred)
     street = street_before_city(question)
     cities = [] if street else mentioned_cities(question)
     isps = mentioned_isps(question)
@@ -3343,13 +3423,38 @@ def _account_name(token: str) -> bool:
 
 
 def _time_clause(sql: str) -> str:
+    """Extract start_time / end_time / recv_time predicates, including nested UNIX_TIMESTAMP(...)."""
     if not sql:
         return ""
-    parts = re.findall(
-        r"((?:start_time|end_time|recv_time)\s*(?:>=|<=|<>|!=|=|>|<)\s*(?:UNIX_TIMESTAMP\([^)]*\)|'[^']*'|\d+))",
-        sql,
-        flags=re.IGNORECASE,
-    )
+    text = re.sub(r"\s+", " ", sql)
+    parts: list[str] = []
+    for match in re.finditer(
+        r"(?i)(?:start_time|end_time|recv_time)\s*(?:>=|<=|<>|!=|=|>|<)\s*",
+        text,
+    ):
+        start = match.start()
+        rest = text[match.end() :]
+        if re.match(r"(?i)UNIX_TIMESTAMP\s*\(", rest):
+            open_at = rest.find("(")
+            depth = 0
+            end = None
+            for index in range(open_at, len(rest)):
+                ch = rest[index]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = index + 1
+                        break
+            if end is None:
+                continue
+            parts.append(text[start : match.end()] + rest[:end])
+        else:
+            literal = re.match(r"(?:'[^']*'|\d+)", rest)
+            if not literal:
+                continue
+            parts.append(text[start : match.end()] + literal.group(0))
     return " AND ".join(parts)
 
 

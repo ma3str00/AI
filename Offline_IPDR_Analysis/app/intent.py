@@ -20,6 +20,7 @@ from app.followup import (
     _limit_in,
     _merge_app_exclusions,
     _ranks_isp_entities,
+    _inherited_time_predicate,
     _relative_start_time_predicate,
     looks_like_result_tweak,
 )
@@ -871,7 +872,9 @@ def _subject_filters(
     category: str | None,
 ) -> list[str] | None:
     where = _base_identified_where()
-    time_pred = _relative_start_time_predicate(question)
+    time_pred = _relative_start_time_predicate(question) or _inherited_time_predicate(
+        question, history
+    )
     if time_pred:
         where.append(time_pred)
     previous = _last_sql(history)

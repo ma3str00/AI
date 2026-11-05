@@ -3540,6 +3540,55 @@ def main() -> None:
     if "toIntervalMinute(5)" not in last5_ch:
         raise SystemExit(f"ClickHouse rewrite missed 5-minute interval: {last5_ch}")
 
+    # Follow-up top Facebook users must keep the prior last-5-minutes window.
+    fb_users = resolve_followup(
+        "show me the top 10 facebook users along with their addresses and ISP names",
+        [{"question": "show the top 5 applications used in last 5 minutes", "sql": last5}],
+    )
+    fb_folded = (fb_users or "").lower()
+    if (
+        not fb_users
+        or "like '%facebook%'" not in fb_folded
+        or "group by subscriber_id" not in fb_folded
+        or "interval 5 minute" not in fb_folded
+        or "as client_asn" not in fb_folded
+        or "as loc" not in fb_folded
+        or "limit 10" not in fb_folded
+    ):
+        raise SystemExit(f"facebook users dropped prior time or address/ISP columns: {fb_users}")
+    prepare(fb_users, 200, allow_full_scan=False)
+
+    # Confirm "keep the time filter" patches pending SQL without rewriting columns.
+    fb_no_time = re.sub(
+        r"(?i)\s+AND\s+start_time\s*>=\s*UNIX_TIMESTAMP\(NOW\(\)\s*-\s*INTERVAL\s+5\s+MINUTE\)",
+        "",
+        fb_users or "",
+    )
+    restored = resolve_followup(
+        "the time filter of last 5 min has to remain there",
+        [
+            {"question": "show the top 5 applications used in last 5 minutes", "sql": last5},
+            {
+                "question": "show me the top 10 facebook users along with their addresses and ISP names",
+                "sql": "",
+                "pending_sql": fb_no_time,
+                "explanation": "paused",
+            },
+        ],
+    )
+    restored_folded = (restored or "").lower()
+    if (
+        not restored
+        or "interval 5 minute" not in restored_folded
+        or "like '%facebook%'" not in restored_folded
+        or "as client_asn" not in restored_folded
+        or "as loc" not in restored_folded
+        or "group by subscriber_id" not in restored_folded
+        or "as users" in restored_folded
+    ):
+        raise SystemExit(f"keep-time reply rewrote the pending facebook users query: {restored}")
+    prepare(restored, 200, allow_full_scan=False)
+
     # Most popular apps in a named city — local SQL with loc filter (no LLM).
     lahore_apps = resolve_followup("the most popular apps in Lahore", [])
     lahore_folded = (lahore_apps or "").lower()
