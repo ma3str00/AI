@@ -9,6 +9,20 @@ from app.schema import DEAD_COLUMNS, TABLE, USEFUL_COLUMNS
 
 _SAFE_IDENT = re.compile(r"^[a-z][a-z0-9_]*$")
 _TIME_COLUMNS = {"start_time", "end_time", "recv_time"}
+# Not offered as Query Builder filters (time range covers start_time; these are noisy or bulky).
+_NON_FILTERABLE = {
+    "id",
+    "start_time",
+    "recv_time",
+    "log_id",
+    "end_time",
+    "client_geo",
+    "server_geo",
+    "c2s_pkt_num",
+    "s2c_pkt_num",
+    "c2s_byte_num",
+    "s2c_byte_num",
+}
 _DEFAULT_COLUMNS = (
     "start_time",
     "subscriber_id",
@@ -60,7 +74,7 @@ def catalog() -> list[ColumnInfo]:
                 name=name,
                 kind=kind,
                 label=name.replace("_", " "),
-                filterable=name not in {"id"},
+                filterable=name not in _NON_FILTERABLE,
                 default_selected=name in _DEFAULT_COLUMNS,
             )
         )
@@ -163,9 +177,9 @@ def _filter_clause(item: dict, allowed: dict[str, ColumnInfo]) -> str | None:
         return None
     if name in DEAD_COLUMNS or name not in allowed:
         raise ManualQueryError(f"Cannot filter on {name or '(empty)'}.")
-    if name == "start_time":
-        raise ManualQueryError("Use the required time range for start_time.")
     col = allowed[name]
+    if not col.filterable:
+        raise ManualQueryError(f"Cannot filter on {name}.")
     if op not in _OPS:
         raise ManualQueryError(f"Unsupported operator: {op}")
     if op == "contains":

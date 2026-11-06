@@ -15,10 +15,12 @@ A numeric `subscriber_id` can be either. A row is mobile when `mcc`, `mnc`, `lac
 llama-server stays on port 11434. This page uses port 8090.
 
 1. Clone the repo and enter `Offline_IPDR_Analysis`.
-2. Run `bash install-ubuntu.sh` (installs `clickhouse-connect` and the app).
-3. Copy `config.example.yaml` to `config.yaml`. Set `clickhouse.host`, `port` (8123 HTTP / 8443 TLS), `user`, `password`, and `database`. Restart with `sudo systemctl restart ipdr-assistant`.
+2. Run `bash install-ubuntu.sh` (installs Python deps and the app).
+3. Create the auth MySQL DB/table: `mysql -u root -p < scripts/create_auth_users.sql` (see the SQL file for `CREATE DATABASE`).
+4. Copy `config.example.yaml` to `config.yaml`. Set ClickHouse settings and `auth_mysql` (host, database, admin user, password). Restart with `sudo systemctl restart ipdr-assistant`.
+5. Open `http://<this-machine>:8090/login`, sign in as the `auth_mysql.user` admin, then create users and assign AI / Query privileges.
 
-Open `http://<this-machine>:8090` from any host that can reach the VM.
+Unauthenticated browsers are redirected to `/login`.
 
 ## llama-server
 

@@ -8,11 +8,13 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.answer_check import check_sql, needs_clarification
+from app.auth_db import AuthDatabase, AuthError, AppUser
 from app.clarify_gate import silently_weakens_prior, uncertain_followup_prompt
 from app.confirm_gate import (
     answer_accepts,
@@ -59,8 +61,18 @@ from app.sql_guard import GuardError, prepare, wants_all_groups, wants_full_tabl
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "static" / "index.html"
+LOGIN_PAGE = ROOT / "static" / "login.html"
 
 app = FastAPI(title="IPDR analysis")
+_boot_config = load_config()
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_boot_config.session_secret,
+    session_cookie="ipdr_session",
+    same_site="lax",
+    https_only=False,
+    max_age=60 * 60 * 12,
+)
 _state: dict = {}
 
 
@@ -85,6 +97,27 @@ class ManualQuery(BaseModel):
     max_rows: int | None = Field(default=None, ge=1, le=5000)
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AdminUserCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6, max_length=200)
+    is_admin: bool = False
+    can_ai_assistant: bool = False
+    can_query_builder: bool = False
+
+
+class AdminUserUpdate(BaseModel):
+    password: str | None = Field(default=None, min_length=6, max_length=200)
+    is_admin: bool | None = None
+    can_ai_assistant: bool | None = None
+    can_query_builder: bool | None = None
+    is_active: bool | None = None
+
+
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     history: list[Turn] = Field(default_factory=list, max_length=24)
@@ -97,6 +130,39 @@ class LearnRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     sql: str = Field(min_length=1, max_length=100000)
     questions: list[str] = Field(default_factory=list, max_length=8)
+
+
+def _auth_db() -> AuthDatabase:
+    return _state["auth_db"]
+
+
+def current_user(request: Request) -> AppUser:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = _auth_db().get_user(int(user_id))
+    if user is None:
+        request.session.clear()
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+def require_admin(user: AppUser = Depends(current_user)) -> AppUser:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def require_ai(user: AppUser = Depends(current_user)) -> AppUser:
+    if not (user.is_admin or user.can_ai_assistant):
+        raise HTTPException(status_code=403, detail="AI assistant access required")
+    return user
+
+
+def require_query(user: AppUser = Depends(current_user)) -> AppUser:
+    if not (user.is_admin or user.can_query_builder):
+        raise HTTPException(status_code=403, detail="Query builder access required")
+    return user
 
 
 @app.on_event("startup")
@@ -115,6 +181,9 @@ def startup() -> None:
     _state["mapping"] = mapping
     _state["mapping_error"] = mapping_error
     _state["db"] = Database(config)
+    auth_db = AuthDatabase(config)
+    auth_db.ensure_ready()
+    _state["auth_db"] = auth_db
     _state["engines"] = {
         engine.id: LlamaServer(
             engine.base_url,
@@ -131,16 +200,93 @@ def startup() -> None:
     _state["llama"] = _state["engines"]["local"]
 
 
+@app.get("/login")
+def login_page(request: Request):
+    if request.session.get("user_id"):
+        return RedirectResponse("/", status_code=303)
+    return FileResponse(LOGIN_PAGE, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/")
-def page():
+def page(request: Request):
+    if not request.session.get("user_id"):
+        return RedirectResponse("/login", status_code=303)
     return FileResponse(PAGE, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/login")
+def api_login(body: LoginRequest, request: Request):
+    try:
+        auth = _state.get("auth_db") or AuthDatabase(_boot_config)
+        if "auth_db" not in _state:
+            auth.ensure_ready()
+        user = auth.authenticate(body.username, body.password)
+    except AuthError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    request.session.clear()
+    request.session["user_id"] = user.id
+    request.session["username"] = user.username
+    return {"ok": True, "user": user.to_public()}
+
+
+@app.post("/api/logout")
+def api_logout(request: Request):
+    request.session.clear()
+    return {"ok": True}
+
+
+@app.get("/api/me")
+def api_me(user: AppUser = Depends(current_user)):
+    return {"ok": True, "user": user.to_public()}
+
+
+@app.get("/api/admin/users")
+def admin_list_users(admin: AppUser = Depends(require_admin)):
+    _ = admin
+    return {"users": [item.to_public() for item in _auth_db().list_users()]}
+
+
+@app.post("/api/admin/users")
+def admin_create_user(body: AdminUserCreate, admin: AppUser = Depends(require_admin)):
+    _ = admin
+    try:
+        user = _auth_db().create_user(
+            username=body.username,
+            password=body.password,
+            is_admin=body.is_admin,
+            can_ai_assistant=body.can_ai_assistant,
+            can_query_builder=body.can_query_builder,
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "user": user.to_public()}
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, body: AdminUserUpdate, admin: AppUser = Depends(require_admin)):
+    _ = admin
+    try:
+        user = _auth_db().update_user(
+            user_id,
+            password=body.password,
+            is_admin=body.is_admin,
+            can_ai_assistant=body.can_ai_assistant,
+            can_query_builder=body.can_query_builder,
+            is_active=body.is_active,
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "user": user.to_public()}
+
+
 @app.get("/api/health")
-def health():
+def health(user: AppUser = Depends(current_user)):
     config: Config = _state["config"]
     database: Database = _state["db"]
     ch_ok, ch_detail = database.ping()
+    auth_ok, auth_detail = _auth_db().ping()
     engines = []
     for engine in config.engines:
         server: LlamaServer = _state["engines"][engine.id]
@@ -172,6 +318,13 @@ def health():
             "host": config.ch_host,
             "database": config.ch_database,
         },
+        "auth_mysql": {
+            "ok": auth_ok,
+            "detail": auth_detail,
+            "host": config.auth_mysql_host,
+            "database": config.auth_mysql_database,
+        },
+        "user": user.to_public(),
         "llama": local,
         "engines": engines,
         "examples": len(_state["index"].examples),
@@ -184,17 +337,20 @@ def health():
 
 
 @app.get("/api/starters")
-def starters():
+def starters(user: AppUser = Depends(require_ai)):
+    _ = user
     return {"questions": STARTER_QUESTIONS}
 
 
 @app.get("/api/manual/schema")
-def manual_schema():
+def manual_schema(user: AppUser = Depends(require_query)):
+    _ = user
     return schema_payload()
 
 
 @app.post("/api/manual/query")
-def manual_query(body: ManualQuery):
+def manual_query(body: ManualQuery, user: AppUser = Depends(require_query)):
+    _ = user
     config: Config = _state["config"]
     database: Database = _state["db"]
     try:
@@ -597,7 +753,8 @@ def _failed(message: str) -> dict:
 
 
 @app.post("/api/ask")
-def ask(body: Question):
+def ask(body: Question, user: AppUser = Depends(require_ai)):
+    _ = user
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Enter a question.")
@@ -620,7 +777,8 @@ def ask(body: Question):
 
 
 @app.post("/api/learn")
-def learn(body: LearnRequest):
+def learn(body: LearnRequest, user: AppUser = Depends(require_ai)):
+    _ = user
     config: Config = _state["config"]
     questions = []
     for text in [body.question, *body.questions]:

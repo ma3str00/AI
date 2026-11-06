@@ -248,13 +248,18 @@
     <h1>IPDR analysis</h1>
     <p>Use the AI assistant for natural-language questions, or the query builder for filtered table reads with a required time range.</p>
   </div>
-  <button type="button" class="debug-toggle" id="debug-toggle" aria-pressed="false">Debug off</button>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <span id="whoami" style="color:#d5e4de; font-size:13px;"></span>
+    <button type="button" class="debug-toggle" id="logout-btn">Sign out</button>
+    <button type="button" class="debug-toggle" id="debug-toggle" aria-pressed="false">Debug off</button>
+  </div>
 </header>
 <main>
   <div class="status" id="status"></div>
   <nav class="tabs" role="tablist" aria-label="Main views">
-    <button type="button" class="active" id="tab-btn-assistant" role="tab" aria-selected="true" aria-controls="tab-assistant">AI assistant</button>
-    <button type="button" id="tab-btn-query" role="tab" aria-selected="false" aria-controls="tab-query">Query builder</button>
+    <button type="button" class="active hidden" id="tab-btn-assistant" role="tab" aria-selected="false" aria-controls="tab-assistant">AI assistant</button>
+    <button type="button" class="hidden" id="tab-btn-query" role="tab" aria-selected="false" aria-controls="tab-query">Query builder</button>
+    <button type="button" class="hidden" id="tab-btn-admin" role="tab" aria-selected="false" aria-controls="tab-admin">Admin</button>
   </nav>
 
   <section class="tab-panel" id="tab-assistant" role="tabpanel">
@@ -336,6 +341,53 @@
       </div>
     </div>
   </section>
+
+  <section class="tab-panel hidden" id="tab-admin" role="tabpanel" hidden>
+    <div class="qb-grid">
+      <div class="qb-card">
+        <h3>Create user</h3>
+        <p class="qb-meta">Admins can grant AI assistant and/or Query builder access.</p>
+        <div class="qb-fields">
+          <div class="qb-field">
+            <label for="admin-username">Username</label>
+            <input id="admin-username" autocomplete="off">
+          </div>
+          <div class="qb-field">
+            <label for="admin-password">Password</label>
+            <input id="admin-password" type="password" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="qb-actions" style="margin-top:10px">
+          <label><input type="checkbox" id="admin-is-admin"> Admin</label>
+          <label><input type="checkbox" id="admin-can-ai" checked> AI assistant</label>
+          <label><input type="checkbox" id="admin-can-query" checked> Query builder</label>
+          <button type="button" id="admin-create">Create user</button>
+        </div>
+        <div id="admin-error" class="error hidden" style="margin-top:10px"></div>
+      </div>
+      <div class="qb-card">
+        <div class="qb-toolbar">
+          <h3 style="margin:0">Users</h3>
+          <button type="button" class="secondary" id="admin-refresh">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Admin</th>
+                <th>AI</th>
+                <th>Query</th>
+                <th>Active</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="admin-users"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 <script>
 const question = document.getElementById("question");
@@ -364,11 +416,43 @@ function pill(text, kind) {
   return span;
 }
 
+let currentUser = null;
+
+function applyPrivileges(user) {
+  currentUser = user || null;
+  const who = document.getElementById("whoami");
+  who.textContent = user ? ("Signed in as " + user.username) : "";
+  const canAi = !!(user && (user.is_admin || user.can_ai_assistant));
+  const canQuery = !!(user && (user.is_admin || user.can_query_builder));
+  const canAdmin = !!(user && user.is_admin);
+  document.getElementById("tab-btn-assistant").classList.toggle("hidden", !canAi);
+  document.getElementById("tab-btn-query").classList.toggle("hidden", !canQuery);
+  document.getElementById("tab-btn-admin").classList.toggle("hidden", !canAdmin);
+  const preferred = canAi ? "assistant" : (canQuery ? "query" : (canAdmin ? "admin" : null));
+  if (preferred) activateTab(preferred);
+  else {
+    document.getElementById("status").replaceChildren(
+      pill("No tabs are enabled for this account. Ask an admin for access.", "bad")
+    );
+  }
+}
+
 async function loadHealth() {
   const status = document.getElementById("status");
   status.replaceChildren();
   try {
+    const meResponse = await fetch("/api/me");
+    if (meResponse.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+    const me = await meResponse.json();
+    applyPrivileges(me.user);
     const response = await fetch("/api/health");
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
     const data = await response.json();
     const llama = data.llama || {};
     status.append(
@@ -378,6 +462,12 @@ async function loadHealth() {
           : "ClickHouse down",
         (data.clickhouse || data.mysql).ok ? "ok" : "bad"
       ),
+      pill(
+        data.auth_mysql && data.auth_mysql.ok
+          ? "Auth MySQL " + data.auth_mysql.host
+          : "Auth MySQL down",
+        data.auth_mysql && data.auth_mysql.ok ? "ok" : "bad"
+      ),
       pill(llama.ok ? (llama.label || "Local") + " · " + (llama.model || "") : "local model not ready", llama.ok ? "ok" : "bad"),
       pill(data.examples + " examples"),
       pill((data.learned || 0) + " learned"),
@@ -386,6 +476,7 @@ async function loadHealth() {
       pill(data.time.note)
     );
     if (!(data.clickhouse || data.mysql).ok) status.append(pill((data.clickhouse || data.mysql).detail, "bad"));
+    if (data.auth_mysql && !data.auth_mysql.ok) status.append(pill(data.auth_mysql.detail, "bad"));
     if (llama.ok === false) status.append(pill(llama.detail, "bad"));
     const engines = Array.isArray(data.engines) ? data.engines : [];
     fillEngines(engines);
@@ -1354,24 +1445,139 @@ let qbSchema = null;
 let qbLastResult = null;
 
 function activateTab(name) {
-  const assistant = name === "assistant";
-  document.getElementById("tab-assistant").classList.toggle("hidden", !assistant);
-  document.getElementById("tab-assistant").hidden = !assistant;
-  document.getElementById("tab-query").classList.toggle("hidden", assistant);
-  document.getElementById("tab-query").hidden = assistant;
-  document.getElementById("tab-btn-assistant").classList.toggle("active", assistant);
-  document.getElementById("tab-btn-query").classList.toggle("active", !assistant);
-  document.getElementById("tab-btn-assistant").setAttribute("aria-selected", assistant ? "true" : "false");
-  document.getElementById("tab-btn-query").setAttribute("aria-selected", assistant ? "false" : "true");
-  if (!assistant) loadQueryBuilder().catch((err) => {
-    const error = document.getElementById("qb-error");
-    error.textContent = String(err.message || err);
-    error.classList.remove("hidden");
-  });
+  const panels = {
+    assistant: document.getElementById("tab-assistant"),
+    query: document.getElementById("tab-query"),
+    admin: document.getElementById("tab-admin"),
+  };
+  const buttons = {
+    assistant: document.getElementById("tab-btn-assistant"),
+    query: document.getElementById("tab-btn-query"),
+    admin: document.getElementById("tab-btn-admin"),
+  };
+  for (const key of Object.keys(panels)) {
+    const on = key === name;
+    panels[key].classList.toggle("hidden", !on);
+    panels[key].hidden = !on;
+    buttons[key].classList.toggle("active", on);
+    buttons[key].setAttribute("aria-selected", on ? "true" : "false");
+  }
+  if (name === "query") {
+    loadQueryBuilder().catch((err) => {
+      const error = document.getElementById("qb-error");
+      error.textContent = String(err.message || err);
+      error.classList.remove("hidden");
+    });
+  }
+  if (name === "admin") refreshAdminUsers();
 }
 
 document.getElementById("tab-btn-assistant").addEventListener("click", () => activateTab("assistant"));
 document.getElementById("tab-btn-query").addEventListener("click", () => activateTab("query"));
+document.getElementById("tab-btn-admin").addEventListener("click", () => activateTab("admin"));
+
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  await fetch("/api/logout", { method: "POST" });
+  window.location.href = "/login";
+});
+
+async function refreshAdminUsers() {
+  const body = document.getElementById("admin-users");
+  body.replaceChildren();
+  const response = await fetch("/api/admin/users");
+  if (!response.ok) return;
+  const data = await response.json();
+  for (const user of data.users || []) {
+    const tr = document.createElement("tr");
+    const cells = [
+      user.username,
+      user.is_admin ? "yes" : "no",
+      user.can_ai_assistant ? "yes" : "no",
+      user.can_query_builder ? "yes" : "no",
+      user.is_active ? "yes" : "no",
+    ];
+    for (const text of cells) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      tr.append(td);
+    }
+    const actions = document.createElement("td");
+    if (user.is_active && !user.is_admin) {
+      const deactivate = document.createElement("button");
+      deactivate.type = "button";
+      deactivate.className = "secondary";
+      deactivate.textContent = "Deactivate";
+      deactivate.addEventListener("click", async () => {
+        await fetch("/api/admin/users/" + user.id, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_active: false }),
+        });
+        refreshAdminUsers();
+      });
+      actions.append(deactivate);
+    }
+    const editAi = document.createElement("button");
+    editAi.type = "button";
+    editAi.className = "secondary";
+    editAi.textContent = user.can_ai_assistant ? "Revoke AI" : "Grant AI";
+    editAi.addEventListener("click", async () => {
+      await fetch("/api/admin/users/" + user.id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ can_ai_assistant: !user.can_ai_assistant }),
+      });
+      refreshAdminUsers();
+    });
+    const editQ = document.createElement("button");
+    editQ.type = "button";
+    editQ.className = "secondary";
+    editQ.textContent = user.can_query_builder ? "Revoke Query" : "Grant Query";
+    editQ.addEventListener("click", async () => {
+      await fetch("/api/admin/users/" + user.id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ can_query_builder: !user.can_query_builder }),
+      });
+      refreshAdminUsers();
+    });
+    actions.append(editAi, editQ);
+    tr.append(actions);
+    body.append(tr);
+  }
+}
+
+document.getElementById("admin-refresh").addEventListener("click", refreshAdminUsers);
+document.getElementById("admin-create").addEventListener("click", async () => {
+  const error = document.getElementById("admin-error");
+  error.classList.add("hidden");
+  const response = await fetch("/api/admin/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: document.getElementById("admin-username").value.trim(),
+      password: document.getElementById("admin-password").value,
+      is_admin: document.getElementById("admin-is-admin").checked,
+      can_ai_assistant: document.getElementById("admin-can-ai").checked,
+      can_query_builder: document.getElementById("admin-can-query").checked,
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    error.textContent = data.detail || "Could not create user";
+    error.classList.remove("hidden");
+    return;
+  }
+  document.getElementById("admin-username").value = "";
+  document.getElementById("admin-password").value = "";
+  refreshAdminUsers();
+});
+document.getElementById("admin-is-admin").addEventListener("change", (event) => {
+  if (event.target.checked) {
+    document.getElementById("admin-can-ai").checked = true;
+    document.getElementById("admin-can-query").checked = true;
+  }
+});
 
 function pad2(n) { return String(n).padStart(2, "0"); }
 

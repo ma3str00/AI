@@ -9,6 +9,18 @@ clickhouse:
   database: "ipdr"
   secure: false
 
+# MySQL store for application logins and privileges (not the ClickHouse analytics DB).
+# Create the schema with scripts/create_auth_users.sql, then set these values.
+# auth_mysql.user / password is the application admin (full rights) and the MySQL login
+# the app uses to read/write ipdr_users.
+auth_mysql:
+  host: "127.0.0.1"          # server IP
+  port: 3306
+  database: "ipdr_auth"      # MySQL database name
+  user: "ipdr_admin"         # admin username
+  password: "change-me"
+  session_secret: "replace-with-a-long-random-string"
+
 # llama-server.service already listens on 11434.
 # The page also lists every server in engines.yaml. kind is llama.cpp or ollama.
 llama:

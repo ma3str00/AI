@@ -28,6 +28,12 @@ class Config:
     ch_password: str
     ch_database: str
     ch_secure: bool
+    auth_mysql_host: str
+    auth_mysql_port: int
+    auth_mysql_database: str
+    auth_mysql_user: str
+    auth_mysql_password: str
+    session_secret: str
     llama_base_url: str
     llama_model: str
     llama_timeout: float
@@ -85,8 +91,10 @@ def load_config() -> Config:
             candidate = (path.parent / candidate).resolve()
         return candidate
 
-    # Prefer clickhouse:; accept legacy mysql: during migration.
-    ch = raw.get("clickhouse") or raw.get("mysql") or {}
+    # Prefer clickhouse:; accept legacy mysql: during migration for the analytics DB only.
+    ch = raw.get("clickhouse") or {}
+    # Auth / privilege store is always MySQL (separate from ClickHouse analytics).
+    auth = raw.get("auth_mysql") or raw.get("auth") or {}
     llama = raw.get("llama") or {}
     server = raw.get("server") or {}
     timing = raw.get("time") or {}
@@ -95,6 +103,8 @@ def load_config() -> Config:
     stored_as = timing.get("stored_as", "utc_epoch")
     if stored_as not in {"utc_epoch", "local_epoch"}:
         raise ValueError("time.stored_as must be utc_epoch or local_epoch")
+    if not str(auth.get("user") or "").strip() or auth.get("password") is None:
+        raise ValueError("auth_mysql.user and auth_mysql.password are required.")
     local = Engine(
         "local",
         "Local 7B",
@@ -114,6 +124,9 @@ def load_config() -> Config:
         engines.append(engine)
         seen.add(engine.id)
     default_port = 8443 if bool(ch.get("secure", False)) else 8123
+    session_secret = str(auth.get("session_secret") or server.get("session_secret") or "").strip()
+    if not session_secret:
+        session_secret = "change-me-" + str(auth.get("password") or "ipdr")
     return Config(
         ch_host=str(ch.get("host", "127.0.0.1")),
         ch_port=int(ch.get("port", default_port)),
@@ -121,6 +134,12 @@ def load_config() -> Config:
         ch_password=str(ch.get("password", "")),
         ch_database=str(ch.get("database", "ipdr")),
         ch_secure=bool(ch.get("secure", False)),
+        auth_mysql_host=str(auth.get("host") or auth.get("server_ip") or "127.0.0.1"),
+        auth_mysql_port=int(auth.get("port", 3306)),
+        auth_mysql_database=str(auth.get("database", "ipdr_auth")),
+        auth_mysql_user=str(auth.get("user", "")).strip(),
+        auth_mysql_password=str(auth.get("password", "")),
+        session_secret=session_secret,
         llama_base_url=str(llama.get("base_url", "http://127.0.0.1:11434")),
         llama_model=str(llama.get("model", "qwen2.5-coder-3b-instruct-q4_k_m.gguf")),
         llama_timeout=float(llama.get("timeout_seconds", 300)),
