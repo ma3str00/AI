@@ -182,7 +182,13 @@ def startup() -> None:
     _state["mapping_error"] = mapping_error
     _state["db"] = Database(config)
     auth_db = AuthDatabase(config)
-    auth_db.ensure_ready()
+    try:
+        auth_db.ensure_ready()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Auth MySQL setup failed ({config.auth_mysql_host}/{config.auth_mysql_database}): {exc}. "
+            "Check auth_mysql in config.yaml and run scripts/create_auth_users.sql."
+        ) from exc
     _state["auth_db"] = auth_db
     _state["engines"] = {
         engine.id: LlamaServer(

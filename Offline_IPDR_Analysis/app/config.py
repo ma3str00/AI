@@ -103,7 +103,12 @@ def load_config() -> Config:
     stored_as = timing.get("stored_as", "utc_epoch")
     if stored_as not in {"utc_epoch", "local_epoch"}:
         raise ValueError("time.stored_as must be utc_epoch or local_epoch")
-    if not str(auth.get("user") or "").strip() or auth.get("password") is None:
+    if not auth:
+        raise ValueError(
+            "Missing auth_mysql in config.yaml. Add host, database, user, password "
+            "(see config.example.yaml). Create the users table with scripts/create_auth_users.sql."
+        )
+    if not str(auth.get("user") or "").strip() or auth.get("password") in (None,):
         raise ValueError("auth_mysql.user and auth_mysql.password are required.")
     local = Engine(
         "local",
