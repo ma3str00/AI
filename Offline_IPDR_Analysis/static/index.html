@@ -228,6 +228,98 @@
   .qb-icon-btn.danger:hover:not(:disabled) {
     border-color: #e89a94; background: #fde4e2; color: #912018;
   }
+  .qb-limit-row {
+    display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+    margin-top: 4px;
+  }
+  .qb-limit-row label.check {
+    display: inline-flex; gap: 8px; align-items: center;
+    font-size: 13px; color: var(--ink); text-transform: none; letter-spacing: 0;
+    font-weight: 500; cursor: pointer;
+  }
+  .qb-limit-row input[type="number"] {
+    width: 8rem; border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 11px; font: inherit; background: var(--panel-soft); color: inherit;
+  }
+  .qb-limit-row input[type="number"]:disabled { opacity: 0.55; }
+  .qb-results-page {
+    position: fixed; inset: 0; z-index: 50;
+    display: grid; grid-template-columns: minmax(280px, 340px) 1fr;
+    background: var(--bg);
+  }
+  .qb-results-page.hidden { display: none; }
+  .qb-results-page.side-collapsed { grid-template-columns: 48px 1fr; }
+  .qb-side {
+    display: flex; flex-direction: column; min-height: 0;
+    border-right: 1px solid var(--line); background: var(--panel);
+    box-shadow: 4px 0 24px rgba(15, 28, 39, 0.04);
+  }
+  .qb-side-top {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 12px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  }
+  .qb-side-title {
+    font: 600 13px/1.2 var(--font); color: var(--ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .qb-side-toggle, .qb-back-btn {
+    width: 34px; height: 34px; padding: 0; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--panel-soft); color: var(--ink);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 auto;
+  }
+  .qb-side-toggle svg, .qb-back-btn svg { width: 16px; height: 16px; display: block; }
+  .qb-results-page.side-collapsed .qb-side-title,
+  .qb-results-page.side-collapsed .qb-back-btn,
+  .qb-results-page.side-collapsed .qb-side-body,
+  .qb-results-page.side-collapsed .qb-side-actions { display: none; }
+  .qb-side-body {
+    flex: 1 1 auto; overflow: auto; padding: 12px;
+    display: grid; gap: 12px; align-content: start;
+  }
+  .qb-side-body .qb-card { box-shadow: none; margin: 0; }
+  .qb-side-actions {
+    flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 12px; border-top: 1px solid var(--line); background: var(--panel-soft);
+  }
+  .qb-side-actions button { flex: 1 1 auto; }
+  .qb-results-main {
+    min-width: 0; min-height: 0; display: flex; flex-direction: column;
+    padding: 14px 16px 18px;
+  }
+  .qb-results-toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px 14px;
+    align-items: center; justify-content: space-between;
+    margin-bottom: 12px; flex: 0 0 auto;
+  }
+  .qb-results-toolbar h2 {
+    margin: 0; font: 600 18px/1.2 var(--font); text-transform: none;
+    letter-spacing: -0.02em; color: var(--ink);
+  }
+  .qb-pager {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .qb-pager select, .qb-pager input[type="number"] {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 10px; font: inherit; background: #fff; color: inherit;
+  }
+  .qb-pager input[type="number"] { width: 4.5rem; }
+  .qb-pager .qb-page-label { font-size: 13px; color: var(--muted); min-width: 7rem; }
+  .qb-results-table-wrap {
+    flex: 1 1 auto; overflow: auto; min-height: 0;
+    border: 1px solid var(--line); border-radius: 10px; background: #fff;
+  }
+  .qb-results-table-wrap table { font-size: 12.5px; }
+  .qb-results-foot {
+    flex: 0 0 auto; margin-top: 10px;
+    display: flex; flex-wrap: wrap; gap: 10px;
+    align-items: center; justify-content: space-between;
+  }
+  @media (max-width: 900px) {
+    .qb-results-page { grid-template-columns: 1fr; }
+    .qb-results-page.side-collapsed { grid-template-columns: 1fr; }
+    .qb-side { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  }
   @media (max-width: 720px) {
     .qb-filter-row { grid-template-columns: 1fr; }
   }
@@ -397,69 +489,128 @@
   </section>
 
   <section class="tab-panel hidden" id="tab-query" role="tabpanel" hidden>
-    <div class="qb-grid">
-      <div class="qb-card">
-        <h3>Time range <span style="color:var(--bad)">*</span></h3>
-        <p class="qb-meta">Required. Times are GMT+5 wall clock, matching start_time.</p>
-        <div class="qb-fields">
-          <div class="qb-field">
-            <label for="qb-from">From</label>
-            <input type="datetime-local" id="qb-from" required>
-          </div>
-          <div class="qb-field">
-            <label for="qb-to">To</label>
-            <input type="datetime-local" id="qb-to" required>
+    <div id="qb-compose-shell">
+      <div id="qb-form-root" class="qb-grid">
+        <div class="qb-card">
+          <h3>Time range <span style="color:var(--bad)">*</span></h3>
+          <p class="qb-meta">Required. Times are GMT+5 wall clock, matching start_time.</p>
+          <div class="qb-fields">
+            <div class="qb-field">
+              <label for="qb-from">From</label>
+              <input type="datetime-local" id="qb-from" required>
+            </div>
+            <div class="qb-field">
+              <label for="qb-to">To</label>
+              <input type="datetime-local" id="qb-to" required>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="qb-card">
-        <h3>Filters</h3>
-        <p class="qb-meta">Optional. Dead / always-empty columns are not listed.</p>
-        <div class="qb-filters" id="qb-filters"></div>
-        <div class="qb-actions" style="margin-top:10px">
-          <button type="button" class="qb-icon-btn" id="qb-add-filter" title="Add filter" aria-label="Add filter">
+        <div class="qb-card">
+          <h3>Filters</h3>
+          <p class="qb-meta">Optional. Dead / always-empty columns are not listed.</p>
+          <div class="qb-filters" id="qb-filters"></div>
+          <div class="qb-actions" style="margin-top:10px">
+            <button type="button" class="qb-icon-btn" id="qb-add-filter" title="Add filter" aria-label="Add filter">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M7.25 2.75a.75.75 0 0 1 1.5 0V7.25h4.5a.75.75 0 0 1 0 1.5H8.75v4.5a.75.75 0 0 1-1.5 0V8.75H2.75a.75.75 0 0 1 0-1.5h4.5V2.75z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="qb-card">
+          <button type="button" class="qb-heading-toggle" id="qb-toggle-settings" aria-expanded="false" aria-controls="qb-settings-panel">
+            <span class="qb-chevron" aria-hidden="true">
+              <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M3.2 1.15a.9.9 0 0 1 1.36-.1l5.1 4.35a.9.9 0 0 1 0 1.2l-5.1 4.35a.9.9 0 0 1-1.46-.75V1.9c0-.28.12-.54.32-.75z"/>
+              </svg>
+            </span>
+            <span>Output columns</span>
+          </button>
+          <div id="qb-settings-panel" class="hidden" style="margin-top:12px">
+            <p class="qb-meta">Choose which fields appear in the result table and CSV export.</p>
+            <div class="qb-settings" id="qb-column-settings"></div>
+          </div>
+        </div>
+
+        <div class="qb-card">
+          <h3>Row limit</h3>
+          <p class="qb-meta">Optional hard cap on matching rows. Unchecked means no limit (pagination and CSV caps still apply).</p>
+          <div class="qb-limit-row">
+            <label class="check" for="qb-limit-enabled">
+              <input type="checkbox" id="qb-limit-enabled">
+              Apply limit
+            </label>
+            <input type="number" id="qb-limit" min="1" step="1" value="10000" disabled aria-label="Row limit value">
+          </div>
+        </div>
+
+        <div class="qb-actions" id="qb-compose-actions">
+          <button type="button" id="qb-run">Run query</button>
+          <span id="qb-busy" class="hidden">Querying…</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="qb-results-page" class="qb-results-page hidden" aria-hidden="true">
+      <aside class="qb-side" id="qb-side">
+        <div class="qb-side-top">
+          <button type="button" class="qb-side-toggle" id="qb-side-toggle" title="Collapse options" aria-label="Collapse options" aria-expanded="true">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M7.25 2.75a.75.75 0 0 1 1.5 0V7.25h4.5a.75.75 0 0 1 0 1.5H8.75v4.5a.75.75 0 0 1-1.5 0V8.75H2.75a.75.75 0 0 1 0-1.5h4.5V2.75z"/>
+              <path fill="currentColor" d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0z"/>
             </svg>
           </button>
-        </div>
-      </div>
-
-      <div class="qb-card">
-        <button type="button" class="qb-heading-toggle" id="qb-toggle-settings" aria-expanded="false" aria-controls="qb-settings-panel">
-          <span class="qb-chevron" aria-hidden="true">
-            <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M3.2 1.15a.9.9 0 0 1 1.36-.1l5.1 4.35a.9.9 0 0 1 0 1.2l-5.1 4.35a.9.9 0 0 1-1.46-.75V1.9c0-.28.12-.54.32-.75z"/>
+          <button type="button" class="qb-back-btn" id="qb-back-compose" title="Back to query builder" aria-label="Back to query builder">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M6.78 3.22a.75.75 0 0 1 0 1.06L3.56 7.5H14a.75.75 0 0 1 0 1.5H3.56l3.22 3.22a.75.75 0 1 1-1.06 1.06l-4.5-4.5a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 0 1 1.06 0z"/>
             </svg>
-          </span>
-          <span>Output columns</span>
-        </button>
-        <div id="qb-settings-panel" class="hidden" style="margin-top:12px">
-          <p class="qb-meta">Choose which fields appear in the result table and CSV export.</p>
-          <div class="qb-settings" id="qb-column-settings"></div>
+          </button>
+          <span class="qb-side-title">Query options</span>
         </div>
-      </div>
-
-      <div class="qb-actions">
-        <button type="button" id="qb-run">Run query</button>
-        <button type="button" class="secondary" id="qb-export" disabled>Export CSV</button>
-        <span id="qb-busy" class="hidden">Querying…</span>
-      </div>
-
-      <div class="qb-card">
-        <div class="qb-toolbar">
-          <h3 style="margin:0">Results</h3>
-          <span class="qb-meta" id="qb-result-meta">No query yet.</span>
+        <div class="qb-side-body" id="qb-side-body"></div>
+        <div class="qb-side-actions">
+          <button type="button" id="qb-run-side">Run query</button>
+          <button type="button" class="secondary" id="qb-export" disabled>Export CSV</button>
+          <span id="qb-busy-side" class="hidden" style="width:100%;font-size:12px;color:var(--muted)">Querying…</span>
+        </div>
+      </aside>
+      <div class="qb-results-main">
+        <div class="qb-results-toolbar">
+          <div>
+            <h2>Query results</h2>
+            <span class="qb-meta" id="qb-result-meta" style="margin:4px 0 0">No query yet.</span>
+          </div>
+          <div class="qb-pager" id="qb-pager-top">
+            <label style="font-size:12px;color:var(--muted)">Rows per page
+              <select id="qb-page-size" aria-label="Rows per page">
+                <option value="100">100</option>
+                <option value="500">500</option>
+                <option value="1000" selected>1000</option>
+                <option value="2500">2500</option>
+                <option value="5000">5000</option>
+                <option value="10000">10000</option>
+              </select>
+            </label>
+            <button type="button" class="secondary" id="qb-page-prev" disabled>Previous</button>
+            <span class="qb-page-label" id="qb-page-label">Page 1 of 1</span>
+            <button type="button" class="secondary" id="qb-page-next" disabled>Next</button>
+            <input type="number" id="qb-page-jump" min="1" value="1" aria-label="Go to page">
+            <button type="button" class="secondary" id="qb-page-go">Go</button>
+          </div>
         </div>
         <div id="qb-error" class="error hidden"></div>
         <div id="qb-warning" class="warning hidden"></div>
         <details class="sql hidden" id="qb-sql-wrap"><summary>SQL</summary><pre id="qb-sql"></pre></details>
-        <div class="table-wrap" id="qb-table-wrap">
+        <div class="qb-results-table-wrap" id="qb-table-wrap">
           <table>
             <thead id="qb-thead"></thead>
             <tbody id="qb-tbody"></tbody>
           </table>
+        </div>
+        <div class="qb-results-foot">
+          <span class="qb-meta" id="qb-result-range">Showing 0 rows</span>
+          <div class="qb-pager" id="qb-pager-bottom"></div>
         </div>
       </div>
     </div>
@@ -1566,6 +1717,9 @@ syncDebugToggle();
 const COLUMNS_KEY = "ipdr-qb-columns";
 let qbSchema = null;
 let qbLastResult = null;
+let qbPage = 1;
+let qbPageSize = 1000;
+let qbResultsOpen = false;
 
 function activateTab(name) {
   const panels = {
@@ -1841,25 +1995,133 @@ function renderQbTable(columns, rows) {
   }
 }
 
-function csvEscape(value) {
-  const text = value == null ? "" : String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
+function syncLimitField() {
+  const enabled = document.getElementById("qb-limit-enabled").checked;
+  const input = document.getElementById("qb-limit");
+  input.disabled = !enabled;
 }
 
-function exportCsv() {
-  if (!qbLastResult || !qbLastResult.columns?.length) return;
-  const lines = [qbLastResult.columns.map(csvEscape).join(",")];
-  for (const row of qbLastResult.rows || []) {
-    lines.push(qbLastResult.columns.map((col) => csvEscape(row[col])).join(","));
+function collectQueryPayload(page) {
+  const applyLimit = document.getElementById("qb-limit-enabled").checked;
+  const rawLimit = Number(document.getElementById("qb-limit").value);
+  const limit = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 0;
+  return {
+    columns: selectedColumns(),
+    time_from: datetimeLocalToSql(document.getElementById("qb-from").value),
+    time_to: datetimeLocalToSql(document.getElementById("qb-to").value),
+    filters: collectFilters(),
+    apply_limit: applyLimit,
+    limit: applyLimit ? limit : null,
+    page: page || qbPage,
+    page_size: qbPageSize,
+  };
+}
+
+function validateQueryPayload(payload) {
+  if (!payload.time_from || !payload.time_to) {
+    return "Choose both From and To for the time range.";
   }
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "ipdr-query.csv";
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!payload.columns.length) {
+    return "Select at least one output column.";
+  }
+  if (payload.apply_limit && !(payload.limit > 0)) {
+    return "Enter a limit greater than 0, or uncheck Apply limit.";
+  }
+  return null;
+}
+
+function openResultsPage() {
+  const page = document.getElementById("qb-results-page");
+  const form = document.getElementById("qb-form-root");
+  const sideBody = document.getElementById("qb-side-body");
+  const compose = document.getElementById("qb-compose-shell");
+  const composeActions = document.getElementById("qb-compose-actions");
+  if (form.parentElement !== sideBody) {
+    sideBody.appendChild(form);
+  }
+  composeActions.classList.add("hidden");
+  compose.classList.add("hidden");
+  page.classList.remove("hidden");
+  page.setAttribute("aria-hidden", "false");
+  qbResultsOpen = true;
+  document.body.style.overflow = "hidden";
+}
+
+function closeResultsPage() {
+  const page = document.getElementById("qb-results-page");
+  const form = document.getElementById("qb-form-root");
+  const compose = document.getElementById("qb-compose-shell");
+  const composeActions = document.getElementById("qb-compose-actions");
+  compose.appendChild(form);
+  composeActions.classList.remove("hidden");
+  compose.classList.remove("hidden");
+  page.classList.add("hidden");
+  page.classList.remove("side-collapsed");
+  page.setAttribute("aria-hidden", "true");
+  document.getElementById("qb-side-toggle").setAttribute("aria-expanded", "true");
+  qbResultsOpen = false;
+  document.body.style.overflow = "";
+}
+
+function updatePager(data) {
+  const page = data.page || 1;
+  const totalPages = data.total_pages || 1;
+  const totalRows = data.total_rows || 0;
+  const rowCount = data.row_count || 0;
+  const pageSize = data.page_size || qbPageSize;
+  qbPage = page;
+  const label = `Page ${page} of ${totalPages}`;
+  document.getElementById("qb-page-label").textContent = label;
+  document.getElementById("qb-page-jump").value = String(page);
+  document.getElementById("qb-page-jump").max = String(totalPages);
+  document.getElementById("qb-page-prev").disabled = page <= 1;
+  document.getElementById("qb-page-next").disabled = page >= totalPages;
+  const start = totalRows === 0 || rowCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = start === 0 ? 0 : start + rowCount - 1;
+  let range = `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${totalRows.toLocaleString()}`;
+  if (data.apply_limit && data.limit) {
+    range += ` (capped at ${Number(data.limit).toLocaleString()})`;
+  }
+  document.getElementById("qb-result-range").textContent = range;
+  document.getElementById("qb-result-meta").textContent =
+    `${totalRows.toLocaleString()} matching row(s)` +
+    (data.matched_rows != null && data.apply_limit
+      ? ` · ${Number(data.matched_rows).toLocaleString()} before limit`
+      : "");
+  const bottom = document.getElementById("qb-pager-bottom");
+  bottom.replaceChildren();
+  const clone = document.getElementById("qb-pager-top").cloneNode(true);
+  clone.id = "qb-pager-bottom-inner";
+  for (const el of clone.querySelectorAll("[id]")) el.removeAttribute("id");
+  bottom.append(clone);
+  const bottomPrev = clone.querySelector("button.secondary");
+  const bottomButtons = clone.querySelectorAll("button.secondary");
+  const bottomNext = bottomButtons[1];
+  const bottomGo = bottomButtons[2];
+  const bottomJump = clone.querySelector('input[type="number"]');
+  const bottomSize = clone.querySelector("select");
+  if (bottomPrev) {
+    bottomPrev.disabled = page <= 1;
+    bottomPrev.addEventListener("click", () => runManualQuery(page - 1));
+  }
+  if (bottomNext) {
+    bottomNext.disabled = page >= totalPages;
+    bottomNext.addEventListener("click", () => runManualQuery(page + 1));
+  }
+  if (bottomGo && bottomJump) {
+    bottomGo.addEventListener("click", () => {
+      const target = Math.max(1, Math.trunc(Number(bottomJump.value) || 1));
+      runManualQuery(target);
+    });
+  }
+  if (bottomSize) {
+    bottomSize.value = String(pageSize);
+    bottomSize.addEventListener("change", () => {
+      qbPageSize = Math.min(10000, Math.max(1, Number(bottomSize.value) || 1000));
+      document.getElementById("qb-page-size").value = String(qbPageSize);
+      runManualQuery(1);
+    });
+  }
 }
 
 async function loadQueryBuilder() {
@@ -1870,42 +2132,40 @@ async function loadQueryBuilder() {
   qbSchema = await response.json();
   renderColumnSettings();
   if (!document.querySelector("#qb-filters .qb-filter-row")) addFilterRow();
+  syncLimitField();
 }
 
-async function runManualQuery() {
+async function runManualQuery(page) {
   const error = document.getElementById("qb-error");
   const warning = document.getElementById("qb-warning");
   const meta = document.getElementById("qb-result-meta");
   const sqlWrap = document.getElementById("qb-sql-wrap");
   error.classList.add("hidden");
   warning.classList.add("hidden");
-  const timeFrom = datetimeLocalToSql(document.getElementById("qb-from").value);
-  const timeTo = datetimeLocalToSql(document.getElementById("qb-to").value);
-  if (!timeFrom || !timeTo) {
-    error.textContent = "Choose both From and To for the time range.";
+  const payload = collectQueryPayload(page || 1);
+  const invalid = validateQueryPayload(payload);
+  if (invalid) {
+    if (!qbResultsOpen) openResultsPage();
+    error.textContent = invalid;
     error.classList.remove("hidden");
     return;
   }
-  const columns = selectedColumns();
-  if (!columns.length) {
-    error.textContent = "Select at least one output column in Settings.";
-    error.classList.remove("hidden");
-    return;
-  }
-  const runButton = document.getElementById("qb-run");
-  const busyEl = document.getElementById("qb-busy");
-  runButton.disabled = true;
-  busyEl.classList.remove("hidden");
+  qbPage = payload.page;
+  const runButtons = [
+    document.getElementById("qb-run"),
+    document.getElementById("qb-run-side"),
+  ];
+  const busyEls = [
+    document.getElementById("qb-busy"),
+    document.getElementById("qb-busy-side"),
+  ];
+  for (const btn of runButtons) if (btn) btn.disabled = true;
+  for (const el of busyEls) if (el) el.classList.remove("hidden");
   try {
     const response = await fetch("/api/manual/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        columns,
-        time_from: timeFrom,
-        time_to: timeTo,
-        filters: collectFilters(),
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -1915,26 +2175,71 @@ async function runManualQuery() {
       throw new Error(detail);
     }
     qbLastResult = data;
+    openResultsPage();
     renderQbTable(data.columns || [], data.rows || []);
-    meta.textContent = `${data.row_count || 0} row(s)`;
-    document.getElementById("qb-export").disabled = !(data.rows && data.rows.length);
+    updatePager(data);
+    document.getElementById("qb-export").disabled = !(data.total_rows > 0);
     if (data.sql) {
       document.getElementById("qb-sql").textContent = data.sql;
       sqlWrap.classList.remove("hidden");
+    } else {
+      sqlWrap.classList.add("hidden");
     }
     if (data.warning) {
       warning.textContent = data.warning;
       warning.classList.remove("hidden");
     }
   } catch (err) {
+    if (!qbResultsOpen) openResultsPage();
     error.textContent = String(err.message || err);
     error.classList.remove("hidden");
     meta.textContent = "Query failed.";
     document.getElementById("qb-export").disabled = true;
     qbLastResult = null;
   } finally {
-    runButton.disabled = false;
-    busyEl.classList.add("hidden");
+    for (const btn of runButtons) if (btn) btn.disabled = false;
+    for (const el of busyEls) if (el) el.classList.add("hidden");
+  }
+}
+
+async function exportCsv() {
+  const error = document.getElementById("qb-error");
+  const payload = collectQueryPayload(1);
+  const invalid = validateQueryPayload(payload);
+  if (invalid) {
+    error.textContent = invalid;
+    error.classList.remove("hidden");
+    return;
+  }
+  const button = document.getElementById("qb-export");
+  button.disabled = true;
+  button.textContent = "Exporting…";
+  try {
+    const response = await fetch("/api/manual/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const detail = Array.isArray(data.detail)
+        ? data.detail.map((item) => item.msg || JSON.stringify(item)).join("; ")
+        : (data.detail || data.error || ("Export failed (" + response.status + ")"));
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ipdr-query.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    error.textContent = String(err.message || err);
+    error.classList.remove("hidden");
+  } finally {
+    button.disabled = !(qbLastResult && qbLastResult.total_rows > 0);
+    button.textContent = "Export CSV";
   }
 }
 
@@ -1945,8 +2250,29 @@ document.getElementById("qb-toggle-settings").addEventListener("click", () => {
   const open = panel.classList.toggle("hidden") === false;
   toggle.setAttribute("aria-expanded", open ? "true" : "false");
 });
-document.getElementById("qb-run").addEventListener("click", runManualQuery);
+document.getElementById("qb-limit-enabled").addEventListener("change", syncLimitField);
+document.getElementById("qb-run").addEventListener("click", () => runManualQuery(1));
+document.getElementById("qb-run-side").addEventListener("click", () => runManualQuery(1));
 document.getElementById("qb-export").addEventListener("click", exportCsv);
+document.getElementById("qb-back-compose").addEventListener("click", closeResultsPage);
+document.getElementById("qb-side-toggle").addEventListener("click", () => {
+  const page = document.getElementById("qb-results-page");
+  const collapsed = page.classList.toggle("side-collapsed");
+  document.getElementById("qb-side-toggle").setAttribute("aria-expanded", collapsed ? "false" : "true");
+});
+document.getElementById("qb-page-prev").addEventListener("click", () => runManualQuery(qbPage - 1));
+document.getElementById("qb-page-next").addEventListener("click", () => runManualQuery(qbPage + 1));
+document.getElementById("qb-page-go").addEventListener("click", () => {
+  const target = Math.max(1, Math.trunc(Number(document.getElementById("qb-page-jump").value) || 1));
+  runManualQuery(target);
+});
+document.getElementById("qb-page-size").addEventListener("change", (event) => {
+  qbPageSize = Math.min(10000, Math.max(1, Number(event.target.value) || 1000));
+  runManualQuery(1);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && qbResultsOpen) closeResultsPage();
+});
 
 loadHealth();
 loadStarters();

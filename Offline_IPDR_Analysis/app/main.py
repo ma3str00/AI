@@ -48,7 +48,17 @@ from app.followup import (
 )
 from app.intent import build_sql, resolve_intent
 from app.learned import saved_sql, sql_needs_full_scan
-from app.manual_query import ManualQueryError, build_select, schema_payload
+from app.manual_query import (
+    EXPORT_MAX_ROWS,
+    PAGE_SIZE_DEFAULT,
+    PAGE_SIZE_MAX,
+    ManualQueryError,
+    build_count,
+    build_export,
+    build_select,
+    resolve_hard_limit,
+    schema_payload,
+)
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
@@ -94,7 +104,10 @@ class ManualQuery(BaseModel):
     time_from: str = Field(min_length=10, max_length=32)
     time_to: str = Field(min_length=10, max_length=32)
     filters: list[ManualFilter] = Field(default_factory=list, max_length=40)
-    max_rows: int | None = Field(default=None, ge=1, le=5000)
+    apply_limit: bool = False
+    limit: int | None = Field(default=None, ge=0, le=EXPORT_MAX_ROWS)
+    page: int = Field(default=1, ge=1, le=1_000_000)
+    page_size: int = Field(default=PAGE_SIZE_DEFAULT, ge=1, le=PAGE_SIZE_MAX)
 
 
 class LoginRequest(BaseModel):
@@ -359,35 +372,119 @@ def manual_query(body: ManualQuery, user: AppUser = Depends(require_query)):
     _ = user
     config: Config = _state["config"]
     database: Database = _state["db"]
+    filters = [item.model_dump() for item in body.filters]
+    hard_limit = resolve_hard_limit(apply_limit=body.apply_limit, limit=body.limit)
+    page_size = max(1, min(int(body.page_size), PAGE_SIZE_MAX))
+    page = max(1, int(body.page))
     try:
+        count_sql = build_count(
+            time_from=body.time_from,
+            time_to=body.time_to,
+            filters=filters,
+        )
         sql = build_select(
             columns=body.columns,
             time_from=body.time_from,
             time_to=body.time_to,
-            filters=[item.model_dump() for item in body.filters],
-            max_rows=body.max_rows or config.max_rows,
+            filters=filters,
+            page_size=page_size,
+            page=page,
+            hard_limit=hard_limit,
         )
-        safe_sql = prepare(sql, config.max_rows, allow_full_scan=False)
     except ManualQueryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except GuardError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        columns, rows, warning = database.query(
-            safe_sql,
+        _count_cols, count_rows, _count_warn = database.query(
+            count_sql,
             max_execution_ms=config.max_execution_ms,
+            unbounded=True,
+            max_result_rows=1,
+        )
+        matched = int(count_rows[0]["n"]) if count_rows else 0
+        total_rows = min(matched, hard_limit) if hard_limit is not None else matched
+        total_pages = max(1, (total_rows + page_size - 1) // page_size) if total_rows else 1
+        if page > total_pages:
+            page = total_pages
+            sql = build_select(
+                columns=body.columns,
+                time_from=body.time_from,
+                time_to=body.time_to,
+                filters=filters,
+                page_size=page_size,
+                page=page,
+                hard_limit=hard_limit,
+            )
+        columns, rows, warning = database.query(
+            sql,
+            max_execution_ms=config.full_scan_execution_ms,
+            unbounded=True,
+            max_result_rows=page_size,
         )
     except DatabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     shown = present_rows(columns, rows, config)
     return {
         "ok": True,
-        "sql": safe_sql,
+        "sql": sql,
         "columns": columns,
         "rows": shown,
         "row_count": len(shown),
+        "matched_rows": matched,
+        "total_rows": total_rows,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "apply_limit": bool(hard_limit is not None),
+        "limit": hard_limit,
         "warning": warning,
     }
+
+
+@app.post("/api/manual/export")
+def manual_export(body: ManualQuery, user: AppUser = Depends(require_query)):
+    _ = user
+    config: Config = _state["config"]
+    database: Database = _state["db"]
+    filters = [item.model_dump() for item in body.filters]
+    hard_limit = resolve_hard_limit(apply_limit=body.apply_limit, limit=body.limit)
+    try:
+        sql = build_export(
+            columns=body.columns,
+            time_from=body.time_from,
+            time_to=body.time_to,
+            filters=filters,
+            hard_limit=hard_limit,
+        )
+    except ManualQueryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        columns, rows, warning = database.query(
+            sql,
+            max_execution_ms=config.full_scan_execution_ms,
+            unbounded=True,
+            max_result_rows=EXPORT_MAX_ROWS,
+        )
+    except DatabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    shown = present_rows(columns, rows, config)
+
+    def _csv_escape(value: object) -> str:
+        text = "" if value is None else str(value)
+        if any(ch in text for ch in ('"', ",", "\n", "\r")):
+            return '"' + text.replace('"', '""') + '"'
+        return text
+
+    def _iter_csv():
+        yield ",".join(_csv_escape(col) for col in columns) + "\n"
+        for row in shown:
+            yield ",".join(_csv_escape(row.get(col)) for col in columns) + "\n"
+        if warning:
+            yield f"# warning,{_csv_escape(warning)}\n"
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="ipdr-query.csv"',
+    }
+    return StreamingResponse(_iter_csv(), media_type="text/csv; charset=utf-8", headers=headers)
 
 
 def _status(text: str) -> dict:

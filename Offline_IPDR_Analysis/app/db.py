@@ -43,6 +43,7 @@ class Database:
         sql: str,
         max_execution_ms: int | None = None,
         unbounded: bool = False,
+        max_result_rows: int | None = None,
     ) -> tuple[list[str], list[dict], str | None]:
         with self._lock:
             try:
@@ -52,9 +53,14 @@ class Database:
                 if max_execution_ms is not None:
                     # ClickHouse max_execution_time is seconds (Float64).
                     settings["max_execution_time"] = max(1.0, float(max_execution_ms) / 1000.0)
-                if not unbounded:
+                if unbounded:
+                    if max_result_rows is not None:
+                        settings["max_result_rows"] = int(max_result_rows)
+                else:
                     # Soft cap; LIMIT in SQL is still the primary guard.
-                    settings["max_result_rows"] = int(self.config.max_rows)
+                    settings["max_result_rows"] = int(
+                        max_result_rows if max_result_rows is not None else self.config.max_rows
+                    )
                 warning = self._scan_warning(clickhouse_sql)
                 result = client.query(clickhouse_sql, settings=settings or None)
                 columns = list(result.column_names)

@@ -47,6 +47,11 @@ _OPS = {
     "lte": "<=",
 }
 
+PAGE_SIZE_DEFAULT = 1000
+PAGE_SIZE_MAX = 10_000
+EXPORT_MAX_ROWS = 1_000_000
+HARD_LIMIT_MAX = 1_000_000
+
 
 @dataclass(frozen=True)
 class ColumnInfo:
@@ -97,11 +102,24 @@ def schema_payload() -> dict:
         ],
         "default_columns": [col.name for col in columns if col.default_selected],
         "time_column": "start_time",
+        "page_size_default": PAGE_SIZE_DEFAULT,
+        "page_size_max": PAGE_SIZE_MAX,
+        "export_max_rows": EXPORT_MAX_ROWS,
     }
 
 
 class ManualQueryError(ValueError):
     pass
+
+
+def resolve_hard_limit(*, apply_limit: bool, limit: int | None) -> int | None:
+    """Return a positive hard cap when the checkbox is on and limit > 0; else None (no cap)."""
+    if not apply_limit or limit is None:
+        return None
+    value = int(limit)
+    if value <= 0:
+        return None
+    return min(value, HARD_LIMIT_MAX)
 
 
 def build_select(
@@ -110,9 +128,66 @@ def build_select(
     time_from: str,
     time_to: str,
     filters: list[dict],
-    max_rows: int,
+    page_size: int = PAGE_SIZE_DEFAULT,
+    page: int = 1,
+    hard_limit: int | None = None,
 ) -> str:
-    """Build a single read-only SELECT. time_from/time_to are 'YYYY-MM-DD HH:MM:SS' GMT+5 wall clocks."""
+    """Build a paginated read-only SELECT. Times are GMT+5 wall clocks."""
+    selected, where = _select_parts(columns, time_from, time_to, filters)
+    size = max(1, min(int(page_size), PAGE_SIZE_MAX))
+    page_number = max(1, int(page))
+    offset = (page_number - 1) * size
+    if hard_limit is not None:
+        if offset >= hard_limit:
+            size = 0
+        else:
+            size = min(size, hard_limit - offset)
+    if size <= 0:
+        # Empty page: still a valid SELECT that returns no rows.
+        return (
+            f"SELECT {', '.join(selected)} FROM {TABLE} "
+            f"WHERE 1 = 0"
+        )
+    return (
+        f"SELECT {', '.join(selected)} FROM {TABLE} "
+        f"WHERE {' AND '.join(where)} "
+        f"ORDER BY start_time DESC LIMIT {size} OFFSET {offset}"
+    )
+
+
+def build_count(
+    *,
+    time_from: str,
+    time_to: str,
+    filters: list[dict],
+) -> str:
+    _, where = _select_parts(["start_time"], time_from, time_to, filters)
+    return f"SELECT COUNT(*) AS n FROM {TABLE} WHERE {' AND '.join(where)}"
+
+
+def build_export(
+    *,
+    columns: list[str],
+    time_from: str,
+    time_to: str,
+    filters: list[dict],
+    hard_limit: int | None = None,
+) -> str:
+    selected, where = _select_parts(columns, time_from, time_to, filters)
+    cap = EXPORT_MAX_ROWS if hard_limit is None else min(hard_limit, EXPORT_MAX_ROWS)
+    return (
+        f"SELECT {', '.join(selected)} FROM {TABLE} "
+        f"WHERE {' AND '.join(where)} "
+        f"ORDER BY start_time DESC LIMIT {cap}"
+    )
+
+
+def _select_parts(
+    columns: list[str],
+    time_from: str,
+    time_to: str,
+    filters: list[dict],
+) -> tuple[list[str], list[str]]:
     allowed = {col.name: col for col in catalog()}
     selected = _validate_columns(columns, allowed)
     start = _validate_wall_clock(time_from, "time_from")
@@ -127,12 +202,7 @@ def build_select(
         clause = _filter_clause(item, allowed)
         if clause:
             where.append(clause)
-    limit = max(1, min(int(max_rows), 5000))
-    return (
-        f"SELECT {', '.join(selected)} FROM {TABLE} "
-        f"WHERE {' AND '.join(where)} "
-        f"ORDER BY start_time DESC LIMIT {limit}"
-    )
+    return selected, where
 
 
 def _kind_from_type(rest: str) -> str:
