@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IPDR assistant</title>
+<title>IPDR analysis</title>
 <style>
   :root {
     color-scheme: light;
@@ -111,6 +111,54 @@
   th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
   th { position: sticky; top: 0; background: #efeae1; }
   .hidden { display: none; }
+  .tabs {
+    display: flex; gap: 6px; margin: 0 0 18px; padding: 4px;
+    background: rgba(20, 53, 44, 0.06); border-radius: 12px; width: fit-content;
+  }
+  .tabs button {
+    background: transparent; color: var(--ink); border: 0;
+    padding: 8px 14px; border-radius: 9px; font: 600 14px/1.2 "Segoe UI", sans-serif;
+  }
+  .tabs button.active { background: var(--panel); color: var(--accent); box-shadow: 0 1px 4px rgba(27,25,20,0.08); }
+  .tab-panel.hidden { display: none; }
+  .qb-grid { display: grid; gap: 14px; }
+  .qb-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px; box-shadow: 0 10px 30px rgba(27, 25, 20, 0.05);
+  }
+  .qb-card h3 { margin: 0 0 12px; font: 600 15px/1.2 "Segoe UI", sans-serif; }
+  .qb-fields { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .qb-field { display: grid; gap: 4px; }
+  .qb-field label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .qb-field input, .qb-field select {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 11px; font: inherit; background: #fff; color: inherit;
+  }
+  .qb-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .qb-filters { display: grid; gap: 8px; }
+  .qb-filter-row {
+    display: grid; gap: 8px;
+    grid-template-columns: minmax(140px, 1.2fr) minmax(100px, 0.8fr) minmax(160px, 1.4fr) auto;
+    align-items: center;
+  }
+  .qb-filter-row input, .qb-filter-row select {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; font: inherit; background: #fff;
+  }
+  .qb-settings {
+    display: grid; gap: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    max-height: 220px; overflow: auto; padding: 4px;
+  }
+  .qb-settings label {
+    display: flex; gap: 8px; align-items: center; font-size: 13px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #fff;
+  }
+  .qb-meta { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .qb-toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  @media (max-width: 720px) {
+    .qb-filter-row { grid-template-columns: 1fr; }
+  }
   .transcript { display: grid; gap: 14px; margin-top: 8px; }
   .bubble { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; background: var(--panel); box-shadow: 0 8px 24px rgba(27, 25, 20, 0.04); }
   .confirm-card { margin: 0; }
@@ -197,29 +245,97 @@
 <body>
 <header class="top">
   <div class="brand">
-    <h1>IPDR assistant</h1>
-    <p>Ask a question, then keep going. A follow-up keeps the previous filters. Mark an answer correct and the assistant learns from that answer.</p>
+    <h1>IPDR analysis</h1>
+    <p>Use the AI assistant for natural-language questions, or the query builder for filtered table reads with a required time range.</p>
   </div>
   <button type="button" class="debug-toggle" id="debug-toggle" aria-pressed="false">Debug off</button>
 </header>
 <main>
   <div class="status" id="status"></div>
-  <div class="transcript" id="transcript"></div>
-  <form id="ask-form">
-    <label for="question" id="question-label">Question</label>
-    <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
-    <div class="row">
-      <label for="engine">AI engine</label>
-      <select id="engine" name="engine">
-        <option value="local" data-kind="llama.cpp">Local 7B</option>
-        <option value="kaggle" data-kind="ollama">Kaggle 14B</option>
-      </select>
-      <button type="submit" id="ask">Ask</button>
-      <button type="button" class="secondary" id="reset">New conversation</button>
-      <span id="busy" class="hidden">Working. A local question often takes half a minute to two minutes.</span>
+  <nav class="tabs" role="tablist" aria-label="Main views">
+    <button type="button" class="active" id="tab-btn-assistant" role="tab" aria-selected="true" aria-controls="tab-assistant">AI assistant</button>
+    <button type="button" id="tab-btn-query" role="tab" aria-selected="false" aria-controls="tab-query">Query builder</button>
+  </nav>
+
+  <section class="tab-panel" id="tab-assistant" role="tabpanel">
+    <div class="transcript" id="transcript"></div>
+    <form id="ask-form">
+      <label for="question" id="question-label">Question</label>
+      <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
+      <div class="row">
+        <label for="engine">AI engine</label>
+        <select id="engine" name="engine">
+          <option value="local" data-kind="llama.cpp">Local 7B</option>
+          <option value="kaggle" data-kind="ollama">Kaggle 14B</option>
+        </select>
+        <button type="submit" id="ask">Ask</button>
+        <button type="button" class="secondary" id="reset">New conversation</button>
+        <span id="busy" class="hidden">Working. A local question often takes half a minute to two minutes.</span>
+      </div>
+    </form>
+    <div class="starters" id="starters"></div>
+  </section>
+
+  <section class="tab-panel hidden" id="tab-query" role="tabpanel" hidden>
+    <div class="qb-grid">
+      <div class="qb-card">
+        <h3>Time range <span style="color:var(--bad)">*</span></h3>
+        <p class="qb-meta">Required. Times are GMT+5 wall clock, matching start_time.</p>
+        <div class="qb-fields">
+          <div class="qb-field">
+            <label for="qb-from">From</label>
+            <input type="datetime-local" id="qb-from" required>
+          </div>
+          <div class="qb-field">
+            <label for="qb-to">To</label>
+            <input type="datetime-local" id="qb-to" required>
+          </div>
+        </div>
+      </div>
+
+      <div class="qb-card">
+        <h3>Filters</h3>
+        <p class="qb-meta">Optional. Dead / always-empty columns are not listed.</p>
+        <div class="qb-filters" id="qb-filters"></div>
+        <div class="qb-actions" style="margin-top:10px">
+          <button type="button" class="secondary" id="qb-add-filter">Add filter</button>
+        </div>
+      </div>
+
+      <div class="qb-card">
+        <div class="qb-toolbar">
+          <h3 style="margin:0">Output columns</h3>
+          <button type="button" class="secondary" id="qb-toggle-settings">Settings</button>
+        </div>
+        <div id="qb-settings-panel" class="hidden">
+          <p class="qb-meta">Choose which fields appear in the result table and CSV export.</p>
+          <div class="qb-settings" id="qb-column-settings"></div>
+        </div>
+      </div>
+
+      <div class="qb-actions">
+        <button type="button" id="qb-run">Run query</button>
+        <button type="button" class="secondary" id="qb-export" disabled>Export CSV</button>
+        <span id="qb-busy" class="hidden">Querying…</span>
+      </div>
+
+      <div class="qb-card">
+        <div class="qb-toolbar">
+          <h3 style="margin:0">Results</h3>
+          <span class="qb-meta" id="qb-result-meta">No query yet.</span>
+        </div>
+        <div id="qb-error" class="error hidden"></div>
+        <div id="qb-warning" class="warning hidden"></div>
+        <details class="sql hidden" id="qb-sql-wrap"><summary>SQL</summary><pre id="qb-sql"></pre></details>
+        <div class="table-wrap" id="qb-table-wrap">
+          <table>
+            <thead id="qb-thead"></thead>
+            <tbody id="qb-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
-  </form>
-  <div class="starters" id="starters"></div>
+  </section>
 </main>
 <script>
 const question = document.getElementById("question");
@@ -1231,6 +1347,268 @@ document.getElementById("debug-toggle").addEventListener("click", () => {
   syncDebugToggle();
 });
 syncDebugToggle();
+
+/* ---- Tabs + Query builder ---- */
+const COLUMNS_KEY = "ipdr-qb-columns";
+let qbSchema = null;
+let qbLastResult = null;
+
+function activateTab(name) {
+  const assistant = name === "assistant";
+  document.getElementById("tab-assistant").classList.toggle("hidden", !assistant);
+  document.getElementById("tab-assistant").hidden = !assistant;
+  document.getElementById("tab-query").classList.toggle("hidden", assistant);
+  document.getElementById("tab-query").hidden = assistant;
+  document.getElementById("tab-btn-assistant").classList.toggle("active", assistant);
+  document.getElementById("tab-btn-query").classList.toggle("active", !assistant);
+  document.getElementById("tab-btn-assistant").setAttribute("aria-selected", assistant ? "true" : "false");
+  document.getElementById("tab-btn-query").setAttribute("aria-selected", assistant ? "false" : "true");
+  if (!assistant) loadQueryBuilder().catch((err) => {
+    const error = document.getElementById("qb-error");
+    error.textContent = String(err.message || err);
+    error.classList.remove("hidden");
+  });
+}
+
+document.getElementById("tab-btn-assistant").addEventListener("click", () => activateTab("assistant"));
+document.getElementById("tab-btn-query").addEventListener("click", () => activateTab("query"));
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+
+function defaultTimeRange() {
+  const end = new Date();
+  const start = new Date(end.getTime() - 60 * 60 * 1000);
+  const toLocal = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  document.getElementById("qb-from").value = toLocal(start);
+  document.getElementById("qb-to").value = toLocal(end);
+}
+
+function datetimeLocalToSql(value) {
+  const text = (value || "").trim().replace("T", " ");
+  if (!text) return "";
+  return text.length === 16 ? text + ":00" : text;
+}
+
+function selectedColumns() {
+  const boxes = [...document.querySelectorAll("#qb-column-settings input[type=checkbox]")];
+  return boxes.filter((box) => box.checked).map((box) => box.value);
+}
+
+function saveColumnPrefs() {
+  localStorage.setItem(COLUMNS_KEY, JSON.stringify(selectedColumns()));
+}
+
+function loadColumnPrefs(defaults) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLUMNS_KEY) || "null");
+    if (Array.isArray(raw) && raw.length) return raw;
+  } catch (_) {}
+  return defaults.slice();
+}
+
+function renderColumnSettings() {
+  const box = document.getElementById("qb-column-settings");
+  box.replaceChildren();
+  const preferred = new Set(loadColumnPrefs(qbSchema.default_columns || []));
+  for (const col of qbSchema.columns) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = col.name;
+    input.checked = preferred.has(col.name) || (!preferred.size && col.default_selected);
+    input.addEventListener("change", saveColumnPrefs);
+    label.append(input, document.createTextNode(col.label || col.name));
+    box.append(label);
+  }
+}
+
+function filterableColumns() {
+  return (qbSchema.columns || []).filter((col) => col.filterable && col.name !== "start_time");
+}
+
+function addFilterRow(preset) {
+  const row = document.createElement("div");
+  row.className = "qb-filter-row";
+  const colSelect = document.createElement("select");
+  for (const col of filterableColumns()) {
+    const opt = document.createElement("option");
+    opt.value = col.name;
+    opt.textContent = col.label || col.name;
+    opt.dataset.kind = col.kind;
+    colSelect.append(opt);
+  }
+  const opSelect = document.createElement("select");
+  const valueInput = document.createElement("input");
+  valueInput.type = "text";
+  valueInput.placeholder = "Value";
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "secondary";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => row.remove());
+
+  function syncOps() {
+    const kind = colSelect.selectedOptions[0]?.dataset.kind || "text";
+    const ops = kind === "number" || kind === "time"
+      ? [["eq", "equals"], ["ne", "not equals"], ["gt", ">"], ["gte", ">="], ["lt", "<"], ["lte", "<="]]
+      : [["contains", "contains"], ["eq", "equals"], ["ne", "not equals"]];
+    const current = opSelect.value;
+    opSelect.replaceChildren();
+    for (const [value, label] of ops) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      opSelect.append(opt);
+    }
+    if (ops.some(([value]) => value === current)) opSelect.value = current;
+  }
+  colSelect.addEventListener("change", syncOps);
+  if (preset?.column) colSelect.value = preset.column;
+  syncOps();
+  if (preset?.op) opSelect.value = preset.op;
+  if (preset?.value != null) valueInput.value = preset.value;
+  row.append(colSelect, opSelect, valueInput, remove);
+  document.getElementById("qb-filters").append(row);
+}
+
+function collectFilters() {
+  const filters = [];
+  for (const row of document.querySelectorAll("#qb-filters .qb-filter-row")) {
+    const [colSelect, opSelect, valueInput] = row.querySelectorAll("select, input");
+    const value = (valueInput.value || "").trim();
+    if (!value) continue;
+    filters.push({ column: colSelect.value, op: opSelect.value, value });
+  }
+  return filters;
+}
+
+function renderQbTable(columns, rows) {
+  const thead = document.getElementById("qb-thead");
+  const tbody = document.getElementById("qb-tbody");
+  thead.replaceChildren();
+  tbody.replaceChildren();
+  const tr = document.createElement("tr");
+  for (const col of columns) {
+    const th = document.createElement("th");
+    th.textContent = col;
+    tr.append(th);
+  }
+  thead.append(tr);
+  for (const row of rows) {
+    const line = document.createElement("tr");
+    for (const col of columns) {
+      const td = document.createElement("td");
+      const value = row[col];
+      td.textContent = value == null ? "" : String(value);
+      line.append(td);
+    }
+    tbody.append(line);
+  }
+}
+
+function csvEscape(value) {
+  const text = value == null ? "" : String(value);
+  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
+function exportCsv() {
+  if (!qbLastResult || !qbLastResult.columns?.length) return;
+  const lines = [qbLastResult.columns.map(csvEscape).join(",")];
+  for (const row of qbLastResult.rows || []) {
+    lines.push(qbLastResult.columns.map((col) => csvEscape(row[col])).join(","));
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ipdr-query.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function loadQueryBuilder() {
+  if (qbSchema) return;
+  defaultTimeRange();
+  const response = await fetch("/api/manual/schema");
+  if (!response.ok) throw new Error("Could not load query schema");
+  qbSchema = await response.json();
+  renderColumnSettings();
+  if (!document.querySelector("#qb-filters .qb-filter-row")) addFilterRow();
+}
+
+async function runManualQuery() {
+  const error = document.getElementById("qb-error");
+  const warning = document.getElementById("qb-warning");
+  const meta = document.getElementById("qb-result-meta");
+  const sqlWrap = document.getElementById("qb-sql-wrap");
+  error.classList.add("hidden");
+  warning.classList.add("hidden");
+  const timeFrom = datetimeLocalToSql(document.getElementById("qb-from").value);
+  const timeTo = datetimeLocalToSql(document.getElementById("qb-to").value);
+  if (!timeFrom || !timeTo) {
+    error.textContent = "Choose both From and To for the time range.";
+    error.classList.remove("hidden");
+    return;
+  }
+  const columns = selectedColumns();
+  if (!columns.length) {
+    error.textContent = "Select at least one output column in Settings.";
+    error.classList.remove("hidden");
+    return;
+  }
+  const runButton = document.getElementById("qb-run");
+  const busyEl = document.getElementById("qb-busy");
+  runButton.disabled = true;
+  busyEl.classList.remove("hidden");
+  try {
+    const response = await fetch("/api/manual/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        columns,
+        time_from: timeFrom,
+        time_to: timeTo,
+        filters: collectFilters(),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = Array.isArray(data.detail)
+        ? data.detail.map((item) => item.msg || JSON.stringify(item)).join("; ")
+        : (data.detail || data.error || ("Query failed (" + response.status + ")"));
+      throw new Error(detail);
+    }
+    qbLastResult = data;
+    renderQbTable(data.columns || [], data.rows || []);
+    meta.textContent = `${data.row_count || 0} row(s)`;
+    document.getElementById("qb-export").disabled = !(data.rows && data.rows.length);
+    if (data.sql) {
+      document.getElementById("qb-sql").textContent = data.sql;
+      sqlWrap.classList.remove("hidden");
+    }
+    if (data.warning) {
+      warning.textContent = data.warning;
+      warning.classList.remove("hidden");
+    }
+  } catch (err) {
+    error.textContent = String(err.message || err);
+    error.classList.remove("hidden");
+    meta.textContent = "Query failed.";
+    document.getElementById("qb-export").disabled = true;
+    qbLastResult = null;
+  } finally {
+    runButton.disabled = false;
+    busyEl.classList.add("hidden");
+  }
+}
+
+document.getElementById("qb-add-filter").addEventListener("click", () => addFilterRow());
+document.getElementById("qb-toggle-settings").addEventListener("click", () => {
+  document.getElementById("qb-settings-panel").classList.toggle("hidden");
+});
+document.getElementById("qb-run").addEventListener("click", runManualQuery);
+document.getElementById("qb-export").addEventListener("click", exportCsv);
 
 loadHealth();
 loadStarters();

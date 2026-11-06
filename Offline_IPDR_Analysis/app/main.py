@@ -46,6 +46,7 @@ from app.followup import (
 )
 from app.intent import build_sql, resolve_intent
 from app.learned import saved_sql, sql_needs_full_scan
+from app.manual_query import ManualQueryError, build_select, schema_payload
 from app.preferences import absorb_marked_answers, lesson_from_marked_answer, load_preferences, missing_time_means_all
 from app.llama_client import LlamaError, LlamaServer
 from app.present import present_rows
@@ -59,7 +60,7 @@ from app.sql_guard import GuardError, prepare, wants_all_groups, wants_full_tabl
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "static" / "index.html"
 
-app = FastAPI(title="IPDR assistant")
+app = FastAPI(title="IPDR analysis")
 _state: dict = {}
 
 
@@ -68,6 +69,20 @@ class Turn(BaseModel):
     sql: str | None = Field(default=None, max_length=100000)
     explanation: str | None = Field(default=None, max_length=2000)
     pending_sql: str | None = Field(default=None, max_length=100000)
+
+
+class ManualFilter(BaseModel):
+    column: str = Field(min_length=1, max_length=64)
+    op: str = Field(default="eq", max_length=16)
+    value: str | int | float = Field(default="")
+
+
+class ManualQuery(BaseModel):
+    columns: list[str] = Field(default_factory=list, max_length=80)
+    time_from: str = Field(min_length=10, max_length=32)
+    time_to: str = Field(min_length=10, max_length=32)
+    filters: list[ManualFilter] = Field(default_factory=list, max_length=40)
+    max_rows: int | None = Field(default=None, ge=1, le=5000)
 
 
 class Question(BaseModel):
@@ -171,6 +186,46 @@ def health():
 @app.get("/api/starters")
 def starters():
     return {"questions": STARTER_QUESTIONS}
+
+
+@app.get("/api/manual/schema")
+def manual_schema():
+    return schema_payload()
+
+
+@app.post("/api/manual/query")
+def manual_query(body: ManualQuery):
+    config: Config = _state["config"]
+    database: Database = _state["db"]
+    try:
+        sql = build_select(
+            columns=body.columns,
+            time_from=body.time_from,
+            time_to=body.time_to,
+            filters=[item.model_dump() for item in body.filters],
+            max_rows=body.max_rows or config.max_rows,
+        )
+        safe_sql = prepare(sql, config.max_rows, allow_full_scan=False)
+    except ManualQueryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GuardError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        columns, rows, warning = database.query(
+            safe_sql,
+            max_execution_ms=config.max_execution_ms,
+        )
+    except DatabaseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    shown = present_rows(columns, rows, config)
+    return {
+        "ok": True,
+        "sql": safe_sql,
+        "columns": columns,
+        "rows": shown,
+        "row_count": len(shown),
+        "warning": warning,
+    }
 
 
 def _status(text: str) -> dict:
