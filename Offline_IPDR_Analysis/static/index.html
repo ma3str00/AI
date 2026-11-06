@@ -286,6 +286,38 @@
   .qb-side-body {
     flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; padding: 12px;
     display: grid; gap: 10px; align-content: start; min-width: 0;
+    scrollbar-width: thin;
+    scrollbar-color: #4d657a transparent;
+  }
+  .qb-side-body::-webkit-scrollbar,
+  .qb-side-body .qb-settings::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .qb-side-body::-webkit-scrollbar-track,
+  .qb-side-body .qb-settings::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .qb-side-body::-webkit-scrollbar-thumb,
+  .qb-side-body .qb-settings::-webkit-scrollbar-thumb {
+    background: #4d657a;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .qb-side-body::-webkit-scrollbar-thumb:hover,
+  .qb-side-body .qb-settings::-webkit-scrollbar-thumb:hover {
+    background: #6a849c;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  .qb-side-body::-webkit-scrollbar-corner,
+  .qb-side-body .qb-settings::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .qb-side-body .qb-settings {
+    scrollbar-width: thin;
+    scrollbar-color: #4d657a transparent;
   }
   .qb-side-body #qb-compose-actions { display: none !important; }
   .qb-side-body #qb-form-root {
@@ -659,7 +691,6 @@
 
         <div class="qb-card">
           <h3>Filters</h3>
-          <p class="qb-meta">Optional. Dead / always-empty columns are not listed.</p>
           <div class="qb-filters" id="qb-filters"></div>
           <div class="qb-actions" style="margin-top:10px">
             <button type="button" class="qb-icon-btn" id="qb-add-filter" title="Add filter" aria-label="Add filter">
@@ -700,7 +731,7 @@
         <div class="qb-actions qb-compose-actions" id="qb-compose-actions">
           <button type="button" class="qb-action-icon" id="qb-run" title="Run query" aria-label="Run query">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M3.2 2.1a.75.75 0 0 1 1.12-.65l9.1 5.4a.75.75 0 0 1 0 1.3l-9.1 5.4A.75.75 0 0 1 3.2 12.9V2.1z"/>
+              <path fill="currentColor" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0zm-.82 4.04a5.5 5.5 0 1 1 .7-.7l2.79 2.78a.5.5 0 0 1-.7.71l-2.79-2.79z"/>
             </svg>
             <span>Run query</span>
           </button>
@@ -723,7 +754,7 @@
         <div class="qb-side-actions">
           <button type="button" class="qb-action-icon" id="qb-run-side" title="Run query" aria-label="Run query">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M3.2 2.1a.75.75 0 0 1 1.12-.65l9.1 5.4a.75.75 0 0 1 0 1.3l-9.1 5.4A.75.75 0 0 1 3.2 12.9V2.1z"/>
+              <path fill="currentColor" d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0zm-.82 4.04a5.5 5.5 0 1 1 .7-.7l2.79 2.78a.5.5 0 0 1-.7.71l-2.79-2.79z"/>
             </svg>
           </button>
         </div>
