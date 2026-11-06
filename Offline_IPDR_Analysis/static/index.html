@@ -437,6 +437,7 @@
   .qb-results-table-wrap td {
     height: 36px;
     max-height: 36px;
+    min-width: 0;
     padding: 0 12px;
     white-space: nowrap;
     overflow: hidden;
@@ -444,6 +445,9 @@
     vertical-align: middle;
     line-height: 36px;
     border-bottom: 1px solid var(--line);
+  }
+  .qb-results-table-wrap col {
+    min-width: 0;
   }
   .qb-results-table-wrap th {
     position: relative;
@@ -2198,6 +2202,14 @@ function colWidthFor(name) {
   return defaultColWidth(name);
 }
 
+function applyColWidth(el, px) {
+  if (!el) return;
+  const width = `${Math.max(40, px)}px`;
+  el.style.width = width;
+  el.style.minWidth = width;
+  el.style.maxWidth = width;
+}
+
 function bindColumnResize(th, colName) {
   const handle = document.createElement("span");
   handle.className = "qb-col-resize";
@@ -2235,7 +2247,7 @@ function renderQbTable(columns, rows, startIndex) {
   colgroup.append(rowNumCol);
   for (const col of columns) {
     const item = document.createElement("col");
-    item.style.width = `${colWidthFor(col)}px`;
+    applyColWidth(item, colWidthFor(col));
     colgroup.append(item);
   }
   const tr = document.createElement("tr");
@@ -2245,7 +2257,7 @@ function renderQbTable(columns, rows, startIndex) {
   tr.append(numTh);
   for (const col of columns) {
     const th = document.createElement("th");
-    th.style.width = `${colWidthFor(col)}px`;
+    applyColWidth(th, colWidthFor(col));
     const label = document.createElement("span");
     label.className = "qb-th-label";
     label.textContent = col;
@@ -2534,7 +2546,7 @@ document.getElementById("qb-page-size").addEventListener("change", () => {
 });
 document.addEventListener("mousemove", (event) => {
   if (!qbResizeState) return;
-  const next = Math.max(72, Math.round(qbResizeState.startWidth + (event.clientX - qbResizeState.startX)));
+  const next = Math.max(40, Math.round(qbResizeState.startWidth + (event.clientX - qbResizeState.startX)));
   qbColWidths[qbResizeState.col] = next;
   const table = document.querySelector("#qb-table-wrap table");
   const cols = table?.querySelectorAll("colgroup col");
@@ -2543,8 +2555,8 @@ document.addEventListener("mousemove", (event) => {
   for (let i = 1; i < headers.length; i += 1) {
     const name = headers[i].querySelector(".qb-th-label")?.textContent || "";
     if (name !== qbResizeState.col) continue;
-    if (cols[i]) cols[i].style.width = `${next}px`;
-    headers[i].style.width = `${next}px`;
+    applyColWidth(cols[i], next);
+    applyColWidth(headers[i], next);
     break;
   }
 });
