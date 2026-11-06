@@ -138,7 +138,7 @@
   .qb-filters { display: grid; gap: 8px; }
   .qb-filter-row {
     display: grid; gap: 8px;
-    grid-template-columns: minmax(140px, 1.2fr) minmax(100px, 0.8fr) minmax(160px, 1.4fr) auto;
+    grid-template-columns: minmax(140px, 1.2fr) minmax(100px, 0.8fr) minmax(160px, 1.4fr) 40px;
     align-items: center;
   }
   .qb-filter-row input, .qb-filter-row select {
@@ -176,7 +176,6 @@
   .qb-icon-btn:hover { border-color: #b7d8ce; background: #f3faf7; }
   .qb-icon-btn.danger { color: var(--bad); }
   .qb-icon-btn.danger:hover { border-color: #f0c4c4; background: var(--bad-bg); }
-  .qb-filter-row { grid-template-columns: minmax(140px, 1.2fr) minmax(100px, 0.8fr) minmax(160px, 1.4fr) 40px; }
   @media (max-width: 720px) {
     .qb-filter-row { grid-template-columns: 1fr; }
   }
