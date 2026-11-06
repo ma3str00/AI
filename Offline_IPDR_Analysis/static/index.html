@@ -1462,6 +1462,10 @@ function activateTab(name) {
     buttons[key].classList.toggle("active", on);
     buttons[key].setAttribute("aria-selected", on ? "true" : "false");
   }
+  // Status pills + Debug are AI-assistant diagnostics only.
+  const assistantOnly = name === "assistant";
+  document.getElementById("status").classList.toggle("hidden", !assistantOnly);
+  document.getElementById("debug-toggle").classList.toggle("hidden", !assistantOnly);
   if (name === "query") {
     loadQueryBuilder().catch((err) => {
       const error = document.getElementById("qb-error");
