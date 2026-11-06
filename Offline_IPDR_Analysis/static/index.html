@@ -244,48 +244,99 @@
   .qb-limit-row input[type="number"]:disabled { opacity: 0.55; }
   .qb-results-page {
     position: fixed; inset: 0; z-index: 50;
-    display: grid; grid-template-columns: minmax(280px, 340px) 1fr;
-    background: var(--bg);
+    display: flex; align-items: stretch;
+    background: #e8edf2;
   }
   .qb-results-page.hidden { display: none; }
-  .qb-results-page.side-collapsed { grid-template-columns: 48px 1fr; }
   .qb-side {
-    display: flex; flex-direction: column; min-height: 0;
-    border-right: 1px solid var(--line); background: var(--panel);
-    box-shadow: 4px 0 24px rgba(15, 28, 39, 0.04);
+    flex: 0 0 320px; width: 320px; max-width: 320px;
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    border-right: 1px solid #243447;
+    background: linear-gradient(180deg, #132030 0%, #182636 100%);
+    color: #d7e3ec;
+    box-shadow: 8px 0 28px rgba(15, 28, 39, 0.18);
+    z-index: 2;
+  }
+  .qb-results-page.side-collapsed .qb-side {
+    flex-basis: 48px; width: 48px; max-width: 48px;
   }
   .qb-side-top {
     display: flex; align-items: center; gap: 8px;
-    padding: 12px 12px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+    padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto;
   }
   .qb-side-title {
-    font: 600 13px/1.2 var(--font); color: var(--ink);
+    font: 600 13px/1.2 var(--font); color: #edf3f8;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .qb-side-toggle, .qb-back-btn {
     width: 34px; height: 34px; padding: 0; border-radius: 9px;
-    border: 1px solid var(--line); background: var(--panel-soft); color: var(--ink);
-    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-    flex: 0 0 auto;
+    border: 1px solid rgba(215, 227, 236, 0.18); background: rgba(255,255,255,0.06);
+    color: #d7e3ec; cursor: pointer; display: inline-flex; align-items: center;
+    justify-content: center; flex: 0 0 auto;
   }
+  .qb-side-toggle:hover, .qb-back-btn:hover { background: rgba(255,255,255,0.12); }
   .qb-side-toggle svg, .qb-back-btn svg { width: 16px; height: 16px; display: block; }
   .qb-results-page.side-collapsed .qb-side-title,
   .qb-results-page.side-collapsed .qb-back-btn,
   .qb-results-page.side-collapsed .qb-side-body,
   .qb-results-page.side-collapsed .qb-side-actions { display: none; }
   .qb-side-body {
-    flex: 1 1 auto; overflow: auto; padding: 12px;
-    display: grid; gap: 12px; align-content: start;
+    flex: 1 1 auto; overflow-x: hidden; overflow-y: auto; padding: 12px;
+    display: grid; gap: 10px; align-content: start; min-width: 0;
   }
-  .qb-side-body .qb-card { box-shadow: none; margin: 0; }
+  .qb-side-body #qb-compose-actions { display: none !important; }
+  .qb-side-body #qb-form-root {
+    display: grid; gap: 10px; min-width: 0; width: 100%;
+  }
+  .qb-side-body .qb-card {
+    box-shadow: none; margin: 0; min-width: 0;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #d7e3ec;
+  }
+  .qb-side-body .qb-card h3,
+  .qb-side-body .qb-heading-toggle { color: #edf3f8; }
+  .qb-side-body .qb-meta,
+  .qb-side-body .qb-field label,
+  .qb-side-body .qb-heading-toggle .qb-chevron { color: #9fb3c4; }
+  .qb-side-body .qb-fields,
+  .qb-side-body .qb-filter-row {
+    grid-template-columns: 1fr;
+  }
+  .qb-side-body .qb-field input,
+  .qb-side-body .qb-field select,
+  .qb-side-body .qb-filter-row input,
+  .qb-side-body .qb-filter-row select,
+  .qb-side-body .qb-limit-row input[type="number"] {
+    background: #0f1c27; border-color: #31485c; color: #edf3f8;
+    width: 100%; max-width: 100%;
+  }
+  .qb-side-body .qb-limit-row label.check { color: #d7e3ec; }
+  .qb-side-body .qb-settings label {
+    background: rgba(15, 28, 39, 0.55); border-color: #31485c; color: #d7e3ec;
+  }
+  .qb-side-body .qb-icon-btn {
+    background: rgba(15, 106, 92, 0.18); border-color: #3d7a6e; color: #8fd0c0;
+  }
+  .qb-side-body .qb-icon-btn.danger {
+    background: rgba(180, 35, 24, 0.18); border-color: #8f3d36; color: #f3b4ae;
+  }
   .qb-side-actions {
     flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px;
-    padding: 12px; border-top: 1px solid var(--line); background: var(--panel-soft);
+    padding: 12px; border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.18);
   }
   .qb-side-actions button { flex: 1 1 auto; }
+  .qb-side-actions button.secondary {
+    background: transparent; color: #d7e3ec; border-color: rgba(215,227,236,0.22);
+  }
+  .qb-side-actions button.secondary:hover:not(:disabled) {
+    background: rgba(255,255,255,0.08); border-color: rgba(215,227,236,0.35);
+  }
   .qb-results-main {
-    min-width: 0; min-height: 0; display: flex; flex-direction: column;
-    padding: 14px 16px 18px;
+    flex: 1 1 auto; min-width: 0; min-height: 0;
+    display: flex; flex-direction: column;
+    padding: 14px 16px 18px; background: #f4f7fa;
   }
   .qb-results-toolbar {
     display: flex; flex-wrap: wrap; gap: 10px 14px;
@@ -309,16 +360,83 @@
     flex: 1 1 auto; overflow: auto; min-height: 0;
     border: 1px solid var(--line); border-radius: 10px; background: #fff;
   }
-  .qb-results-table-wrap table { font-size: 12.5px; }
+  .qb-results-table-wrap table {
+    font-size: 12.5px;
+    table-layout: fixed;
+    width: max-content;
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .qb-results-table-wrap th,
+  .qb-results-table-wrap td {
+    height: 36px;
+    max-height: 36px;
+    padding: 0 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    line-height: 36px;
+    border-bottom: 1px solid var(--line);
+  }
+  .qb-results-table-wrap th {
+    position: relative;
+    background: #eef2f6;
+    user-select: none;
+  }
+  .qb-results-table-wrap th .qb-th-label {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .qb-col-resize {
+    position: absolute; top: 0; right: 0; width: 7px; height: 100%;
+    cursor: col-resize; z-index: 2;
+  }
+  .qb-col-resize::after {
+    content: ""; position: absolute; top: 8px; bottom: 8px; left: 3px;
+    width: 1px; background: #c2ccd8;
+  }
+  .qb-col-resize:hover::after, .qb-col-resize.is-dragging::after { background: var(--accent); width: 2px; left: 2px; }
+  .qb-results-table-wrap td.qb-row-num,
+  .qb-results-table-wrap th.qb-row-num {
+    width: 64px; min-width: 64px; max-width: 64px;
+    text-align: right; color: var(--muted); font-variant-numeric: tabular-nums;
+    position: sticky; left: 0; z-index: 3;
+    background: #fff; box-shadow: 1px 0 0 var(--line);
+  }
+  .qb-results-table-wrap th.qb-row-num { background: #eef2f6; z-index: 4; }
+  .qb-results-table-wrap tr:hover td { background: #f8fafb; }
+  .qb-results-table-wrap tr:hover td.qb-row-num { background: #f8fafb; }
   .qb-results-foot {
     flex: 0 0 auto; margin-top: 10px;
     display: flex; flex-wrap: wrap; gap: 10px;
     align-items: center; justify-content: space-between;
   }
+  .qb-busy-overlay {
+    position: fixed; inset: 0; z-index: 80;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(15, 28, 39, 0.45);
+    backdrop-filter: blur(2px);
+  }
+  .qb-busy-overlay.hidden { display: none; }
+  .qb-busy-card {
+    min-width: 220px; padding: 22px 28px; border-radius: 12px;
+    background: #fff; border: 1px solid var(--line);
+    box-shadow: 0 18px 40px rgba(15, 28, 39, 0.2);
+    display: grid; gap: 12px; justify-items: center; text-align: center;
+    color: var(--ink); font: 600 14px/1.3 var(--font);
+  }
+  .qb-busy-spinner {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 3px solid #d5dde6; border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
   @media (max-width: 900px) {
-    .qb-results-page { grid-template-columns: 1fr; }
-    .qb-results-page.side-collapsed { grid-template-columns: 1fr; }
-    .qb-side { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
+    .qb-results-page { flex-direction: column; }
+    .qb-side, .qb-results-page.side-collapsed .qb-side {
+      flex: 0 0 auto; width: 100%; max-width: none; max-height: 40vh;
+      border-right: 0; border-bottom: 1px solid #243447;
+    }
   }
   @media (max-width: 720px) {
     .qb-filter-row { grid-template-columns: 1fr; }
@@ -611,6 +729,12 @@
         <div class="qb-results-foot">
           <span class="qb-meta" id="qb-result-range">Showing 0 rows</span>
           <div class="qb-pager" id="qb-pager-bottom"></div>
+        </div>
+      </div>
+      <div id="qb-busy-overlay" class="qb-busy-overlay hidden" aria-live="polite" aria-busy="false">
+        <div class="qb-busy-card">
+          <div class="qb-busy-spinner" aria-hidden="true"></div>
+          <div id="qb-busy-text">Processing query…</div>
         </div>
       </div>
     </div>
@@ -1720,6 +1844,8 @@ let qbLastResult = null;
 let qbPage = 1;
 let qbPageSize = 1000;
 let qbResultsOpen = false;
+let qbColWidths = {};
+let qbResizeState = null;
 
 function activateTab(name) {
   const panels = {
@@ -1971,34 +2097,117 @@ function collectFilters() {
   return filters;
 }
 
-function renderQbTable(columns, rows) {
+function defaultColWidth(name) {
+  const key = String(name || "").toLowerCase();
+  if (key.includes("time")) return 168;
+  if (key.includes("duration")) return 96;
+  if (key.includes("server") || key.includes("asn")) return 200;
+  if (key.includes("ip")) return 128;
+  if (key.includes("subscriber")) return 140;
+  if (key.includes("category") || key.includes("label")) return 140;
+  return 132;
+}
+
+function colWidthFor(name) {
+  if (qbColWidths[name]) return qbColWidths[name];
+  return defaultColWidth(name);
+}
+
+function bindColumnResize(th, colName) {
+  const handle = document.createElement("span");
+  handle.className = "qb-col-resize";
+  handle.title = "Drag to resize column";
+  th.append(handle);
+  handle.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    qbResizeState = {
+      col: colName,
+      startX: event.clientX,
+      startWidth: th.getBoundingClientRect().width,
+      handle,
+    };
+    handle.classList.add("is-dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  });
+}
+
+function renderQbTable(columns, rows, startIndex) {
+  const table = document.querySelector("#qb-table-wrap table");
   const thead = document.getElementById("qb-thead");
   const tbody = document.getElementById("qb-tbody");
   thead.replaceChildren();
   tbody.replaceChildren();
+  let colgroup = table.querySelector("colgroup");
+  if (!colgroup) {
+    colgroup = document.createElement("colgroup");
+    table.prepend(colgroup);
+  }
+  colgroup.replaceChildren();
+  const rowNumCol = document.createElement("col");
+  rowNumCol.style.width = "64px";
+  colgroup.append(rowNumCol);
+  for (const col of columns) {
+    const item = document.createElement("col");
+    item.style.width = `${colWidthFor(col)}px`;
+    colgroup.append(item);
+  }
   const tr = document.createElement("tr");
+  const numTh = document.createElement("th");
+  numTh.className = "qb-row-num";
+  numTh.textContent = "#";
+  tr.append(numTh);
   for (const col of columns) {
     const th = document.createElement("th");
-    th.textContent = col;
+    th.style.width = `${colWidthFor(col)}px`;
+    const label = document.createElement("span");
+    label.className = "qb-th-label";
+    label.textContent = col;
+    label.title = col;
+    th.append(label);
+    bindColumnResize(th, col);
     tr.append(th);
   }
   thead.append(tr);
-  for (const row of rows) {
+  const base = Number(startIndex) || 1;
+  rows.forEach((row, index) => {
     const line = document.createElement("tr");
+    const numTd = document.createElement("td");
+    numTd.className = "qb-row-num";
+    numTd.textContent = String(base + index);
+    line.append(numTd);
     for (const col of columns) {
       const td = document.createElement("td");
       const value = row[col];
-      td.textContent = value == null ? "" : String(value);
+      const text = value == null ? "" : String(value);
+      td.textContent = text;
+      td.title = text;
       line.append(td);
     }
     tbody.append(line);
-  }
+  });
+}
+
+function setQueryBusy(on, message) {
+  const overlay = document.getElementById("qb-busy-overlay");
+  const text = document.getElementById("qb-busy-text");
+  if (text && message) text.textContent = message;
+  if (!overlay) return;
+  overlay.classList.toggle("hidden", !on);
+  overlay.setAttribute("aria-busy", on ? "true" : "false");
 }
 
 function syncLimitField() {
   const enabled = document.getElementById("qb-limit-enabled").checked;
   const input = document.getElementById("qb-limit");
   input.disabled = !enabled;
+}
+
+function readPageSize() {
+  const raw = Number(document.getElementById("qb-page-size").value);
+  qbPageSize = Math.min(10000, Math.max(1, Number.isFinite(raw) ? Math.trunc(raw) : 1000));
+  return qbPageSize;
 }
 
 function collectQueryPayload(page) {
@@ -2013,7 +2222,7 @@ function collectQueryPayload(page) {
     apply_limit: applyLimit,
     limit: applyLimit ? limit : null,
     page: page || qbPage,
-    page_size: qbPageSize,
+    page_size: readPageSize(),
   };
 }
 
@@ -2155,12 +2364,9 @@ async function runManualQuery(page) {
     document.getElementById("qb-run"),
     document.getElementById("qb-run-side"),
   ];
-  const busyEls = [
-    document.getElementById("qb-busy"),
-    document.getElementById("qb-busy-side"),
-  ];
   for (const btn of runButtons) if (btn) btn.disabled = true;
-  for (const el of busyEls) if (el) el.classList.remove("hidden");
+  if (!qbResultsOpen) openResultsPage();
+  setQueryBusy(true, "Processing query…");
   try {
     const response = await fetch("/api/manual/query", {
       method: "POST",
@@ -2175,8 +2381,10 @@ async function runManualQuery(page) {
       throw new Error(detail);
     }
     qbLastResult = data;
-    openResultsPage();
-    renderQbTable(data.columns || [], data.rows || []);
+    const startIndex = data.total_rows && data.row_count
+      ? ((data.page || 1) - 1) * (data.page_size || qbPageSize) + 1
+      : 1;
+    renderQbTable(data.columns || [], data.rows || [], startIndex);
     updatePager(data);
     document.getElementById("qb-export").disabled = !(data.total_rows > 0);
     if (data.sql) {
@@ -2198,7 +2406,7 @@ async function runManualQuery(page) {
     qbLastResult = null;
   } finally {
     for (const btn of runButtons) if (btn) btn.disabled = false;
-    for (const el of busyEls) if (el) el.classList.add("hidden");
+    setQueryBusy(false);
   }
 }
 
@@ -2214,6 +2422,7 @@ async function exportCsv() {
   const button = document.getElementById("qb-export");
   button.disabled = true;
   button.textContent = "Exporting…";
+  setQueryBusy(true, "Exporting CSV…");
   try {
     const response = await fetch("/api/manual/export", {
       method: "POST",
@@ -2240,6 +2449,7 @@ async function exportCsv() {
   } finally {
     button.disabled = !(qbLastResult && qbLastResult.total_rows > 0);
     button.textContent = "Export CSV";
+    setQueryBusy(false);
   }
 }
 
@@ -2266,12 +2476,37 @@ document.getElementById("qb-page-go").addEventListener("click", () => {
   const target = Math.max(1, Math.trunc(Number(document.getElementById("qb-page-jump").value) || 1));
   runManualQuery(target);
 });
-document.getElementById("qb-page-size").addEventListener("change", (event) => {
-  qbPageSize = Math.min(10000, Math.max(1, Number(event.target.value) || 1000));
+document.getElementById("qb-page-size").addEventListener("change", () => {
+  readPageSize();
   runManualQuery(1);
 });
+document.addEventListener("mousemove", (event) => {
+  if (!qbResizeState) return;
+  const next = Math.max(72, Math.round(qbResizeState.startWidth + (event.clientX - qbResizeState.startX)));
+  qbColWidths[qbResizeState.col] = next;
+  const table = document.querySelector("#qb-table-wrap table");
+  const cols = table?.querySelectorAll("colgroup col");
+  const headers = table?.querySelectorAll("thead th");
+  if (!cols || !headers) return;
+  for (let i = 1; i < headers.length; i += 1) {
+    const name = headers[i].querySelector(".qb-th-label")?.textContent || "";
+    if (name !== qbResizeState.col) continue;
+    if (cols[i]) cols[i].style.width = `${next}px`;
+    headers[i].style.width = `${next}px`;
+    break;
+  }
+});
+document.addEventListener("mouseup", () => {
+  if (!qbResizeState) return;
+  qbResizeState.handle?.classList.remove("is-dragging");
+  qbResizeState = null;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && qbResultsOpen) closeResultsPage();
+  if (event.key === "Escape" && qbResultsOpen && document.getElementById("qb-busy-overlay").classList.contains("hidden")) {
+    closeResultsPage();
+  }
 });
 
 loadHealth();
