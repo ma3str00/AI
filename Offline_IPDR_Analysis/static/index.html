@@ -2371,20 +2371,25 @@ function closeResultsPage() {
 
 function updatePager(data) {
   const page = data.page || 1;
-  const totalPages = data.total_pages || 1;
-  const totalRows = data.total_rows || 0;
-  const rowCount = data.row_count || 0;
   const pageSize = data.page_size || qbPageSize;
+  const rowCount = data.row_count || 0;
+  const start = rowCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const end = rowCount === 0 ? 0 : start + rowCount - 1;
+  // Keep "Showing A–B of C" consistent with the rows actually on screen.
+  const totalRows = rowCount === 0
+    ? (data.total_rows || 0)
+    : Math.max(Number(data.total_rows) || 0, end);
+  const totalPages = Math.max(1, Number(data.total_pages) || Math.ceil(totalRows / pageSize) || 1);
   qbPage = page;
   document.getElementById("qb-page-label").textContent = `Page ${page} of ${totalPages}`;
   document.getElementById("qb-page-jump").value = String(page);
   document.getElementById("qb-page-jump").max = String(totalPages);
   document.getElementById("qb-page-prev").disabled = page <= 1;
-  document.getElementById("qb-page-next").disabled = page >= totalPages;
+  document.getElementById("qb-page-next").disabled = page >= totalPages || rowCount === 0;
   document.getElementById("qb-page-size").value = String(pageSize);
-  const start = totalRows === 0 || rowCount === 0 ? 0 : (page - 1) * pageSize + 1;
-  const end = start === 0 ? 0 : start + rowCount - 1;
-  let range = `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${totalRows.toLocaleString()}`;
+  let range = rowCount === 0
+    ? `Showing 0 of ${totalRows.toLocaleString()}`
+    : `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${totalRows.toLocaleString()}`;
   if (data.apply_limit && data.limit) {
     range += ` (capped at ${Number(data.limit).toLocaleString()})`;
   }

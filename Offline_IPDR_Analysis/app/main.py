@@ -423,12 +423,27 @@ def manual_query(body: ManualQuery, user: AppUser = Depends(require_query)):
     except DatabaseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     shown = present_rows(columns, rows, config)
+    # Reconcile count with this page: a partial page is authoritative for the
+    # true end of the result set (COUNT can lag inserts/deletes slightly).
+    offset = (page - 1) * page_size
+    page_rows = len(shown)
+    if page_rows == 0 and page > 1 and total_rows:
+        # Empty past-the-end page after a shrinking result set.
+        total_rows = min(total_rows, offset)
+        page = max(1, (total_rows + page_size - 1) // page_size) if total_rows else 1
+    elif 0 < page_rows < page_size:
+        total_rows = offset + page_rows
+    else:
+        total_rows = max(total_rows, offset + page_rows)
+    if hard_limit is not None:
+        total_rows = min(total_rows, hard_limit)
+    total_pages = max(1, (total_rows + page_size - 1) // page_size) if total_rows else 1
     return {
         "ok": True,
         "sql": sql,
         "columns": columns,
         "rows": shown,
-        "row_count": len(shown),
+        "row_count": page_rows,
         "matched_rows": matched,
         "total_rows": total_rows,
         "page": page,
