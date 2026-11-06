@@ -268,16 +268,19 @@
     font: 600 13px/1.2 var(--font); color: #edf3f8;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .qb-side-toggle, .qb-back-btn {
+  .qb-side-toggle {
     width: 34px; height: 34px; padding: 0; border-radius: 9px;
     border: 1px solid rgba(215, 227, 236, 0.18); background: rgba(255,255,255,0.06);
     color: #d7e3ec; cursor: pointer; display: inline-flex; align-items: center;
     justify-content: center; flex: 0 0 auto;
   }
-  .qb-side-toggle:hover, .qb-back-btn:hover { background: rgba(255,255,255,0.12); }
-  .qb-side-toggle svg, .qb-back-btn svg { width: 16px; height: 16px; display: block; }
+  .qb-side-toggle:hover { background: rgba(255,255,255,0.12); }
+  .qb-side-toggle svg {
+    width: 16px; height: 16px; display: block;
+    transition: transform 0.18s ease;
+  }
+  .qb-results-page.side-collapsed .qb-side-toggle svg { transform: rotate(180deg); }
   .qb-results-page.side-collapsed .qb-side-title,
-  .qb-results-page.side-collapsed .qb-back-btn,
   .qb-results-page.side-collapsed .qb-side-body,
   .qb-results-page.side-collapsed .qb-side-actions { display: none; }
   .qb-side-body {
@@ -322,17 +325,22 @@
     background: rgba(180, 35, 24, 0.18); border-color: #8f3d36; color: #f3b4ae;
   }
   .qb-side-actions {
-    flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px;
+    flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
     padding: 12px; border-top: 1px solid rgba(255,255,255,0.08);
     background: rgba(0,0,0,0.18);
   }
-  .qb-side-actions button { flex: 1 1 auto; }
-  .qb-side-actions button.secondary {
-    background: transparent; color: #d7e3ec; border-color: rgba(215,227,236,0.22);
+  .qb-action-icon {
+    width: 44px; height: 44px; padding: 0; border-radius: 11px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 0; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset;
   }
-  .qb-side-actions button.secondary:hover:not(:disabled) {
-    background: rgba(255,255,255,0.08); border-color: rgba(215,227,236,0.35);
-  }
+  .qb-action-icon:hover:not(:disabled) { background: #0d5c50; }
+  .qb-action-icon:disabled { opacity: 0.55; cursor: wait; }
+  .qb-action-icon svg { width: 20px; height: 20px; display: block; }
+  .qb-compose-actions .qb-action-icon { width: auto; height: 40px; padding: 0 14px; gap: 8px; }
+  .qb-compose-actions .qb-action-icon span { font: 600 13px/1 var(--font); }
   .qb-results-main {
     flex: 1 1 auto; min-width: 0; min-height: 0;
     display: flex; flex-direction: column;
@@ -340,13 +348,30 @@
   }
   .qb-results-toolbar {
     display: flex; flex-wrap: wrap; gap: 10px 14px;
-    align-items: center; justify-content: space-between;
+    align-items: flex-start; justify-content: space-between;
     margin-bottom: 12px; flex: 0 0 auto;
+  }
+  .qb-results-heading { min-width: 0; }
+  .qb-results-title-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   }
   .qb-results-toolbar h2 {
     margin: 0; font: 600 18px/1.2 var(--font); text-transform: none;
     letter-spacing: -0.02em; color: var(--ink);
   }
+  .qb-tool-btn {
+    width: 36px; height: 36px; padding: 0; border-radius: 9px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 2px rgba(15, 28, 39, 0.04);
+  }
+  .qb-tool-btn:hover:not(:disabled) { background: var(--panel-soft); border-color: #c2ccd8; }
+  .qb-tool-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .qb-tool-btn.primary {
+    background: var(--accent-soft); border-color: #b7d8ce; color: var(--accent);
+  }
+  .qb-tool-btn.primary:hover:not(:disabled) { background: #d7efe9; border-color: #8fc4b6; }
+  .qb-tool-btn svg { width: 18px; height: 18px; display: block; }
   .qb-pager {
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
   }
@@ -355,7 +380,15 @@
     padding: 7px 10px; font: inherit; background: #fff; color: inherit;
   }
   .qb-pager input[type="number"] { width: 4.5rem; }
-  .qb-pager .qb-page-label { font-size: 13px; color: var(--muted); min-width: 7rem; }
+  .qb-pager .qb-page-label { font-size: 13px; color: var(--muted); min-width: 7rem; text-align: center; }
+  .qb-page-btn {
+    width: 36px; height: 36px; padding: 0; border-radius: 9px;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .qb-page-btn:hover:not(:disabled) { background: var(--panel-soft); border-color: #c2ccd8; }
+  .qb-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .qb-page-btn svg { width: 16px; height: 16px; display: block; }
   .qb-results-table-wrap {
     flex: 1 1 auto; overflow: auto; min-height: 0;
     border: 1px solid var(--line); border-radius: 10px; background: #fff;
@@ -664,8 +697,13 @@
           </div>
         </div>
 
-        <div class="qb-actions" id="qb-compose-actions">
-          <button type="button" id="qb-run">Run query</button>
+        <div class="qb-actions qb-compose-actions" id="qb-compose-actions">
+          <button type="button" class="qb-action-icon" id="qb-run" title="Run query" aria-label="Run query">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M3.2 2.1a.75.75 0 0 1 1.12-.65l9.1 5.4a.75.75 0 0 1 0 1.3l-9.1 5.4A.75.75 0 0 1 3.2 12.9V2.1z"/>
+            </svg>
+            <span>Run query</span>
+          </button>
           <span id="qb-busy" class="hidden">Querying…</span>
         </div>
       </div>
@@ -679,43 +717,35 @@
               <path fill="currentColor" d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0z"/>
             </svg>
           </button>
-          <button type="button" class="qb-back-btn" id="qb-back-compose" title="Back to query builder" aria-label="Back to query builder">
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M6.78 3.22a.75.75 0 0 1 0 1.06L3.56 7.5H14a.75.75 0 0 1 0 1.5H3.56l3.22 3.22a.75.75 0 1 1-1.06 1.06l-4.5-4.5a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 0 1 1.06 0z"/>
-            </svg>
-          </button>
           <span class="qb-side-title">Query options</span>
         </div>
         <div class="qb-side-body" id="qb-side-body"></div>
         <div class="qb-side-actions">
-          <button type="button" id="qb-run-side">Run query</button>
-          <button type="button" class="secondary" id="qb-export" disabled>Export CSV</button>
-          <span id="qb-busy-side" class="hidden" style="width:100%;font-size:12px;color:var(--muted)">Querying…</span>
+          <button type="button" class="qb-action-icon" id="qb-run-side" title="Run query" aria-label="Run query">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M3.2 2.1a.75.75 0 0 1 1.12-.65l9.1 5.4a.75.75 0 0 1 0 1.3l-9.1 5.4A.75.75 0 0 1 3.2 12.9V2.1z"/>
+            </svg>
+          </button>
         </div>
       </aside>
       <div class="qb-results-main">
         <div class="qb-results-toolbar">
-          <div>
-            <h2>Query results</h2>
+          <div class="qb-results-heading">
+            <div class="qb-results-title-row">
+              <h2>Query results</h2>
+              <button type="button" class="qb-tool-btn primary" id="qb-export" title="Export CSV" aria-label="Export CSV" disabled>
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M8 1.25a.75.75 0 0 1 .75.75v6.19l2.22-2.22a.75.75 0 1 1 1.06 1.06l-3.5 3.5a.75.75 0 0 1-1.06 0l-3.5-3.5a.75.75 0 0 1 1.06-1.06L7.25 8.19V2A.75.75 0 0 1 8 1.25zM2.75 11a.75.75 0 0 1 .75.75v1.5h9v-1.5a.75.75 0 0 1 1.5 0v2.25a.75.75 0 0 1-.75.75h-10.5a.75.75 0 0 1-.75-.75V11.75A.75.75 0 0 1 2.75 11z"/>
+                </svg>
+              </button>
+            </div>
             <span class="qb-meta" id="qb-result-meta" style="margin:4px 0 0">No query yet.</span>
           </div>
-          <div class="qb-pager" id="qb-pager-top">
-            <label style="font-size:12px;color:var(--muted)">Rows per page
-              <select id="qb-page-size" aria-label="Rows per page">
-                <option value="100">100</option>
-                <option value="500">500</option>
-                <option value="1000" selected>1000</option>
-                <option value="2500">2500</option>
-                <option value="5000">5000</option>
-                <option value="10000">10000</option>
-              </select>
-            </label>
-            <button type="button" class="secondary" id="qb-page-prev" disabled>Previous</button>
-            <span class="qb-page-label" id="qb-page-label">Page 1 of 1</span>
-            <button type="button" class="secondary" id="qb-page-next" disabled>Next</button>
-            <input type="number" id="qb-page-jump" min="1" value="1" aria-label="Go to page">
-            <button type="button" class="secondary" id="qb-page-go">Go</button>
-          </div>
+          <button type="button" class="qb-tool-btn" id="qb-back-compose" title="Back to query builder" aria-label="Back to query builder">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M6.78 3.22a.75.75 0 0 1 0 1.06L3.56 7.5H14a.75.75 0 0 1 0 1.5H3.56l3.22 3.22a.75.75 0 1 1-1.06 1.06l-4.5-4.5a.75.75 0 0 1 0-1.06l4.5-4.5a.75.75 0 0 1 1.06 0z"/>
+            </svg>
+          </button>
         </div>
         <div id="qb-error" class="error hidden"></div>
         <div id="qb-warning" class="warning hidden"></div>
@@ -728,7 +758,31 @@
         </div>
         <div class="qb-results-foot">
           <span class="qb-meta" id="qb-result-range">Showing 0 rows</span>
-          <div class="qb-pager" id="qb-pager-bottom"></div>
+          <div class="qb-pager" id="qb-pager-bottom">
+            <label style="font-size:12px;color:var(--muted)">Rows per page
+              <select id="qb-page-size" aria-label="Rows per page">
+                <option value="100">100</option>
+                <option value="500">500</option>
+                <option value="1000" selected>1000</option>
+                <option value="2500">2500</option>
+                <option value="5000">5000</option>
+                <option value="10000">10000</option>
+              </select>
+            </label>
+            <button type="button" class="qb-page-btn" id="qb-page-prev" title="Previous page" aria-label="Previous page" disabled>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0z"/>
+              </svg>
+            </button>
+            <span class="qb-page-label" id="qb-page-label">Page 1 of 1</span>
+            <button type="button" class="qb-page-btn" id="qb-page-next" title="Next page" aria-label="Next page" disabled>
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/>
+              </svg>
+            </button>
+            <input type="number" id="qb-page-jump" min="1" value="1" aria-label="Go to page">
+            <button type="button" class="secondary" id="qb-page-go">Go</button>
+          </div>
         </div>
       </div>
       <div id="qb-busy-overlay" class="qb-busy-overlay hidden" aria-live="polite" aria-busy="false">
@@ -2066,7 +2120,7 @@ function addFilterRow(preset) {
     const kind = colSelect.selectedOptions[0]?.dataset.kind || "text";
     const ops = kind === "number" || kind === "time"
       ? [["eq", "equals"], ["ne", "not equals"], ["gt", ">"], ["gte", ">="], ["lt", "<"], ["lte", "<="]]
-      : [["contains", "contains"], ["eq", "equals"], ["ne", "not equals"]];
+      : [["contains", "contains"], ["not_contains", "not contains"], ["eq", "equals"], ["ne", "not equals"]];
     const current = opSelect.value;
     opSelect.replaceChildren();
     for (const [value, label] of ops) {
@@ -2279,12 +2333,12 @@ function updatePager(data) {
   const rowCount = data.row_count || 0;
   const pageSize = data.page_size || qbPageSize;
   qbPage = page;
-  const label = `Page ${page} of ${totalPages}`;
-  document.getElementById("qb-page-label").textContent = label;
+  document.getElementById("qb-page-label").textContent = `Page ${page} of ${totalPages}`;
   document.getElementById("qb-page-jump").value = String(page);
   document.getElementById("qb-page-jump").max = String(totalPages);
   document.getElementById("qb-page-prev").disabled = page <= 1;
   document.getElementById("qb-page-next").disabled = page >= totalPages;
+  document.getElementById("qb-page-size").value = String(pageSize);
   const start = totalRows === 0 || rowCount === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = start === 0 ? 0 : start + rowCount - 1;
   let range = `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${totalRows.toLocaleString()}`;
@@ -2297,40 +2351,6 @@ function updatePager(data) {
     (data.matched_rows != null && data.apply_limit
       ? ` · ${Number(data.matched_rows).toLocaleString()} before limit`
       : "");
-  const bottom = document.getElementById("qb-pager-bottom");
-  bottom.replaceChildren();
-  const clone = document.getElementById("qb-pager-top").cloneNode(true);
-  clone.id = "qb-pager-bottom-inner";
-  for (const el of clone.querySelectorAll("[id]")) el.removeAttribute("id");
-  bottom.append(clone);
-  const bottomPrev = clone.querySelector("button.secondary");
-  const bottomButtons = clone.querySelectorAll("button.secondary");
-  const bottomNext = bottomButtons[1];
-  const bottomGo = bottomButtons[2];
-  const bottomJump = clone.querySelector('input[type="number"]');
-  const bottomSize = clone.querySelector("select");
-  if (bottomPrev) {
-    bottomPrev.disabled = page <= 1;
-    bottomPrev.addEventListener("click", () => runManualQuery(page - 1));
-  }
-  if (bottomNext) {
-    bottomNext.disabled = page >= totalPages;
-    bottomNext.addEventListener("click", () => runManualQuery(page + 1));
-  }
-  if (bottomGo && bottomJump) {
-    bottomGo.addEventListener("click", () => {
-      const target = Math.max(1, Math.trunc(Number(bottomJump.value) || 1));
-      runManualQuery(target);
-    });
-  }
-  if (bottomSize) {
-    bottomSize.value = String(pageSize);
-    bottomSize.addEventListener("change", () => {
-      qbPageSize = Math.min(10000, Math.max(1, Number(bottomSize.value) || 1000));
-      document.getElementById("qb-page-size").value = String(qbPageSize);
-      runManualQuery(1);
-    });
-  }
 }
 
 async function loadQueryBuilder() {
@@ -2421,7 +2441,6 @@ async function exportCsv() {
   }
   const button = document.getElementById("qb-export");
   button.disabled = true;
-  button.textContent = "Exporting…";
   setQueryBusy(true, "Exporting CSV…");
   try {
     const response = await fetch("/api/manual/export", {
@@ -2448,7 +2467,6 @@ async function exportCsv() {
     error.classList.remove("hidden");
   } finally {
     button.disabled = !(qbLastResult && qbLastResult.total_rows > 0);
-    button.textContent = "Export CSV";
     setQueryBusy(false);
   }
 }
@@ -2468,7 +2486,10 @@ document.getElementById("qb-back-compose").addEventListener("click", closeResult
 document.getElementById("qb-side-toggle").addEventListener("click", () => {
   const page = document.getElementById("qb-results-page");
   const collapsed = page.classList.toggle("side-collapsed");
-  document.getElementById("qb-side-toggle").setAttribute("aria-expanded", collapsed ? "false" : "true");
+  const btn = document.getElementById("qb-side-toggle");
+  btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  btn.title = collapsed ? "Expand options" : "Collapse options";
+  btn.setAttribute("aria-label", btn.title);
 });
 document.getElementById("qb-page-prev").addEventListener("click", () => runManualQuery(qbPage - 1));
 document.getElementById("qb-page-next").addEventListener("click", () => runManualQuery(qbPage + 1));

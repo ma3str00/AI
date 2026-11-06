@@ -41,6 +41,7 @@ _OPS = {
     "eq": "=",
     "ne": "<>",
     "contains": "LIKE",
+    "not_contains": "NOT LIKE",
     "gt": ">",
     "gte": ">=",
     "lt": "<",
@@ -256,6 +257,10 @@ def _filter_clause(item: dict, allowed: dict[str, ColumnInfo]) -> str | None:
         if col.kind == "number":
             raise ManualQueryError(f"contains is not valid for {name}.")
         return f"LOWER({name}) LIKE '%{_escape_like(str(value).lower())}%'"
+    if op == "not_contains":
+        if col.kind == "number":
+            raise ManualQueryError(f"not_contains is not valid for {name}.")
+        return f"LOWER({name}) NOT LIKE '%{_escape_like(str(value).lower())}%'"
     if col.kind == "number" or name in _TIME_COLUMNS:
         number = _as_number(value, name)
         return f"{name} {_OPS[op]} {number}"
