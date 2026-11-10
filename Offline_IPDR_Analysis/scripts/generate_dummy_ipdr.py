@@ -218,6 +218,46 @@ def load_sample(path: Path):
     return templates, probes, cities, centroids, asns, len(templates), span
 
 
+ROADS = (
+    "Station Road", "Mall Road", "Canal Road", "Link Road", "Airport Road",
+    "Circular Road", "College Road", "Market Road", "Garden Road", "Park Road",
+)
+BLOCKS = (
+    "Block A", "Block B", "Sector C", "Phase 1", "Phase 2",
+    "Scheme 1", "Civil Lines", "Satellite Town", "Model Town", "Town Ward",
+)
+
+
+def place_name(city: str) -> str:
+    return city.strip() or "Pakistan"
+
+
+def jitter_geo(rng: random.Random, raw: str) -> str:
+    if "," not in raw:
+        return ""
+    lon, lat = raw.split(",", 1)
+    try:
+        lon_f = float(lon) + rng.uniform(-0.04, 0.04)
+        lat_f = float(lat) + rng.uniform(-0.04, 0.04)
+    except ValueError:
+        return ""
+    return f"{lon_f:.5f},{lat_f:.5f}"
+
+
+def premises_address(rng: random.Random, city: str) -> str:
+    return (
+        f"House {rng.randrange(1, 2000)}, Street {rng.randrange(1, 80)}, "
+        f"{rng.choice(BLOCKS)}, {place_name(city)}"
+    )
+
+
+def tower_address(rng: random.Random, city: str) -> str:
+    return (
+        f"Cell site {rng.randrange(1, 9000)}, {rng.choice(ROADS)}, "
+        f"{rng.choice(BLOCKS)}, {place_name(city)}"
+    )
+
+
 def ipv4(index: int) -> str:
     host = index + 1
     second = 64 + ((host >> 16) & 0x3F)
@@ -235,14 +275,22 @@ def build_subscribers(rng: random.Random, cities, centroids, asns):
     city_w = [cities[k] for k in city_keys]
     asn_keys = list(asns.keys())
     asn_w = [asns[k] for k in asn_keys]
+    # Sample mix: identified mobile, identified fixed-line, then IP_port.
     mobile_cut = int(SUBSCRIBERS * 0.304)
+    fixed_cut = mobile_cut + int(SUBSCRIBERS * 0.171)
     subs = []
     for i in range(SUBSCRIBERS):
-        mobile = i < mobile_cut
+        if i < mobile_cut:
+            kind = "mobile"
+        elif i < fixed_cut:
+            kind = "fixed"
+        else:
+            kind = "unidentified"
         ip = ipv6(i) if rng.random() < 0.14942 else ipv4(i)
         city = rng.choices(city_keys, weights=city_w, k=1)[0]
         asn = "" if rng.random() < 0.02031 else rng.choices(asn_keys, weights=asn_w, k=1)[0]
-        if mobile:
+        client_geo = centroids.get(city, "")
+        if kind == "mobile":
             mnc = rng.choices(
                 ["04", "01", "06", "03", "07", "12", "11"],
                 weights=[8778, 8113, 6573, 6439, 384, 50, 21],
@@ -251,17 +299,23 @@ def build_subscribers(rng: random.Random, cities, centroids, asns):
             imsi = f"410{mnc}{rng.randrange(10**10):010d}"[:15]
             imei = f"99000000{rng.randrange(10**6):06d}"
             imei += luhn_digit(imei)
-            msisdn = f"92399{rng.randrange(10**7):07d}"
+            subscriber_id = f"923{rng.randrange(10**9):09d}"
             lac = str(10000 + rng.randrange(50000))
             cid = str(100000 + rng.randrange(900000))
             usr = f"99{mnc}{int(lac):04X}{int(cid) & 0xFFFF:04X}"
+            site_geo = jitter_geo(rng, client_geo)
+            loc = tower_address(rng, city) if rng.random() < 0.7 else premises_address(rng, city)
+        elif kind == "fixed":
+            mnc = imsi = imei = lac = cid = usr = ""
+            subscriber_id = f"03{rng.randrange(10**9):09d}"
+            site_geo = jitter_geo(rng, client_geo)
+            loc = premises_address(rng, city)
         else:
-            mnc = imsi = imei = msisdn = lac = cid = usr = ""
-        geo = centroids.get(city, "")
-        has_cell = (mobile and rng.random() < 0.7856) or ((not mobile) and rng.random() < 0.1010)
+            mnc = imsi = imei = lac = cid = usr = subscriber_id = ""
+            site_geo = loc = ""
         subs.append((
-            mobile, ip, geo if city else "", city, asn, msisdn, imei, imsi, usr,
-            mnc, lac, cid, geo if has_cell and geo else "", city if has_cell and city else "",
+            kind, ip, client_geo, city, asn, subscriber_id, imei, imsi, usr,
+            mnc, lac, cid, site_geo, loc,
         ))
     return subs
 
@@ -371,17 +425,17 @@ def make_row(rows: int, tpl, sub, probes, randrange, random_fn, window_start, wi
     duration = tpl[13]
     flow_end = start + max(1, (duration + 999) // 1000)
     recv = flow_end + randrange(5, 41)
-    mobile, ip, geo, city, asn, msisdn, imei, imsi, usr, mnc, lac, cid, cell_geo, cell_city = sub
-    if mobile:
-        imei_field = imei if random_fn() < 0.9577 else ""
-        subscriber_id = msisdn
-        imsi_field = imsi
-        cell = (usr, "410", mnc, lac, cid, cell_geo, cell_city)
-    else:
-        imei_field = ""
+    kind, ip, geo, city, asn, subscriber_id, imei, imsi, usr, mnc, lac, cid, site_geo, loc = sub
+    if kind == "unidentified":
+        # client IP and port, for example 100.64.1.2_44321 or 2001:db8:1:2::10_44321.
         subscriber_id = f"{ip}_{port}"
-        imsi_field = ""
-        cell = ("", "", "", "", "", cell_geo, cell_city)
+        imei_field = imsi_field = usr = mcc = mnc = lac = cid = site_geo = loc = ""
+    elif kind == "mobile":
+        imei_field = imei if random_fn() < 0.9577 else ""
+        imsi_field = imsi
+        mcc = "410"
+    else:
+        imei_field = imsi_field = usr = mcc = mnc = lac = cid = ""
     return (
         recv,
         str(70_000_000_000_000_000 + rows),
@@ -425,13 +479,13 @@ def make_row(rows: int, tpl, sub, probes, randrange, random_fn, window_start, wi
         "",
         "",
         "",
-        cell[0],
-        cell[1],
-        cell[2],
-        cell[3],
-        cell[4],
-        cell[5],
-        cell[6],
+        usr,
+        mcc,
+        mnc,
+        lac,
+        cid,
+        site_geo,
+        loc,
         "",
         "",
         0,
