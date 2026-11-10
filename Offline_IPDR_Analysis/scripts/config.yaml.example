@@ -19,6 +19,10 @@ generate:
   days: 30
   # Window end. Default is 10 Nov 2026 09:41 PKT.
   end: "2026-11-10T04:41:00+00:00"
+  # Multiply the row count implied by the sample's flow rate over `days`.
+  # 1 inserts that baseline. 3 inserts three times as many rows in the same window.
+  # The load still stops if the table reaches max_disk_gb.
+  factor: 1
   # Stop when this table's compressed data on disk reaches this many decimal GB.
   # Set this below the free space on the ClickHouse disk. Merges need spare
   # room, so leave at least as much free as the largest part you expect.

@@ -363,6 +363,9 @@ def load_config(path: Path) -> dict:
     max_disk = float(gen.get("max_disk_gb", 0))
     if max_disk <= 0:
         raise SystemExit(f"{path} needs generate.max_disk_gb set to a positive number of GB")
+    factor = float(gen.get("factor", 1))
+    if factor < 1:
+        raise SystemExit(f"{path} needs generate.factor of at least 1")
     end = datetime.fromisoformat(str(gen.get("end", "2026-11-10T04:41:00+00:00")))
     if end.tzinfo is None:
         end = end.replace(tzinfo=timezone.utc)
@@ -376,6 +379,7 @@ def load_config(path: Path) -> dict:
         "secure": bool(ch.get("secure", False)),
         "sample": Path(str(gen["sample"])),
         "days": int(gen.get("days", 30)),
+        "factor": factor,
         "end": end,
         "max_disk_bytes": int(max_disk * 10**9),
         "max_disk_gb": max_disk,
@@ -537,9 +541,11 @@ def main() -> None:
     window_start = int(cfg["end"].timestamp()) - window_seconds
     print(f"loading {cfg['sample']}", flush=True)
     templates, probes, cities, centroids, asns, n_sample, span = load_sample(cfg["sample"])
-    target_rows = int(round(n_sample * window_seconds / span))
+    base_rows = int(round(n_sample * window_seconds / span))
+    target_rows = int(round(base_rows * cfg["factor"]))
     print(
-        f"sample_rows {n_sample} span_sec {span} target_rows {target_rows} "
+        f"sample_rows {n_sample} span_sec {span} base_rows {base_rows} "
+        f"factor {cfg['factor']} target_rows {target_rows} "
         f"max_disk_gb {cfg['max_disk_gb']}",
         flush=True,
     )
