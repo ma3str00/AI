@@ -1,35 +1,24 @@
-"""Build a 30-day dummy IPDR CSV from the shape of a sample export.
+"""Write 30 days of dummy IPDR as one CSV, capped by file size.
 
-Traffic totals stay under 220 GB (decimal). Subscriber identifiers, client
-addresses, device identities, and street-level locations are synthetic.
-Columns that are always empty or zero in the sample stay that way.
+Replays the sample's flow rate across the 30 days ending 10 Nov 2026 09:41 PKT.
+Stops at that row count, or sooner if the file would pass 220 GB.
+
+Subscriber identifiers, client addresses, device identities, and street-level
+locations are synthetic. Columns that are always empty or zero in the sample
+stay that way.
+
+    python scripts/generate_dummy_ipdr.py SAMPLE.csv -o /data/dummy_ipdr_30d.csv
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import random
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-SAMPLE = Path(r"C:\Users\A Hamson\Desktop\Dump\Temp\To be deleted\sample-ipdr.csv")
-OUTPUT = ROOT / "data" / "dummy_ipdr_30d.csv"
-
-# Decimal gigabytes, matching how IPDR byte counters are usually totaled.
-VOLUME_CAP = 220 * 10**9
-WINDOW_END = datetime(2026, 11, 10, 4, 41, tzinfo=timezone.utc)  # 09:41 PKT
-WINDOW_SECONDS = 30 * 24 * 3600
-PKT_OFFSET = 5 * 3600
-
-# Local-hour weights (Pakistan). Evening is busier than the small hours.
-HOUR_WEIGHTS = [
-    2, 1, 1, 1, 1, 2, 3, 5, 7, 8, 8, 8,
-    9, 8, 8, 8, 9, 10, 12, 14, 14, 12, 8, 5,
-]
-HOUR_MAX = max(HOUR_WEIGHTS)
 
 HEADER = [
     "recv_time", "log_id", "direction", "stream_dir", "start_time", "end_time",
@@ -46,6 +35,15 @@ HEADER = [
     "block_type", "device_vendor", "device_model", "is_roaming",
 ]
 
+# Local-hour weights (Pakistan). Evening is busier than the small hours.
+HOUR_WEIGHTS = [
+    2, 1, 1, 1, 1, 2, 3, 5, 7, 8, 8, 8,
+    9, 8, 8, 8, 9, 10, 12, 14, 14, 12, 8, 5,
+]
+HOUR_MAX = max(HOUR_WEIGHTS)
+PKT_OFFSET = 5 * 3600
+SUBSCRIBERS = 250_000
+
 STREET = re.compile(
     r"\b(plot|street|road|rd|house|lane|town|colony|near|st)\b",
     re.IGNORECASE,
@@ -56,10 +54,15 @@ ORG = re.compile(
 )
 
 
+def q(value: str) -> str:
+    if any(ch in value for ch in ',"\r\n'):
+        return '"' + value.replace('"', '""') + '"'
+    return value
+
+
 def luhn_digit(body: str) -> str:
     total = 0
-    reverse = body[::-1]
-    for i, ch in enumerate(reverse):
+    for i, ch in enumerate(reversed(body)):
         n = ord(ch) - 48
         if i % 2 == 0:
             n *= 2
@@ -78,45 +81,49 @@ def safe_asn(value: str) -> bool:
 
 
 def load_sample(path: Path):
-    templates = []
-    cap_ips = Counter()
+    servers, tails, blocks, durations, probes = [], [], [], [], []
+    seen_caps = set()
     cities = Counter()
     city_geos = defaultdict(Counter)
     asns = Counter()
-    real_ids = set()
-    real_ips = set()
+    min_start = None
+    max_start = None
 
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
-            templates.append((
-                row["requested_server"],
-                row["server_ip"],
+            start = int(row["start_time"])
+            min_start = start if min_start is None else min(min_start, start)
+            max_start = start if max_start is None else max(max_start, start)
+            servers.append(q(row["requested_server"]))
+            durations.append(int(row["duration"] or 0))
+            tails.append(",".join((
+                q(row["server_ip"]),
                 row["server_port"],
-                row["server_geo"],
-                row["server_location"],
-                row["server_asn"],
-                row["app_category"],
-                row["app_label"],
+                q(row["server_geo"]),
+                q(row["server_location"]),
+                q(row["server_asn"]),
+                q(row["app_category"]),
+                q(row["app_label"]),
                 row["l4_protocol"],
+                "",
+                "0",
                 row["c2s_pkt_num"],
-                row["s2c_pkt_num"],
-                int(row["c2s_byte_num"] or 0),
-                int(row["s2c_byte_num"] or 0),
-                int(row["duration"] or 0),
-                row["block_type"] or "0",
-            ))
-            cap_ips[row["cap_ip"]] += 1
+                row["s2c_pkt_num"] or "0",
+                row["c2s_byte_num"] or "0",
+                row["s2c_byte_num"] or "0",
+                "0",
+                "", "", "",
+            )))
+            blocks.append(row["block_type"] or "0")
+            if row["cap_ip"] not in seen_caps:
+                seen_caps.add(row["cap_ip"])
+                probes.append(row["cap_ip"])
             cities[row["client_location"]] += 1
             if row["client_geo"]:
                 city_geos[row["client_location"]][row["client_geo"]] += 1
             if safe_asn(row["client_asn"]):
                 asns[row["client_asn"]] += 1
-            real_ids.add(row["subscriber_id"])
-            real_ids.add(row["imei"])
-            real_ids.add(row["imsi"])
-            real_ips.add(row["client_ip"])
 
-    real_ids.discard("")
     centroids = {}
     for city, geos in city_geos.items():
         raw = geos.most_common(1)[0][0]
@@ -125,41 +132,33 @@ def load_sample(path: Path):
             centroids[city] = f"{float(lon):.2f},{float(lat):.2f}"
         except ValueError:
             centroids[city] = ""
-    return templates, cap_ips, cities, centroids, asns, real_ids, real_ips
+    span = max(1, (max_start or 0) - (min_start or 0))
+    return servers, tails, blocks, durations, probes, cities, centroids, asns, len(durations), span
 
 
-def weighted_choice(rng: random.Random, counter: Counter) -> str:
-    keys = list(counter.keys())
-    weights = [counter[k] for k in keys]
-    return rng.choices(keys, weights=weights, k=1)[0]
+def ipv4(index: int) -> str:
+    # 100.64.0.0/10 is shared CGNAT space, not an address copied from the sample.
+    host = index + 1
+    second = 64 + ((host >> 16) & 0x3F)
+    third = (host >> 8) & 0xFF
+    fourth = host & 0xFF
+    return f"100.{second}.{third}.{fourth}"
 
 
-def make_ipv4(rng: random.Random) -> str:
-    # RFC 2544 benchmarking range. Not a subscriber prefix.
-    n = rng.randrange(65536)
-    second = 18 if n < 32768 else 19
-    third = (n >> 8) & 0xFF
-    fourth = n & 0xFF
-    if fourth == 0:
-        fourth = 1
-    return f"198.{second}.{third}.{fourth}"
+def ipv6(index: int) -> str:
+    return f"2001:db8:{index >> 16:x}:{index & 0xFFFF:x}::10"
 
 
-def make_ipv6(rng: random.Random) -> str:
-    n = rng.randrange(1, 2**32)
-    return f"2001:db8:{n >> 16:x}:{n & 0xFFFF:x}::10"
-
-
-def build_subscribers(rng: random.Random, cities, centroids, asns, count: int):
+def build_subscribers(rng: random.Random, cities, centroids, asns):
     city_keys = list(cities.keys())
     city_w = [cities[k] for k in city_keys]
     asn_keys = list(asns.keys())
     asn_w = [asns[k] for k in asn_keys]
+    mobile_cut = int(SUBSCRIBERS * 0.304)
     subs = []
-    for i in range(count):
-        mobile = i < int(count * 0.304)
-        ipv6 = rng.random() < 0.14942
-        ip = make_ipv6(rng) if ipv6 else make_ipv4(rng)
+    for i in range(SUBSCRIBERS):
+        mobile = i < mobile_cut
+        ip = ipv6(i) if rng.random() < 0.14942 else ipv4(i)
         city = rng.choices(city_keys, weights=city_w, k=1)[0]
         asn = "" if rng.random() < 0.02031 else rng.choices(asn_keys, weights=asn_w, k=1)[0]
         if mobile:
@@ -168,118 +167,140 @@ def build_subscribers(rng: random.Random, cities, centroids, asns, count: int):
                 weights=[8778, 8113, 6573, 6439, 384, 50, 21],
                 k=1,
             )[0]
-            msin = f"{rng.randrange(10**10):010d}"
-            imsi = f"410{mnc}{msin}"[:15]
-            imei_body = f"99000000{rng.randrange(10**6):06d}"
-            imei = imei_body + luhn_digit(imei_body)
+            imsi = f"410{mnc}{rng.randrange(10**10):010d}"[:15]
+            imei = f"99000000{rng.randrange(10**6):06d}"
+            imei += luhn_digit(imei)
             msisdn = f"92399{rng.randrange(10**7):07d}"
             lac = str(10000 + rng.randrange(50000))
             cid = str(100000 + rng.randrange(900000))
             usr = f"99{mnc}{int(lac):04X}{int(cid) & 0xFFFF:04X}"
         else:
             mnc = imsi = imei = msisdn = lac = cid = usr = ""
-        subs.append({
-            "mobile": mobile,
-            "ip": ip,
-            "city": city,
-            "geo": centroids.get(city, ""),
-            "asn": asn,
-            "msisdn": msisdn,
-            "imei": imei,
-            "imsi": imsi,
-            "mnc": mnc,
-            "lac": lac,
-            "cid": cid,
-            "usr": usr,
-            "has_cell_geo": mobile and rng.random() < 0.7856,
-            "has_fixed_geo": (not mobile) and rng.random() < 0.1010,
-        })
+        geo = centroids.get(city, "")
+        has_cell = (mobile and rng.random() < 0.7856) or ((not mobile) and rng.random() < 0.1010)
+        subs.append((
+            mobile,
+            ip,
+            q(geo if city else ""),
+            q(city),
+            q(asn),
+            msisdn,
+            imei,
+            imsi,
+            q(usr),
+            mnc,
+            lac,
+            cid,
+            q(geo if has_cell and geo else ""),
+            q(city if has_cell and city else ""),
+        ))
     return subs
 
 
-def random_start(rng: random.Random, start: int) -> int:
-    while True:
-        ts = start + rng.randrange(WINDOW_SECONDS)
-        hour = ((ts + PKT_OFFSET) // 3600) % 24
-        if rng.random() < HOUR_WEIGHTS[hour] / HOUR_MAX:
-            return ts
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("sample", type=Path, help="Sample IPDR CSV to copy the shape from")
+    parser.add_argument("-o", "--output", type=Path, required=True, help="CSV path to write")
+    parser.add_argument("--max-gb", type=float, default=220, help="Stop before the file passes this many decimal GB")
+    parser.add_argument("--days", type=int, default=30)
+    parser.add_argument(
+        "--end",
+        default="2026-11-10T04:41:00+00:00",
+        help="Window end, ISO-8601. Default is 10 Nov 2026 09:41 PKT",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
-    rng = random.Random(20261110)
-    print("loading sample", SAMPLE)
-    templates, cap_ips, cities, centroids, asns, real_ids, real_ips = load_sample(SAMPLE)
-    print(f"templates {len(templates)} cities {len(cities)} isps {len(asns)}")
-    subs = build_subscribers(rng, cities, centroids, asns, 20000)
-    probes = list(cap_ips.keys())
-    window_start = int(WINDOW_END.timestamp()) - WINDOW_SECONDS
+    args = parse_args()
+    end = datetime.fromisoformat(args.end)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    window_seconds = args.days * 24 * 3600
+    window_start = int(end.timestamp()) - window_seconds
+    file_cap = int(args.max_gb * 10**9)
 
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    total_bytes = 0
+    print(f"loading {args.sample}", flush=True)
+    servers, tails, blocks, durations, probes, cities, centroids, asns, n_sample, span = load_sample(args.sample)
+    target_rows = int(round(n_sample * window_seconds / span))
+    print(
+        f"sample_rows {n_sample} span_sec {span} target_rows {target_rows} "
+        f"file_cap_gb {args.max_gb}",
+        flush=True,
+    )
+
+    subs = build_subscribers(random.Random(20261110), cities, centroids, asns)
+    rng = random.Random(20261111)
+    randrange = rng.randrange
+    random_fn = rng.random
+    n_sub = len(subs)
+    n_tpl = len(servers)
+    n_probe = len(probes)
+    suffix_tail = ["", "", "0", "", "", "", "", "", "", "", ""]
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    header = ",".join(q(name) for name in HEADER) + "\n"
+    written = len(header.encode("utf-8"))
     rows = 0
-    leaked = 0
-    with OUTPUT.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle, lineterminator="\n")
-        writer.writerow(HEADER)
-        while True:
-            tpl = templates[rng.randrange(len(templates))]
-            c2s = tpl[11]
-            s2c = tpl[12]
-            flow_bytes = c2s + s2c
-            if total_bytes + flow_bytes > VOLUME_CAP:
+    batch: list[str] = []
+    batch_bytes = 0
+
+    with args.output.open("w", encoding="utf-8", newline="", buffering=8 * 1024 * 1024) as handle:
+        handle.write(header)
+
+        def flush_batch() -> None:
+            nonlocal batch_bytes
+            if batch:
+                handle.write("".join(batch))
+                batch.clear()
+                batch_bytes = 0
+
+        while rows < target_rows and written < file_cap:
+            while True:
+                start = window_start + randrange(window_seconds)
+                hour = ((start + PKT_OFFSET) // 3600) % 24
+                if randrange(HOUR_MAX) < HOUR_WEIGHTS[hour]:
+                    break
+            tpl = randrange(n_tpl)
+            sub = subs[randrange(n_sub)]
+            port = randrange(1024, 65535)
+            duration = durations[tpl]
+            flow_end = start + max(1, (duration + 999) // 1000)
+            recv = flow_end + randrange(5, 41)
+            mobile, ip, geo, city, asn, msisdn, imei, imsi, usr, mnc, lac, cid, cell_geo, cell_city = sub
+            if mobile:
+                imei_field = imei if random_fn() < 0.9577 else ""
+                ident = f"{msisdn},{imei_field},{imsi}"
+                cell = f"{usr},410,{mnc},{lac},{cid},{cell_geo},{cell_city}"
+            else:
+                ident = f"{ip}_{port},,"
+                cell = f",,,,,{cell_geo},{cell_city}" if (cell_geo or cell_city) else ",,,,,,"
+            suffix_tail[7] = blocks[tpl]
+            line = (
+                f"{recv},{70_000_000_000_000_000 + rows},,,{start},{flow_end},{duration},0,0,-1,0,0,,"
+                f"{probes[randrange(n_probe)]},,{servers[tpl]},{ip},{port},{geo},{city},{asn},{ident},"
+                f"{tails[tpl]},{cell},"
+                + ",".join(suffix_tail)
+                + "\n"
+            )
+            encoded = len(line) if line.isascii() else len(line.encode("utf-8"))
+            if written + encoded > file_cap:
                 break
-            sub = subs[rng.randrange(len(subs))]
-            if sub["ip"] in real_ips or sub["msisdn"] in real_ids or sub["imsi"] in real_ids:
-                leaked += 1
-                continue
-            port = rng.randrange(1024, 65535)
-            start = random_start(rng, window_start)
-            duration = tpl[13]
-            end = start + max(1, (duration + 999) // 1000)
-            recv = end + rng.randrange(5, 41)
-            show_cell = sub["has_cell_geo"] or sub["has_fixed_geo"]
-            show_mobile = sub["mobile"]
-            show_imei = show_mobile and rng.random() < 0.9577
-            subscriber_id = sub["msisdn"] if show_mobile else f"{sub['ip']}_{port}"
-            writer.writerow([
-                recv,
-                70_000_000_000_000_000 + rows,
-                "", "",
-                start, end, duration,
-                0, 0, "-1", 0, 0, "",
-                probes[rng.randrange(len(probes))],
-                "",
-                tpl[0],
-                sub["ip"], port,
-                sub["geo"] if sub["city"] else "",
-                sub["city"],
-                sub["asn"],
-                subscriber_id,
-                sub["imei"] if show_imei else "",
-                sub["imsi"] if show_mobile else "",
-                tpl[1], tpl[2], tpl[3], tpl[4], tpl[5], tpl[6], tpl[7], tpl[8],
-                "", 0,
-                tpl[9], tpl[10], c2s, s2c,
-                0, "", "", "",
-                sub["usr"] if show_mobile else "",
-                "410" if show_mobile else "",
-                sub["mnc"] if show_mobile else "",
-                sub["lac"] if show_mobile else "",
-                sub["cid"] if show_mobile else "",
-                sub["geo"] if show_cell and sub["geo"] else "",
-                sub["city"] if show_cell and sub["city"] else "",
-                "", "", 0, "", "", "", "",
-                tpl[14],
-                "", "", "",
-            ])
-            total_bytes += flow_bytes
+            batch.append(line)
+            batch_bytes += encoded
+            written += encoded
             rows += 1
-            if rows % 200_000 == 0:
-                print(f"rows {rows} volume_gb {total_bytes / 1e9:.2f}")
+            if batch_bytes >= 4 * 1024 * 1024:
+                flush_batch()
+            if rows % 1_000_000 == 0:
+                print(f"rows {rows} file_gb {written / 1e9:.2f}", flush=True)
+        flush_batch()
 
     print(
-        f"wrote {OUTPUT} rows={rows} volume_gb={total_bytes / 1e9:.4f} "
-        f"skipped_collisions={leaked}"
+        f"wrote {args.output} rows={rows} file_gb={written / 1e9:.3f} "
+        f"from {datetime.fromtimestamp(window_start, timezone.utc).isoformat()} "
+        f"to {end.isoformat()}",
+        flush=True,
     )
 
 
