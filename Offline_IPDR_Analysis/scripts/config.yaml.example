@@ -1,0 +1,27 @@
+# Copy to config.yaml in this same directory and edit the values.
+# config.yaml is not committed.
+#
+#   cp scripts/config.yaml.example scripts/config.yaml
+#   python scripts/generate_dummy_ipdr.py
+
+clickhouse:
+  host: "127.0.0.1"
+  port: 8123
+  username: "ipdr_app"
+  password: "change-me"
+  database: "ipdr"
+  table: "ntc_ssl_log"
+  secure: false
+
+generate:
+  # Sample IPDR export used only as a shape. Subscriber identities are not copied.
+  sample: "/path/to/sample-ipdr.csv"
+  days: 30
+  # Window end. Default is 10 Nov 2026 09:41 PKT.
+  end: "2026-11-10T04:41:00+00:00"
+  # Stop when this table's compressed data on disk reaches this many decimal GB.
+  # Set this below the free space on the ClickHouse disk. Merges need spare
+  # room, so leave at least as much free as the largest part you expect.
+  max_disk_gb: 20
+  # Rows sent to ClickHouse per insert. The table can finish one batch past the cap.
+  batch_rows: 50000

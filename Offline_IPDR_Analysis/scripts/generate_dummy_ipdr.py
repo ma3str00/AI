@@ -1,13 +1,16 @@
-"""Write 30 days of dummy IPDR as one CSV, capped by file size.
+"""Load dummy IPDR into ClickHouse, capped by the table's on-disk size.
 
-Replays the sample's flow rate across the 30 days ending 10 Nov 2026 09:41 PKT.
-Stops at that row count, or sooner if the file would pass 220 GB.
+Reads scripts/config.yaml (copy scripts/config.yaml.example). Replays the
+sample's flow rate across the configured number of days, creates the table
+when it is missing, and stops before the table's compressed size passes
+max_disk_gb.
 
 Subscriber identifiers, client addresses, device identities, and street-level
 locations are synthetic. Columns that are always empty or zero in the sample
 stay that way.
 
-    python scripts/generate_dummy_ipdr.py SAMPLE.csv -o /data/dummy_ipdr_30d.csv
+    python scripts/generate_dummy_ipdr.py
+    python scripts/generate_dummy_ipdr.py --config /etc/ipdr/config.yaml
 """
 
 from __future__ import annotations
@@ -20,7 +23,9 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-HEADER = [
+import yaml
+
+COLUMNS = [
     "recv_time", "log_id", "direction", "stream_dir", "start_time", "end_time",
     "duration", "establish_latency", "processing_time", "device_id",
     "egress_link_id", "ingress_link_id", "data_center", "cap_ip", "action",
@@ -35,7 +40,70 @@ HEADER = [
     "block_type", "device_vendor", "device_model", "is_roaming",
 ]
 
-# Local-hour weights (Pakistan). Evening is busier than the small hours.
+# Types and codecs match the existing ntc_ssl_log description.
+COLUMN_DEFS = """
+    recv_time UInt32 CODEC(ZSTD(1)),
+    log_id String,
+    direction LowCardinality(String),
+    stream_dir LowCardinality(String),
+    start_time UInt32 CODEC(ZSTD(1)),
+    end_time UInt32 CODEC(ZSTD(1)),
+    duration UInt64 CODEC(ZSTD(1)),
+    establish_latency UInt32,
+    processing_time UInt32,
+    device_id LowCardinality(String),
+    egress_link_id Int32,
+    ingress_link_id Int32,
+    data_center LowCardinality(String),
+    cap_ip LowCardinality(String),
+    action LowCardinality(String),
+    requested_server String,
+    client_ip String CODEC(ZSTD(1)),
+    client_port UInt16,
+    client_geo LowCardinality(String),
+    client_location LowCardinality(String),
+    client_asn LowCardinality(String),
+    subscriber_id String CODEC(ZSTD(1)),
+    imei String CODEC(ZSTD(1)),
+    imsi String,
+    server_ip String CODEC(ZSTD(1)),
+    server_port UInt16,
+    server_geo LowCardinality(String),
+    server_location LowCardinality(String),
+    server_asn LowCardinality(String),
+    app_category LowCardinality(String),
+    app_label LowCardinality(String),
+    l4_protocol LowCardinality(String),
+    l7_protocol LowCardinality(String),
+    sessions UInt32,
+    c2s_pkt_num UInt32 CODEC(ZSTD(1)),
+    s2c_pkt_num UInt32 CODEC(ZSTD(1)),
+    c2s_byte_num UInt64 CODEC(ZSTD(1)),
+    s2c_byte_num UInt64 CODEC(ZSTD(1)),
+    first_ttl UInt32,
+    address_type LowCardinality(String),
+    schema_type LowCardinality(String),
+    client_type LowCardinality(String),
+    usr_loc_info String CODEC(ZSTD(1)),
+    mcc LowCardinality(String),
+    mnc LowCardinality(String),
+    lac String CODEC(ZSTD(1)),
+    cid String CODEC(ZSTD(1)),
+    geo String,
+    loc String,
+    version LowCardinality(String),
+    user_agent String,
+    ssl_con_latency UInt32,
+    ssl_ja3_fingerprint String,
+    ssl_ja3_hash String,
+    ssl_cert_issuer String,
+    ssl_cert_subject String,
+    block_type UInt32,
+    device_vendor String,
+    device_model String,
+    is_roaming String
+"""
+
 HOUR_WEIGHTS = [
     2, 1, 1, 1, 1, 2, 3, 5, 7, 8, 8, 8,
     9, 8, 8, 8, 9, 10, 12, 14, 14, 12, 8, 5,
@@ -43,6 +111,7 @@ HOUR_WEIGHTS = [
 HOUR_MAX = max(HOUR_WEIGHTS)
 PKT_OFFSET = 5 * 3600
 SUBSCRIBERS = 250_000
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 STREET = re.compile(
     r"\b(plot|street|road|rd|house|lane|town|colony|near|st)\b",
@@ -52,12 +121,6 @@ ORG = re.compile(
     r"(pvt|ltd|limited|network|broadband|telecom|internet|fiber|communication|isp|transit)",
     re.IGNORECASE,
 )
-
-
-def q(value: str) -> str:
-    if any(ch in value for ch in ',"\r\n'):
-        return '"' + value.replace('"', '""') + '"'
-    return value
 
 
 def luhn_digit(body: str) -> str:
@@ -80,8 +143,31 @@ def safe_asn(value: str) -> bool:
     return True
 
 
+def quote_ident(name: str) -> str:
+    if not IDENT.match(name):
+        raise SystemExit(f"Unsafe ClickHouse identifier: {name!r}")
+    return f"`{name}`"
+
+
+def as_int(value: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def as_port(value: str) -> int:
+    port = as_int(value)
+    if port < 0:
+        return 0
+    if port > 65535:
+        return 65535
+    return port
+
+
 def load_sample(path: Path):
-    servers, tails, blocks, durations, probes = [], [], [], [], []
+    templates = []
+    probes = []
     seen_caps = set()
     cities = Counter()
     city_geos = defaultdict(Counter)
@@ -94,27 +180,23 @@ def load_sample(path: Path):
             start = int(row["start_time"])
             min_start = start if min_start is None else min(min_start, start)
             max_start = start if max_start is None else max(max_start, start)
-            servers.append(q(row["requested_server"]))
-            durations.append(int(row["duration"] or 0))
-            tails.append(",".join((
-                q(row["server_ip"]),
-                row["server_port"],
-                q(row["server_geo"]),
-                q(row["server_location"]),
-                q(row["server_asn"]),
-                q(row["app_category"]),
-                q(row["app_label"]),
+            templates.append((
+                row["requested_server"],
+                row["server_ip"],
+                as_port(row["server_port"]),
+                row["server_geo"],
+                row["server_location"],
+                row["server_asn"],
+                row["app_category"],
+                row["app_label"],
                 row["l4_protocol"],
-                "",
-                "0",
-                row["c2s_pkt_num"],
-                row["s2c_pkt_num"] or "0",
-                row["c2s_byte_num"] or "0",
-                row["s2c_byte_num"] or "0",
-                "0",
-                "", "", "",
-            )))
-            blocks.append(row["block_type"] or "0")
+                as_int(row["c2s_pkt_num"]),
+                as_int(row["s2c_pkt_num"]),
+                as_int(row["c2s_byte_num"]),
+                as_int(row["s2c_byte_num"]),
+                as_int(row["duration"]),
+                as_int(row["block_type"]),
+            ))
             if row["cap_ip"] not in seen_caps:
                 seen_caps.add(row["cap_ip"])
                 probes.append(row["cap_ip"])
@@ -133,11 +215,10 @@ def load_sample(path: Path):
         except ValueError:
             centroids[city] = ""
     span = max(1, (max_start or 0) - (min_start or 0))
-    return servers, tails, blocks, durations, probes, cities, centroids, asns, len(durations), span
+    return templates, probes, cities, centroids, asns, len(templates), span
 
 
 def ipv4(index: int) -> str:
-    # 100.64.0.0/10 is shared CGNAT space, not an address copied from the sample.
     host = index + 1
     second = 64 + ((host >> 16) & 0x3F)
     third = (host >> 8) & 0xFF
@@ -179,127 +260,255 @@ def build_subscribers(rng: random.Random, cities, centroids, asns):
         geo = centroids.get(city, "")
         has_cell = (mobile and rng.random() < 0.7856) or ((not mobile) and rng.random() < 0.1010)
         subs.append((
-            mobile,
-            ip,
-            q(geo if city else ""),
-            q(city),
-            q(asn),
-            msisdn,
-            imei,
-            imsi,
-            q(usr),
-            mnc,
-            lac,
-            cid,
-            q(geo if has_cell and geo else ""),
-            q(city if has_cell and city else ""),
+            mobile, ip, geo if city else "", city, asn, msisdn, imei, imsi, usr,
+            mnc, lac, cid, geo if has_cell and geo else "", city if has_cell and city else "",
         ))
     return subs
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("sample", type=Path, help="Sample IPDR CSV to copy the shape from")
-    parser.add_argument("-o", "--output", type=Path, required=True, help="CSV path to write")
-    parser.add_argument("--max-gb", type=float, default=220, help="Stop before the file passes this many decimal GB")
-    parser.add_argument("--days", type=int, default=30)
-    parser.add_argument(
-        "--end",
-        default="2026-11-10T04:41:00+00:00",
-        help="Window end, ISO-8601. Default is 10 Nov 2026 09:41 PKT",
+def load_config(path: Path) -> dict:
+    if not path.is_file():
+        example = path.with_name("config.yaml.example")
+        raise SystemExit(f"Missing {path}. Copy {example} to {path} and edit it.")
+    with path.open(encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    ch = raw.get("clickhouse") or {}
+    gen = raw.get("generate") or {}
+    required = {
+        "host": ch.get("host"),
+        "username": ch.get("username"),
+        "database": ch.get("database"),
+        "table": ch.get("table"),
+        "sample": gen.get("sample"),
+    }
+    missing = [key for key, value in required.items() if not value]
+    if missing:
+        raise SystemExit(f"{path} is missing: {', '.join(missing)}")
+    if "password" not in ch:
+        raise SystemExit(f"{path} is missing: password")
+    max_disk = float(gen.get("max_disk_gb", 0))
+    if max_disk <= 0:
+        raise SystemExit(f"{path} needs generate.max_disk_gb set to a positive number of GB")
+    end = datetime.fromisoformat(str(gen.get("end", "2026-11-10T04:41:00+00:00")))
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return {
+        "host": str(ch["host"]),
+        "port": int(ch.get("port", 8123)),
+        "username": str(ch["username"]),
+        "password": str(ch.get("password", "")),
+        "database": str(ch["database"]),
+        "table": str(ch["table"]),
+        "secure": bool(ch.get("secure", False)),
+        "sample": Path(str(gen["sample"])),
+        "days": int(gen.get("days", 30)),
+        "end": end,
+        "max_disk_bytes": int(max_disk * 10**9),
+        "max_disk_gb": max_disk,
+        "batch_rows": int(gen.get("batch_rows", 50000)),
+    }
+
+
+def connect(cfg: dict):
+    try:
+        import clickhouse_connect
+    except ImportError as exc:
+        raise SystemExit("clickhouse-connect is not installed. Run: pip install clickhouse-connect") from exc
+    return clickhouse_connect.get_client(
+        host=cfg["host"],
+        port=cfg["port"],
+        username=cfg["username"],
+        password=cfg["password"],
+        secure=cfg["secure"],
     )
-    return parser.parse_args()
+
+
+def ensure_table(client, database: str, table: str) -> None:
+    db = quote_ident(database)
+    tbl = quote_ident(table)
+    client.command(f"CREATE DATABASE IF NOT EXISTS {db}")
+    client.command(
+        f"""
+        CREATE TABLE IF NOT EXISTS {db}.{tbl}
+        (
+            {COLUMN_DEFS}
+        )
+        ENGINE = MergeTree
+        PARTITION BY toYYYYMMDD(toDateTime(start_time, 'UTC'))
+        ORDER BY (start_time, subscriber_id, log_id)
+        """
+    )
+
+
+def table_bytes(client, database: str, table: str) -> int:
+    try:
+        result = client.query(
+            """
+            SELECT ifNull(sum(bytes_on_disk), 0)
+            FROM system.parts
+            WHERE active AND database = {db:String} AND table = {tbl:String}
+            """,
+            parameters={"db": database, "tbl": table},
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "ACCESS_DENIED" in message or "Not enough privileges" in message:
+            raise SystemExit(
+                "Cannot read system.parts, so the disk cap cannot be enforced. "
+                "GRANT SELECT ON system.parts TO this user, or run the load as an admin."
+            ) from exc
+        raise
+    return int(result.result_rows[0][0])
+
+
+def make_row(rows: int, tpl, sub, probes, randrange, random_fn, window_start, window_seconds) -> tuple:
+    while True:
+        start = window_start + randrange(window_seconds)
+        hour = ((start + PKT_OFFSET) // 3600) % 24
+        if randrange(HOUR_MAX) < HOUR_WEIGHTS[hour]:
+            break
+    port = randrange(1024, 65535)
+    duration = tpl[13]
+    flow_end = start + max(1, (duration + 999) // 1000)
+    recv = flow_end + randrange(5, 41)
+    mobile, ip, geo, city, asn, msisdn, imei, imsi, usr, mnc, lac, cid, cell_geo, cell_city = sub
+    if mobile:
+        imei_field = imei if random_fn() < 0.9577 else ""
+        subscriber_id = msisdn
+        imsi_field = imsi
+        cell = (usr, "410", mnc, lac, cid, cell_geo, cell_city)
+    else:
+        imei_field = ""
+        subscriber_id = f"{ip}_{port}"
+        imsi_field = ""
+        cell = ("", "", "", "", "", cell_geo, cell_city)
+    return (
+        recv,
+        str(70_000_000_000_000_000 + rows),
+        "",
+        "",
+        start,
+        flow_end,
+        duration,
+        0,
+        0,
+        "-1",
+        0,
+        0,
+        "",
+        probes[randrange(len(probes))],
+        "",
+        tpl[0],
+        ip,
+        port,
+        geo,
+        city,
+        asn,
+        subscriber_id,
+        imei_field,
+        imsi_field,
+        tpl[1],
+        tpl[2],
+        tpl[3],
+        tpl[4],
+        tpl[5],
+        tpl[6],
+        tpl[7],
+        tpl[8],
+        "",
+        0,
+        tpl[9],
+        tpl[10],
+        tpl[11],
+        tpl[12],
+        0,
+        "",
+        "",
+        "",
+        cell[0],
+        cell[1],
+        cell[2],
+        cell[3],
+        cell[4],
+        cell[5],
+        cell[6],
+        "",
+        "",
+        0,
+        "",
+        "",
+        "",
+        "",
+        tpl[14],
+        "",
+        "",
+        "",
+    )
 
 
 def main() -> None:
-    args = parse_args()
-    end = datetime.fromisoformat(args.end)
-    if end.tzinfo is None:
-        end = end.replace(tzinfo=timezone.utc)
-    window_seconds = args.days * 24 * 3600
-    window_start = int(end.timestamp()) - window_seconds
-    file_cap = int(args.max_gb * 10**9)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path(__file__).resolve().parent / "config.yaml",
+        help="Path to config.yaml (default: beside this script)",
+    )
+    args = parser.parse_args()
+    cfg = load_config(args.config)
+    if not cfg["sample"].is_file():
+        raise SystemExit(f"Sample CSV not found: {cfg['sample']}")
 
-    print(f"loading {args.sample}", flush=True)
-    servers, tails, blocks, durations, probes, cities, centroids, asns, n_sample, span = load_sample(args.sample)
+    window_seconds = cfg["days"] * 24 * 3600
+    window_start = int(cfg["end"].timestamp()) - window_seconds
+    print(f"loading {cfg['sample']}", flush=True)
+    templates, probes, cities, centroids, asns, n_sample, span = load_sample(cfg["sample"])
     target_rows = int(round(n_sample * window_seconds / span))
     print(
         f"sample_rows {n_sample} span_sec {span} target_rows {target_rows} "
-        f"file_cap_gb {args.max_gb}",
+        f"max_disk_gb {cfg['max_disk_gb']}",
         flush=True,
     )
 
     subs = build_subscribers(random.Random(20261110), cities, centroids, asns)
     rng = random.Random(20261111)
-    randrange = rng.randrange
-    random_fn = rng.random
-    n_sub = len(subs)
-    n_tpl = len(servers)
-    n_probe = len(probes)
-    suffix_tail = ["", "", "0", "", "", "", "", "", "", "", ""]
+    client = connect(cfg)
+    ensure_table(client, cfg["database"], cfg["table"])
+    used = table_bytes(client, cfg["database"], cfg["table"])
+    print(f"table disk_gb {used / 1e9:.3f}", flush=True)
+    if used >= cfg["max_disk_bytes"]:
+        print("table is already at the disk cap; nothing inserted", flush=True)
+        return
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    header = ",".join(q(name) for name in HEADER) + "\n"
-    written = len(header.encode("utf-8"))
     rows = 0
-    batch: list[str] = []
-    batch_bytes = 0
-
-    with args.output.open("w", encoding="utf-8", newline="", buffering=8 * 1024 * 1024) as handle:
-        handle.write(header)
-
-        def flush_batch() -> None:
-            nonlocal batch_bytes
-            if batch:
-                handle.write("".join(batch))
-                batch.clear()
-                batch_bytes = 0
-
-        while rows < target_rows and written < file_cap:
-            while True:
-                start = window_start + randrange(window_seconds)
-                hour = ((start + PKT_OFFSET) // 3600) % 24
-                if randrange(HOUR_MAX) < HOUR_WEIGHTS[hour]:
-                    break
-            tpl = randrange(n_tpl)
-            sub = subs[randrange(n_sub)]
-            port = randrange(1024, 65535)
-            duration = durations[tpl]
-            flow_end = start + max(1, (duration + 999) // 1000)
-            recv = flow_end + randrange(5, 41)
-            mobile, ip, geo, city, asn, msisdn, imei, imsi, usr, mnc, lac, cid, cell_geo, cell_city = sub
-            if mobile:
-                imei_field = imei if random_fn() < 0.9577 else ""
-                ident = f"{msisdn},{imei_field},{imsi}"
-                cell = f"{usr},410,{mnc},{lac},{cid},{cell_geo},{cell_city}"
-            else:
-                ident = f"{ip}_{port},,"
-                cell = f",,,,,{cell_geo},{cell_city}" if (cell_geo or cell_city) else ",,,,,,"
-            suffix_tail[7] = blocks[tpl]
-            line = (
-                f"{recv},{70_000_000_000_000_000 + rows},,,{start},{flow_end},{duration},0,0,-1,0,0,,"
-                f"{probes[randrange(n_probe)]},,{servers[tpl]},{ip},{port},{geo},{city},{asn},{ident},"
-                f"{tails[tpl]},{cell},"
-                + ",".join(suffix_tail)
-                + "\n"
-            )
-            encoded = len(line) if line.isascii() else len(line.encode("utf-8"))
-            if written + encoded > file_cap:
-                break
-            batch.append(line)
-            batch_bytes += encoded
-            written += encoded
-            rows += 1
-            if batch_bytes >= 4 * 1024 * 1024:
-                flush_batch()
-            if rows % 1_000_000 == 0:
-                print(f"rows {rows} file_gb {written / 1e9:.2f}", flush=True)
-        flush_batch()
+    batch = []
+    n_tpl = len(templates)
+    while rows < target_rows:
+        batch.append(make_row(
+            rows, templates[rng.randrange(n_tpl)], subs[rng.randrange(len(subs))],
+            probes, rng.randrange, rng.random, window_start, window_seconds,
+        ))
+        rows += 1
+        if len(batch) < cfg["batch_rows"] and rows < target_rows:
+            continue
+        client.insert(
+            cfg["table"],
+            batch,
+            column_names=COLUMNS,
+            database=cfg["database"],
+        )
+        batch.clear()
+        used = table_bytes(client, cfg["database"], cfg["table"])
+        print(f"rows {rows} disk_gb {used / 1e9:.3f}", flush=True)
+        if used >= cfg["max_disk_bytes"]:
+            print("stopped at the disk cap", flush=True)
+            break
 
     print(
-        f"wrote {args.output} rows={rows} file_gb={written / 1e9:.3f} "
+        f"inserted {rows} rows into {cfg['database']}.{cfg['table']} "
+        f"disk_gb {used / 1e9:.3f} "
         f"from {datetime.fromtimestamp(window_start, timezone.utc).isoformat()} "
-        f"to {end.isoformat()}",
+        f"to {cfg['end'].isoformat()}",
         flush=True,
     )
 
