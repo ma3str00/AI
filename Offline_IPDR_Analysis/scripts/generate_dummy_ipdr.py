@@ -258,6 +258,26 @@ def tower_address(rng: random.Random, city: str) -> str:
     )
 
 
+def fixed_subscriber_id(rng: random.Random) -> str:
+    """Identified fixed-line id. Not an IP_port pair and not a 923 mobile number."""
+    letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    while True:
+        kind = rng.randrange(4)
+        if kind == 0:
+            value = f"03{rng.randrange(10**9):09d}"
+        elif kind == 1:
+            prefix = rng.choice(("user", "acct", "fiber", "gpon", "bb"))
+            value = f"{prefix}{rng.randrange(10**8):08d}"
+        elif kind == 2:
+            token = "".join(rng.choice(letters) for _ in range(rng.randrange(2, 5)))
+            value = f"{token}{rng.randrange(10**8):08d}"
+        else:
+            token = "".join(rng.choice(letters.lower()) for _ in range(rng.randrange(3, 8)))
+            value = f"{rng.randrange(10**6):06d}{token}"
+        if "_" not in value and ":" not in value and not value.startswith("923"):
+            return value
+
+
 def ipv4(index: int) -> str:
     host = index + 1
     second = 64 + ((host >> 16) & 0x3F)
@@ -307,7 +327,7 @@ def build_subscribers(rng: random.Random, cities, centroids, asns):
             loc = tower_address(rng, city) if rng.random() < 0.7 else premises_address(rng, city)
         elif kind == "fixed":
             mnc = imsi = imei = lac = cid = usr = ""
-            subscriber_id = f"03{rng.randrange(10**9):09d}"
+            subscriber_id = fixed_subscriber_id(rng)
             site_geo = jitter_geo(rng, client_geo)
             loc = premises_address(rng, city)
         else:
