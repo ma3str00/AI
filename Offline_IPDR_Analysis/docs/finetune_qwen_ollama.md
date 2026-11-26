@@ -47,13 +47,31 @@ Curate before training: drop wrong SQL, duplicates, and clarify-only noise unles
 
 ## 2. Kaggle notebook — QLoRA with Unsloth
 
-Create a GPU notebook. Paste these cells in order.
+Prefer the ready notebook (your deploy flow + fine-tune):
+
+- `docs/qwen-2-5-14b-ipdr-finetune-deploy.ipynb`
+- or `Downloads/qwen-2-5-14b-ipdr-finetune-deploy.ipynb`
+
+Set `RUN_FINETUNE`, `DATA_PATH`, and `MODEL_TAG` in the config cell, then run top to bottom.
+
+Or create a GPU notebook and paste these cells in order.
 
 ### Cell A — install
 
 ```python
-!pip install -q "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
-!pip install -q --no-deps "xformers<0.0.27" "trl<0.9.0" peft accelerate bitsandbytes
+import os
+os.environ["WANDB_DISABLED"] = "true"
+# Do not pin old xformers — it fails to build on current Kaggle.
+# Turn Internet ON. Prefer a fresh kernel; do not import torch before this cell.
+!pip install -U pip
+!pip install -U unsloth
+!pip install -U datasets trl peft accelerate bitsandbytes
+```
+
+If that fails, fall back to Unsloth’s Kaggle extra (still without the old xformers pin):
+
+```python
+!pip install -U "unsloth[kaggle-new] @ git+https://github.com/unslothai/unsloth.git"
 ```
 
 ### Cell B — load 14B in 4-bit + LoRA
