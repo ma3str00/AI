@@ -656,7 +656,7 @@
   details.chart[open] summary, details.table[open] summary { margin-bottom: 8px; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-  /* AI assistant three-pane layout */
+  /* AI assistant: chat history + main transcript */
   #tab-assistant.ai-active-layout {
     margin-top: 0;
     flex: 1 1 auto;
@@ -670,7 +670,7 @@
   }
   .ai-layout {
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(320px, 28vw);
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
     gap: 0;
     flex: 1 1 auto;
     min-height: 0;
@@ -682,13 +682,7 @@
     background: var(--panel);
     box-shadow: var(--shadow);
   }
-  .ai-layout.inspect-hidden {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-  }
   .ai-layout.chats-collapsed {
-    grid-template-columns: 48px minmax(0, 1fr) minmax(320px, 28vw);
-  }
-  .ai-layout.chats-collapsed.inspect-hidden {
     grid-template-columns: 48px minmax(0, 1fr);
   }
   .ai-chats {
@@ -742,72 +736,8 @@
     flex: 1 1 auto; overflow: auto; margin: 0 0 12px; min-height: 0;
     align-content: start;
   }
-  .ai-main form {
-    flex: 0 0 auto; margin: 0;
-  }
+  .ai-main form { flex: 0 0 auto; margin: 0; }
   .ai-main .starters { margin: 10px 0 0; }
-  .ai-inspect {
-    display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%;
-    border-left: 1px solid var(--line); background: #fff;
-  }
-  .ai-layout.inspect-hidden .ai-inspect { display: none; }
-  .ai-layout.inspect-expanded {
-    grid-template-columns: 1fr !important;
-  }
-  .ai-layout.inspect-expanded.inspect-hidden {
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) !important;
-  }
-  .ai-layout.inspect-expanded .ai-chats,
-  .ai-layout.inspect-expanded .ai-main { display: none; }
-  .ai-layout.inspect-expanded .ai-inspect {
-    display: flex; border-left: 0;
-  }
-  .ai-inspect-top {
-    display: flex; align-items: center; gap: 8px;
-    padding: 12px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
-  }
-  .ai-inspect-top strong {
-    flex: 1 1 auto; font: 600 13px/1.2 var(--font); color: var(--ink);
-  }
-  .ai-inspect-body {
-    flex: 1 1 auto; overflow: auto; padding: 14px;
-    display: grid; gap: 14px; align-content: start;
-  }
-  .ai-inspect-empty {
-    margin: 24px 8px; color: var(--muted); font-size: 13px; text-align: center;
-  }
-  .ai-inspect-body .sql {
-    margin: 0; padding: 12px; border-radius: 10px;
-    background: #0f1c27; color: #d7e3ec; overflow: auto;
-    font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
-  }
-  .ai-inspect-body .chart-card-panel {
-    border: 1px solid var(--line); border-radius: 10px; padding: 12px;
-    background: var(--panel-soft);
-  }
-  .ai-inspect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  .bubble.selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(15, 106, 92, 0.18);
-  }
-  .bubble .inspect-links {
-    display: flex; flex-wrap: wrap; gap: 10px 14px;
-    margin-top: 10px;
-  }
-  .bubble .inspect-link {
-    appearance: none; border: 0; background: none; padding: 0;
-    color: var(--accent); font: 600 13px/1.2 var(--font);
-    cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
-  }
-  .bubble .inspect-link:hover { color: #0d5c50; }
-  .bubble .inline-sql-preview {
-    margin-top: 12px;
-  }
-  .bubble .inline-sql-preview pre.sql {
-    margin: 0; padding: 12px; border-radius: 10px;
-    background: #0f1c27; color: #d7e3ec; overflow: auto;
-    font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
-  }
   .ai-rail-btn {
     width: 34px; height: 34px; padding: 0; border-radius: 9px;
     border: 1px solid rgba(215, 227, 236, 0.18); background: rgba(255,255,255,0.06);
@@ -816,19 +746,13 @@
   }
   .ai-rail-btn:hover { background: rgba(255,255,255,0.12); }
   .ai-rail-btn svg { width: 16px; height: 16px; display: block; }
-  .ai-rail-btn.light {
-    border-color: var(--line); background: #fff; color: var(--ink);
-  }
-  .ai-rail-btn.light:hover { background: var(--panel-soft); }
   #tab-assistant { position: relative; }
-  @media (max-width: 1100px) {
-    .ai-layout, .ai-layout.inspect-hidden, .ai-layout.chats-collapsed,
-    .ai-layout.chats-collapsed.inspect-hidden {
+  @media (max-width: 900px) {
+    .ai-layout, .ai-layout.chats-collapsed {
       grid-template-columns: 1fr;
       min-height: auto;
     }
     .ai-chats { max-height: 220px; border-right: 0; border-bottom: 1px solid #243447; }
-    .ai-inspect { border-left: 0; border-top: 1px solid var(--line); max-height: 420px; }
     .ai-layout.chats-collapsed .ai-chats-top strong,
     .ai-layout.chats-collapsed .ai-chats-list,
     .ai-layout.chats-collapsed #ai-new-chat { display: initial; }
@@ -892,24 +816,6 @@
         </form>
         <div class="starters" id="starters"></div>
       </div>
-      <aside class="ai-inspect" id="ai-inspect" aria-label="SQL and chart">
-        <div class="ai-inspect-top">
-          <strong id="ai-inspect-title">SQL &amp; chart</strong>
-          <button type="button" class="ai-rail-btn light" id="ai-inspect-expand" title="Expand to full screen" aria-label="Expand to full screen" aria-pressed="false">
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M2.75 2.75h3.5a.75.75 0 0 1 0 1.5H4.56l2.72 2.72a.75.75 0 1 1-1.06 1.06L3.5 5.31v1.94a.75.75 0 0 1-1.5 0v-3.5c0-.41.34-.75.75-.75zm10.5 0c.41 0 .75.34.75.75v3.5a.75.75 0 0 1-1.5 0V5.31L9.78 8.03a.75.75 0 1 1-1.06-1.06l2.72-2.72h-1.94a.75.75 0 0 1 0-1.5h3.5zM8.72 7.97a.75.75 0 0 1 1.06 1.06L7.06 11.75h1.94a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75v-3.5a.75.75 0 0 1 1.5 0v1.94l2.72-2.72zm-5.5 0L5.94 10.7v-1.94a.75.75 0 0 1 1.5 0v3.5c0 .41-.34.75-.75.75h-3.5a.75.75 0 0 1 0-1.5h1.94L2.41 9.03a.75.75 0 0 1 1.06-1.06z"/>
-            </svg>
-          </button>
-          <button type="button" class="ai-rail-btn light" id="ai-inspect-hide" title="Hide panel" aria-label="Hide panel">
-            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/>
-            </svg>
-          </button>
-        </div>
-        <div class="ai-inspect-body" id="ai-inspect-body">
-          <p class="ai-inspect-empty">Use View SQL or View chart on a response to open it here.</p>
-        </div>
-      </aside>
     </div>
   </section>
 
@@ -1126,7 +1032,6 @@ const CHATS_KEY = "ipdr-ai-chats-v1";
 const AI_UI_KEY = "ipdr-ai-ui-v1";
 let aiChats = [];
 let activeChatId = null;
-let selectedInspectId = null;
 
 function newChatId() {
   return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1249,130 +1154,6 @@ function renderChatList() {
   }
 }
 
-function clearInspect() {
-  selectedInspectId = null;
-  for (const bubble of transcript.querySelectorAll(".bubble.selected")) {
-    bubble.classList.remove("selected");
-  }
-  const body = document.getElementById("ai-inspect-body");
-  const title = document.getElementById("ai-inspect-title");
-  if (title) title.textContent = "SQL & chart";
-  if (!body) return;
-  body.replaceChildren();
-  const empty = document.createElement("p");
-  empty.className = "ai-inspect-empty";
-  empty.textContent = "Use View SQL or View chart on a response to open it here.";
-  body.append(empty);
-  setInspectExpanded(false);
-}
-
-function showInspect(payload, bubble, mode = "sql") {
-  const body = document.getElementById("ai-inspect-body");
-  const title = document.getElementById("ai-inspect-title");
-  if (!body || !payload) return;
-  selectedInspectId = payload.id || null;
-  for (const item of transcript.querySelectorAll(".bubble.selected")) {
-    item.classList.remove("selected");
-  }
-  if (bubble) bubble.classList.add("selected");
-  body.replaceChildren();
-  const asked = payload.asked || "";
-  const data = payload.data || {};
-  const wantSql = mode === "sql" || mode === "both";
-  const wantChart = mode === "chart" || mode === "both";
-  if (title) {
-    title.textContent = mode === "chart" ? "Chart" : mode === "sql" ? "SQL" : "SQL & chart";
-  }
-  if (asked) {
-    const heading = document.createElement("div");
-    heading.style.cssText = "font:600 13px/1.35 var(--font);color:var(--ink)";
-    heading.textContent = asked;
-    body.append(heading);
-  }
-  const sqlText = data.sql || data.pending_sql || "";
-  let shown = false;
-  if (wantSql && sqlText) {
-    const label = document.createElement("div");
-    label.style.cssText = "font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)";
-    label.textContent = data.pending_sql && !data.sql ? "SQL preview" : "SQL";
-    const pre = document.createElement("pre");
-    pre.className = "sql";
-    pre.textContent = sqlText;
-    body.append(label, pre);
-    const actions = document.createElement("div");
-    actions.className = "ai-inspect-actions";
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "secondary";
-    copy.textContent = "Copy SQL";
-    copy.addEventListener("click", (event) => {
-      event.stopPropagation();
-      navigator.clipboard.writeText(sqlText);
-    });
-    actions.append(copy);
-    if (data.sql) {
-      const learn = document.createElement("button");
-      learn.type = "button";
-      learn.className = "secondary";
-      learn.textContent = "Mark correct";
-      learn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        markCorrect(asked, data.sql, learn);
-      });
-      actions.append(learn);
-    }
-    body.append(actions);
-    shown = true;
-  }
-  if (wantChart && data.columns && data.columns.length && data.rows && data.rows.length) {
-    const label = document.createElement("div");
-    label.style.cssText = "font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)";
-    label.textContent = "Chart";
-    const panel = document.createElement("div");
-    panel.className = "chart-card-panel";
-    const kind = /\bpie\b/i.test(asked)
-      ? "pie"
-      : /\b(timeline|time\s*graphs?|time\s*charts?|over time|trend|line|timestamps?|hourly|minutely|per minute|each minute|by minute)\b/i.test(asked)
-        ? "line"
-        : "bar";
-    const card = chartCard(data.columns, data.rows, data.chartQuestion || asked, data.sql, kind);
-    card.open = true;
-    panel.append(card);
-    body.append(label, panel);
-    shown = true;
-  }
-  if (!shown) {
-    const empty = document.createElement("p");
-    empty.className = "ai-inspect-empty";
-    empty.textContent = mode === "chart"
-      ? "This response has no chart to show."
-      : "This response has no SQL to show.";
-    body.append(empty);
-  }
-  setInspectHidden(false);
-}
-
-function setInspectHidden(hidden) {
-  const layout = document.getElementById("ai-layout");
-  if (!layout) return;
-  layout.classList.toggle("inspect-hidden", !!hidden);
-  if (hidden) setInspectExpanded(false);
-  saveAiUiPrefs({ inspectHidden: !!hidden });
-}
-
-function setInspectExpanded(expanded) {
-  const layout = document.getElementById("ai-layout");
-  const btn = document.getElementById("ai-inspect-expand");
-  if (!layout) return;
-  if (layout.classList.contains("inspect-hidden")) expanded = false;
-  layout.classList.toggle("inspect-expanded", !!expanded);
-  if (btn) {
-    btn.setAttribute("aria-pressed", expanded ? "true" : "false");
-    btn.title = expanded ? "Exit full screen" : "Expand to full screen";
-    btn.setAttribute("aria-label", btn.title);
-  }
-}
-
 function setChatsCollapsed(collapsed) {
   const layout = document.getElementById("ai-layout");
   const btn = document.getElementById("ai-chats-toggle");
@@ -1437,7 +1218,6 @@ function switchChat(chatId) {
     }
   }
   transcript.replaceChildren();
-  clearInspect();
   document.getElementById("question-label").textContent = "Question";
   question.placeholder = "Example: top app labels by download bytes yesterday";
   for (const turn of turns) {
@@ -1445,7 +1225,6 @@ function switchChat(chatId) {
     else if (turn.role === "assistant") {
       addAnswerBubble(turn.asked || "", turn.data || {}, {
         persist: false,
-        autoInspect: false,
         inspectId: turn.id,
       });
     }
@@ -2168,11 +1947,10 @@ function startProgress() {
 
 function addAnswerBubble(asked, data, options = {}) {
   const persist = options.persist !== false;
-  const inspectId = options.inspectId || `ans-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const turnId = options.inspectId || `ans-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.dataset.inspectId = inspectId;
-  if (data.confirm) bubble.classList.add("confirm-bubble");
+  bubble.dataset.turnId = turnId;
   const who = document.createElement("div");
   who.className = "who";
   who.textContent = "Assistant";
@@ -2198,12 +1976,11 @@ function addAnswerBubble(asked, data, options = {}) {
   }
   if (data.confirm && data.pending_sql) {
     const preview = document.createElement("details");
-    preview.className = "sql inline-sql-preview";
+    preview.className = "sql";
     preview.open = true;
     const summary = document.createElement("summary");
     summary.textContent = "SQL preview";
     const sql = document.createElement("pre");
-    sql.className = "sql";
     sql.textContent = data.pending_sql;
     preview.append(summary, sql);
     bubble.append(preview);
@@ -2213,16 +1990,12 @@ function addAnswerBubble(asked, data, options = {}) {
     const accept = document.createElement("button");
     accept.type = "button";
     accept.textContent = "Accept";
-    accept.addEventListener("click", (event) => {
-      event.stopPropagation();
-      acceptPendingQuery(accept, row, bubble);
-    });
+    accept.addEventListener("click", () => acceptPendingQuery(accept, row));
     const change = document.createElement("button");
     change.type = "button";
     change.className = "secondary";
     change.textContent = "Change";
-    change.addEventListener("click", (event) => {
-      event.stopPropagation();
+    change.addEventListener("click", () => {
       accept.disabled = true;
       change.disabled = true;
       document.getElementById("question-label").textContent = "Change";
@@ -2233,10 +2006,48 @@ function addAnswerBubble(asked, data, options = {}) {
     bubble.append(row);
   }
   if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    bubble.append(chartCard(
+      data.columns,
+      data.rows,
+      data.chartQuestion || asked,
+      data.sql,
+      /\bpie\b/i.test(asked)
+        ? "pie"
+        : /\b(timeline|time\s*graphs?|time\s*charts?|over time|trend|line|timestamps?|hourly|minutely|per minute|each minute|by minute)\b/i.test(asked)
+          ? "line"
+          : "bar"
+    ));
     if (!data.chartQuestion) lastAnswer = { question: asked, data };
+  }
+  if (data.sql) {
+    const details = document.createElement("details");
+    details.className = "sql";
+    const summary = document.createElement("summary");
+    summary.textContent = "SQL";
+    const sql = document.createElement("pre");
+    sql.textContent = data.sql;
+    details.append(summary, sql);
+    bubble.append(details);
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.marginTop = "10px";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "secondary";
+    copy.textContent = "Copy SQL";
+    copy.addEventListener("click", () => navigator.clipboard.writeText(data.sql));
+    const learn = document.createElement("button");
+    learn.type = "button";
+    learn.className = "secondary";
+    learn.textContent = "Mark correct";
+    learn.addEventListener("click", () => markCorrect(asked, data.sql, learn));
+    row.append(copy, learn);
+    bubble.append(row);
+  }
+  if (data.columns && data.columns.length && data.rows && data.rows.length) {
     const details = document.createElement("details");
     details.className = "table";
-    details.open = false;
+    details.open = true;
     const summary = document.createElement("summary");
     summary.textContent = "Table (" + data.rows.length + " row" + (data.rows.length === 1 ? "" : "s") + ")";
     const wrap = document.createElement("div");
@@ -2270,37 +2081,10 @@ function addAnswerBubble(asked, data, options = {}) {
     details.append(summary, wrap);
     bubble.append(details);
   }
-  const payload = { id: inspectId, asked, data };
-  const links = document.createElement("div");
-  links.className = "inspect-links";
-  const sqlText = data.sql || data.pending_sql || "";
-  if (sqlText) {
-    const sqlLink = document.createElement("button");
-    sqlLink.type = "button";
-    sqlLink.className = "inspect-link";
-    sqlLink.textContent = "View SQL";
-    sqlLink.addEventListener("click", (event) => {
-      event.stopPropagation();
-      showInspect(payload, bubble, "sql");
-    });
-    links.append(sqlLink);
-  }
-  if (data.columns && data.columns.length && data.rows && data.rows.length) {
-    const chartLink = document.createElement("button");
-    chartLink.type = "button";
-    chartLink.className = "inspect-link";
-    chartLink.textContent = "View chart";
-    chartLink.addEventListener("click", (event) => {
-      event.stopPropagation();
-      showInspect(payload, bubble, "chart");
-    });
-    links.append(chartLink);
-  }
-  if (links.childNodes.length) bubble.append(links);
   transcript.append(bubble);
   bubble.scrollIntoView({ block: "nearest" });
   if (persist) {
-    appendChatTurn({ role: "assistant", id: inspectId, asked, data });
+    appendChatTurn({ role: "assistant", id: turnId, asked, data });
   }
 }
 
@@ -2483,11 +2267,9 @@ async function runAsk(text, options = {}) {
   }
 }
 
-async function acceptPendingQuery(acceptButton, row, bubble) {
+async function acceptPendingQuery(acceptButton, row) {
   if (askButton.disabled) return;
   for (const button of row.querySelectorAll("button")) button.disabled = true;
-  const host = bubble || acceptButton.closest(".bubble");
-  host?.querySelectorAll(".inline-sql-preview").forEach((el) => el.remove());
   const confirmTurn = [...history].reverse().find((turn) => turn.pending_sql);
   const origin = (confirmTurn && confirmTurn.question) || "Accept";
   addUserBubble("Accept");
@@ -2520,20 +2302,6 @@ document.getElementById("ai-chats-toggle")?.addEventListener("click", () => {
   const layout = document.getElementById("ai-layout");
   setChatsCollapsed(!layout.classList.contains("chats-collapsed"));
 });
-document.getElementById("ai-inspect-hide")?.addEventListener("click", () => setInspectHidden(true));
-document.getElementById("ai-inspect-expand")?.addEventListener("click", () => {
-  const layout = document.getElementById("ai-layout");
-  setInspectExpanded(!layout?.classList.contains("inspect-expanded"));
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  const layout = document.getElementById("ai-layout");
-  if (layout?.classList.contains("inspect-expanded")) {
-    setInspectExpanded(false);
-    return;
-  }
-  if (layout && !layout.classList.contains("inspect-hidden")) setInspectHidden(true);
-});
 document.getElementById("debug-toggle").addEventListener("click", () => {
   debugMode = !debugMode;
   localStorage.setItem("ipdr-debug", debugMode ? "1" : "0");
@@ -2544,7 +2312,6 @@ syncDebugToggle();
 (function initAiChats() {
   loadChats();
   const prefs = loadAiUiPrefs();
-  setInspectHidden(true);
   setChatsCollapsed(!!prefs.chatsCollapsed);
   switchChat(activeChatId);
 })();
