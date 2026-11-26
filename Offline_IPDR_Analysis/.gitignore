@@ -4,3 +4,5 @@ __pycache__/
 config.yaml
 data/learned_examples.jsonl
 data/learned_preferences.json
+data/finetune_ipdr.jsonl
+data/finetune_ipdr_val.jsonl

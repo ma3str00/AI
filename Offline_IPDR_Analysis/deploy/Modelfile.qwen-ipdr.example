@@ -1,0 +1,18 @@
+# Ollama Modelfile for a fine-tuned IPDR Qwen GGUF.
+# Copy next to the .gguf, then:
+#   ollama create qwen2.5-coder-14b-ipdr -f Modelfile
+#
+# Point Offline_IPDR_Analysis/engines.yaml at:
+#   model: "qwen2.5-coder-14b-ipdr"
+
+FROM ./qwen2.5-coder-14b-ipdr-q4_k_m.gguf
+
+PARAMETER num_ctx 8192
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+
+# Optional: bake a short default system prompt. The IPDR app still sends its own
+# system message on each request, so this is only a fallback.
+SYSTEM """Write one SELECT for ipdr.ntc_ssl_log. Return only {"sql":"..."} or {"clarify":"..."}."""
