@@ -634,6 +634,159 @@
   details.table[open] summary::before { transform: rotate(90deg); }
   details.chart[open] summary, details.table[open] summary { margin-bottom: 8px; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* AI assistant three-pane layout */
+  #tab-assistant.ai-active-layout {
+    margin-top: 0;
+  }
+  .ai-layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr) minmax(300px, 380px);
+    gap: 0;
+    min-height: calc(100vh - 180px);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+  }
+  .ai-layout.inspect-hidden {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+  .ai-layout.chats-collapsed {
+    grid-template-columns: 48px minmax(0, 1fr) minmax(300px, 380px);
+  }
+  .ai-layout.chats-collapsed.inspect-hidden {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+  .ai-chats {
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    background: linear-gradient(180deg, #132030 0%, #182636 100%);
+    color: #d7e3ec; border-right: 1px solid #243447;
+  }
+  .ai-chats-top {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto;
+  }
+  .ai-chats-top strong {
+    flex: 1 1 auto; font: 600 13px/1.2 var(--font); color: #edf3f8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ai-chats-list {
+    flex: 1 1 auto; overflow: auto; padding: 8px;
+    display: grid; gap: 6px; align-content: start;
+    scrollbar-width: thin; scrollbar-color: #4d657a transparent;
+  }
+  .ai-chat-item {
+    width: 100%; text-align: left; border: 1px solid transparent;
+    background: transparent; color: #d7e3ec; border-radius: 9px;
+    padding: 10px 10px; cursor: pointer; display: grid; gap: 4px;
+  }
+  .ai-chat-item:hover { background: rgba(255,255,255,0.06); }
+  .ai-chat-item.active {
+    background: rgba(15, 106, 92, 0.28);
+    border-color: rgba(122, 201, 184, 0.35);
+  }
+  .ai-chat-item .title {
+    font: 600 13px/1.3 var(--font); color: #edf3f8;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ai-chat-item .meta { font-size: 11px; color: #9fb3c4; }
+  .ai-chat-item .ai-chat-delete {
+    display: none; width: 24px; height: 24px; padding: 0; border-radius: 6px;
+    border: 0; background: rgba(255,255,255,0.08); color: #f3b4ae; cursor: pointer;
+  }
+  .ai-chat-item:hover .ai-chat-delete, .ai-chat-item.active .ai-chat-delete { display: inline-flex; align-items: center; justify-content: center; }
+  .ai-chat-item-row { display: flex; gap: 6px; align-items: flex-start; }
+  .ai-chat-item-row .ai-chat-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 4px; }
+  .ai-layout.chats-collapsed .ai-chats-top strong,
+  .ai-layout.chats-collapsed .ai-chats-list,
+  .ai-layout.chats-collapsed #ai-new-chat { display: none; }
+  .ai-main {
+    min-width: 0; min-height: 0; display: flex; flex-direction: column;
+    background: #f4f7fa; padding: 14px;
+  }
+  .ai-main .transcript {
+    flex: 1 1 auto; overflow: auto; margin: 0 0 12px; min-height: 180px;
+    align-content: start;
+  }
+  .ai-main form {
+    flex: 0 0 auto; margin: 0;
+  }
+  .ai-main .starters { margin: 10px 0 0; }
+  .ai-inspect {
+    display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    border-left: 1px solid var(--line); background: #fff;
+  }
+  .ai-layout.inspect-hidden .ai-inspect { display: none; }
+  .ai-inspect-top {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  }
+  .ai-inspect-top strong {
+    flex: 1 1 auto; font: 600 13px/1.2 var(--font); color: var(--ink);
+  }
+  .ai-inspect-body {
+    flex: 1 1 auto; overflow: auto; padding: 14px;
+    display: grid; gap: 14px; align-content: start;
+  }
+  .ai-inspect-empty {
+    margin: 24px 8px; color: var(--muted); font-size: 13px; text-align: center;
+  }
+  .ai-inspect-body .sql {
+    margin: 0; padding: 12px; border-radius: 10px;
+    background: #0f1c27; color: #d7e3ec; overflow: auto;
+    font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+  }
+  .ai-inspect-body .chart-card-panel {
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+    background: var(--panel-soft);
+  }
+  .ai-inspect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .bubble.selectable { cursor: pointer; transition: box-shadow 0.12s ease, border-color 0.12s ease; }
+  .bubble.selectable:hover { border-color: #b7d8ce; }
+  .bubble.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(15, 106, 92, 0.18);
+  }
+  .bubble .inspect-hint {
+    margin-top: 8px; font-size: 12px; color: var(--muted);
+  }
+  .ai-rail-btn {
+    width: 34px; height: 34px; padding: 0; border-radius: 9px;
+    border: 1px solid rgba(215, 227, 236, 0.18); background: rgba(255,255,255,0.06);
+    color: #d7e3ec; cursor: pointer; display: inline-flex; align-items: center;
+    justify-content: center; flex: 0 0 auto;
+  }
+  .ai-rail-btn:hover { background: rgba(255,255,255,0.12); }
+  .ai-rail-btn svg { width: 16px; height: 16px; display: block; }
+  .ai-rail-btn.light {
+    border-color: var(--line); background: #fff; color: var(--ink);
+  }
+  .ai-rail-btn.light:hover { background: var(--panel-soft); }
+  #tab-assistant { position: relative; }
+  .ai-inspect-show {
+    display: none; align-items: center; gap: 6px;
+    position: absolute; right: 12px; top: 8px; z-index: 3;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+    border-radius: 9px; padding: 8px 12px; font: 600 12px/1 var(--font); cursor: pointer;
+    box-shadow: var(--shadow);
+  }
+  .ai-inspect-show.visible { display: inline-flex; }
+  .ai-inspect-show svg { width: 14px; height: 14px; }
+  @media (max-width: 1100px) {
+    .ai-layout, .ai-layout.inspect-hidden, .ai-layout.chats-collapsed,
+    .ai-layout.chats-collapsed.inspect-hidden {
+      grid-template-columns: 1fr;
+      min-height: auto;
+    }
+    .ai-chats { max-height: 220px; border-right: 0; border-bottom: 1px solid #243447; }
+    .ai-inspect { border-left: 0; border-top: 1px solid var(--line); max-height: 420px; }
+    .ai-layout.chats-collapsed .ai-chats-top strong,
+    .ai-layout.chats-collapsed .ai-chats-list,
+    .ai-layout.chats-collapsed #ai-new-chat { display: initial; }
+    .ai-layout.chats-collapsed .ai-chats-list { display: grid; }
+  }
 </style>
 </head>
 <body>
@@ -656,23 +809,62 @@
     <button type="button" class="hidden" id="tab-btn-admin" role="tab" aria-selected="false" aria-controls="tab-admin">Admin</button>
   </nav>
 
-  <section class="tab-panel" id="tab-assistant" role="tabpanel">
-    <div class="transcript" id="transcript"></div>
-    <form id="ask-form">
-      <label for="question" id="question-label">Question</label>
-      <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
-      <div class="row">
-        <label for="engine">AI engine</label>
-        <select id="engine" name="engine">
-          <option value="local" data-kind="llama.cpp">Local 7B</option>
-          <option value="kaggle" data-kind="ollama">Kaggle 14B</option>
-        </select>
-        <button type="submit" id="ask">Ask</button>
-        <button type="button" class="secondary" id="reset">New conversation</button>
-        <span id="busy" class="hidden">Working. A local question often takes half a minute to two minutes.</span>
+  <section class="tab-panel ai-active-layout" id="tab-assistant" role="tabpanel">
+    <div class="ai-layout" id="ai-layout">
+      <aside class="ai-chats" id="ai-chats" aria-label="Chat history">
+        <div class="ai-chats-top">
+          <button type="button" class="ai-rail-btn" id="ai-chats-toggle" title="Collapse chats" aria-label="Collapse chats" aria-expanded="true">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0z"/>
+            </svg>
+          </button>
+          <strong>Chats</strong>
+          <button type="button" class="ai-rail-btn" id="ai-new-chat" title="New chat" aria-label="New chat">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M7.25 2.75a.75.75 0 0 1 1.5 0V7.25h4.5a.75.75 0 0 1 0 1.5H8.75v4.5a.75.75 0 0 1-1.5 0V8.75H2.75a.75.75 0 0 1 0-1.5h4.5V2.75z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="ai-chats-list" id="ai-chats-list"></div>
+      </aside>
+      <div class="ai-main">
+        <div class="transcript" id="transcript"></div>
+        <form id="ask-form">
+          <label for="question" id="question-label">Question</label>
+          <textarea id="question" name="question" placeholder="Example: top app labels by download bytes yesterday"></textarea>
+          <div class="row">
+            <label for="engine">AI engine</label>
+            <select id="engine" name="engine">
+              <option value="local" data-kind="llama.cpp">Local 7B</option>
+              <option value="kaggle" data-kind="ollama">Kaggle 14B</option>
+            </select>
+            <button type="submit" id="ask">Ask</button>
+            <button type="button" class="secondary" id="reset">New chat</button>
+            <span id="busy" class="hidden">Working. A local question often takes half a minute to two minutes.</span>
+          </div>
+        </form>
+        <div class="starters" id="starters"></div>
       </div>
-    </form>
-    <div class="starters" id="starters"></div>
+      <aside class="ai-inspect" id="ai-inspect" aria-label="SQL and chart">
+        <div class="ai-inspect-top">
+          <strong>SQL &amp; chart</strong>
+          <button type="button" class="ai-rail-btn light" id="ai-inspect-hide" title="Hide panel" aria-label="Hide SQL and chart panel">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/>
+            </svg>
+          </button>
+        </div>
+        <div class="ai-inspect-body" id="ai-inspect-body">
+          <p class="ai-inspect-empty">Select a response to view its SQL and chart here.</p>
+        </div>
+      </aside>
+    </div>
+    <button type="button" class="ai-inspect-show" id="ai-inspect-show" title="Show SQL and chart">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0z"/>
+      </svg>
+      SQL &amp; chart
+    </button>
   </section>
 
   <section class="tab-panel hidden" id="tab-query" role="tabpanel" hidden>
@@ -884,6 +1076,334 @@ const busy = document.getElementById("busy");
 const transcript = document.getElementById("transcript");
 const history = [];
 let lastAnswer = null;
+const CHATS_KEY = "ipdr-ai-chats-v1";
+const AI_UI_KEY = "ipdr-ai-ui-v1";
+let aiChats = [];
+let activeChatId = null;
+let selectedInspectId = null;
+
+function newChatId() {
+  return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function loadAiUiPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(AI_UI_KEY) || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAiUiPrefs(patch) {
+  const next = { ...loadAiUiPrefs(), ...patch };
+  localStorage.setItem(AI_UI_KEY, JSON.stringify(next));
+  return next;
+}
+
+function loadChats() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CHATS_KEY) || "[]");
+    aiChats = Array.isArray(raw) ? raw : [];
+  } catch {
+    aiChats = [];
+  }
+  if (!aiChats.length) {
+    const chat = {
+      id: newChatId(),
+      title: "New chat",
+      updatedAt: Date.now(),
+      history: [],
+      turns: [],
+    };
+    aiChats = [chat];
+    activeChatId = chat.id;
+    persistChats();
+  } else {
+    const prefs = loadAiUiPrefs();
+    activeChatId = prefs.activeChatId && aiChats.some((c) => c.id === prefs.activeChatId)
+      ? prefs.activeChatId
+      : aiChats[0].id;
+  }
+}
+
+function persistChats() {
+  localStorage.setItem(CHATS_KEY, JSON.stringify(aiChats));
+  saveAiUiPrefs({ activeChatId });
+}
+
+function activeChat() {
+  return aiChats.find((chat) => chat.id === activeChatId) || null;
+}
+
+function syncHistoryFromChat() {
+  const chat = activeChat();
+  history.length = 0;
+  if (chat?.history?.length) history.push(...chat.history);
+}
+
+function saveActiveChatState() {
+  const chat = activeChat();
+  if (!chat) return;
+  chat.history = history.map((turn) => ({ ...turn }));
+  chat.updatedAt = Date.now();
+  if ((!chat.title || chat.title === "New chat") && history.length) {
+    const first = history.find((turn) => turn.question)?.question || "";
+    chat.title = first.trim().slice(0, 56) || "New chat";
+  }
+  persistChats();
+  renderChatList();
+}
+
+function formatChatTime(ts) {
+  try {
+    return new Date(ts).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function renderChatList() {
+  const list = document.getElementById("ai-chats-list");
+  if (!list) return;
+  list.replaceChildren();
+  const ordered = [...aiChats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const chat of ordered) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "ai-chat-item" + (chat.id === activeChatId ? " active" : "");
+    item.dataset.chatId = chat.id;
+    const row = document.createElement("div");
+    row.className = "ai-chat-item-row";
+    const body = document.createElement("div");
+    body.className = "ai-chat-body";
+    const title = document.createElement("div");
+    title.className = "title";
+    title.textContent = chat.title || "New chat";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const count = (chat.turns || []).filter((t) => t.role === "user").length;
+    meta.textContent = `${formatChatTime(chat.updatedAt)}${count ? ` · ${count} Q` : ""}`;
+    body.append(title, meta);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "ai-chat-delete";
+    del.title = "Delete chat";
+    del.setAttribute("aria-label", "Delete chat");
+    del.textContent = "×";
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteChat(chat.id);
+    });
+    row.append(body, del);
+    item.append(row);
+    item.addEventListener("click", () => switchChat(chat.id));
+    list.append(item);
+  }
+}
+
+function clearInspect() {
+  selectedInspectId = null;
+  for (const bubble of transcript.querySelectorAll(".bubble.selected")) {
+    bubble.classList.remove("selected");
+  }
+  const body = document.getElementById("ai-inspect-body");
+  if (!body) return;
+  body.replaceChildren();
+  const empty = document.createElement("p");
+  empty.className = "ai-inspect-empty";
+  empty.textContent = "Select a response to view its SQL and chart here.";
+  body.append(empty);
+}
+
+function showInspect(payload, bubble) {
+  const body = document.getElementById("ai-inspect-body");
+  if (!body || !payload) return;
+  selectedInspectId = payload.id || null;
+  for (const item of transcript.querySelectorAll(".bubble.selected")) {
+    item.classList.remove("selected");
+  }
+  if (bubble) bubble.classList.add("selected");
+  body.replaceChildren();
+  const asked = payload.asked || "";
+  const data = payload.data || {};
+  if (asked) {
+    const heading = document.createElement("div");
+    heading.style.cssText = "font:600 13px/1.35 var(--font);color:var(--ink)";
+    heading.textContent = asked;
+    body.append(heading);
+  }
+  const sqlText = data.sql || data.pending_sql || "";
+  if (sqlText) {
+    const label = document.createElement("div");
+    label.style.cssText = "font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)";
+    label.textContent = data.pending_sql && !data.sql ? "SQL preview" : "SQL";
+    const pre = document.createElement("pre");
+    pre.className = "sql";
+    pre.textContent = sqlText;
+    body.append(label, pre);
+    const actions = document.createElement("div");
+    actions.className = "ai-inspect-actions";
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "secondary";
+    copy.textContent = "Copy SQL";
+    copy.addEventListener("click", (event) => {
+      event.stopPropagation();
+      navigator.clipboard.writeText(sqlText);
+    });
+    actions.append(copy);
+    if (data.sql) {
+      const learn = document.createElement("button");
+      learn.type = "button";
+      learn.className = "secondary";
+      learn.textContent = "Mark correct";
+      learn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        markCorrect(asked, data.sql, learn);
+      });
+      actions.append(learn);
+    }
+    body.append(actions);
+  }
+  if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    const label = document.createElement("div");
+    label.style.cssText = "font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)";
+    label.textContent = "Chart";
+    const panel = document.createElement("div");
+    panel.className = "chart-card-panel";
+    const kind = /\bpie\b/i.test(asked)
+      ? "pie"
+      : /\b(timeline|time\s*graphs?|time\s*charts?|over time|trend|line|timestamps?|hourly|minutely|per minute|each minute|by minute)\b/i.test(asked)
+        ? "line"
+        : "bar";
+    const card = chartCard(data.columns, data.rows, data.chartQuestion || asked, data.sql, kind);
+    // Unwrap details chrome for the side panel.
+    card.open = true;
+    panel.append(card);
+    body.append(label, panel);
+  }
+  if (!sqlText && !(data.columns && data.rows && data.rows.length)) {
+    const empty = document.createElement("p");
+    empty.className = "ai-inspect-empty";
+    empty.textContent = "This response has no SQL or chart to show.";
+    body.append(empty);
+  }
+  setInspectHidden(false);
+}
+
+function setInspectHidden(hidden) {
+  const layout = document.getElementById("ai-layout");
+  const showBtn = document.getElementById("ai-inspect-show");
+  if (!layout) return;
+  layout.classList.toggle("inspect-hidden", !!hidden);
+  if (showBtn) showBtn.classList.toggle("visible", !!hidden);
+  saveAiUiPrefs({ inspectHidden: !!hidden });
+}
+
+function setChatsCollapsed(collapsed) {
+  const layout = document.getElementById("ai-layout");
+  const btn = document.getElementById("ai-chats-toggle");
+  if (!layout) return;
+  layout.classList.toggle("chats-collapsed", !!collapsed);
+  if (btn) {
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    btn.title = collapsed ? "Expand chats" : "Collapse chats";
+    btn.style.transform = collapsed ? "rotate(180deg)" : "";
+  }
+  saveAiUiPrefs({ chatsCollapsed: !!collapsed });
+}
+
+function createChat(select = true) {
+  saveActiveChatState();
+  const chat = {
+    id: newChatId(),
+    title: "New chat",
+    updatedAt: Date.now(),
+    history: [],
+    turns: [],
+  };
+  aiChats.unshift(chat);
+  persistChats();
+  if (select) switchChat(chat.id);
+  else renderChatList();
+  return chat;
+}
+
+function deleteChat(chatId) {
+  if (aiChats.length <= 1) {
+    const only = aiChats[0];
+    only.title = "New chat";
+    only.updatedAt = Date.now();
+    only.history = [];
+    only.turns = [];
+    activeChatId = only.id;
+    persistChats();
+    switchChat(only.id);
+    return;
+  }
+  aiChats = aiChats.filter((chat) => chat.id !== chatId);
+  if (activeChatId === chatId) activeChatId = aiChats[0].id;
+  persistChats();
+  switchChat(activeChatId);
+}
+
+function switchChat(chatId) {
+  if (!aiChats.some((chat) => chat.id === chatId)) return;
+  if (activeChatId && activeChatId !== chatId) saveActiveChatState();
+  activeChatId = chatId;
+  persistChats();
+  syncHistoryFromChat();
+  lastAnswer = null;
+  const chat = activeChat();
+  const turns = chat?.turns || [];
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turn = turns[i];
+    if (turn.role === "assistant" && turn.data?.rows?.length) {
+      lastAnswer = { question: turn.asked || "", data: turn.data };
+      break;
+    }
+  }
+  transcript.replaceChildren();
+  clearInspect();
+  document.getElementById("question-label").textContent = "Question";
+  question.placeholder = "Example: top app labels by download bytes yesterday";
+  for (const turn of turns) {
+    if (turn.role === "user") addUserBubble(turn.text || turn.asked || "", { persist: false });
+    else if (turn.role === "assistant") {
+      addAnswerBubble(turn.asked || "", turn.data || {}, {
+        persist: false,
+        autoInspect: false,
+        inspectId: turn.id,
+      });
+    }
+  }
+  renderChatList();
+}
+
+function compactAnswerData(data) {
+  if (!data || typeof data !== "object") return data || {};
+  const copy = { ...data };
+  if (Array.isArray(copy.rows) && copy.rows.length > 500) {
+    copy.rows = copy.rows.slice(0, 500);
+  }
+  return copy;
+}
+
+function appendChatTurn(turn) {
+  const chat = activeChat();
+  if (!chat) return;
+  chat.turns = chat.turns || [];
+  const stored = { ...turn };
+  if (stored.role === "assistant" && stored.data) {
+    stored.data = compactAnswerData(stored.data);
+  }
+  chat.turns.push(stored);
+  // Keep chat list storage bounded.
+  if (chat.turns.length > 80) chat.turns = chat.turns.slice(-80);
+  saveActiveChatState();
+}
 
 function chartDisplayRequest(text) {
   const question = text.toLowerCase();
@@ -1009,7 +1529,7 @@ function fillEngines(engines) {
   if (selected && menu.querySelector(`option[value="${selected}"]`)) menu.value = selected;
 }
 
-function addUserBubble(text) {
+function addUserBubble(text, options = {}) {
   const bubble = document.createElement("div");
   bubble.className = "bubble user";
   const who = document.createElement("div");
@@ -1019,6 +1539,9 @@ function addUserBubble(text) {
   body.textContent = text;
   bubble.append(who, body);
   transcript.append(bubble);
+  if (options.persist !== false) {
+    appendChatTurn({ role: "user", text, asked: text });
+  }
 }
 
 const CHART_COLORS = ["#0c5c48", "#c4841d", "#1f6f8b", "#8d3b3b", "#4d6b3c", "#6b4c7a", "#b65c38", "#3d5a4c"];
@@ -1572,9 +2095,12 @@ function startProgress() {
   };
 }
 
-function addAnswerBubble(asked, data) {
+function addAnswerBubble(asked, data, options = {}) {
+  const persist = options.persist !== false;
+  const inspectId = options.inspectId || `ans-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const bubble = document.createElement("div");
-  bubble.className = "bubble";
+  bubble.className = "bubble selectable";
+  bubble.dataset.inspectId = inspectId;
   const who = document.createElement("div");
   who.className = "who";
   who.textContent = "Assistant";
@@ -1599,26 +2125,22 @@ function addAnswerBubble(asked, data) {
     bubble.append(text);
   }
   if (data.confirm && data.pending_sql) {
-    const preview = document.createElement("details");
-    preview.className = "sql";
-    const summary = document.createElement("summary");
-    summary.textContent = "SQL preview";
-    const sql = document.createElement("pre");
-    sql.textContent = data.pending_sql;
-    preview.append(summary, sql);
-    bubble.append(preview);
     const row = document.createElement("div");
     row.className = "row";
     row.style.marginTop = "10px";
     const accept = document.createElement("button");
     accept.type = "button";
     accept.textContent = "Accept";
-    accept.addEventListener("click", () => acceptPendingQuery(accept, row));
+    accept.addEventListener("click", (event) => {
+      event.stopPropagation();
+      acceptPendingQuery(accept, row);
+    });
     const change = document.createElement("button");
     change.type = "button";
     change.className = "secondary";
     change.textContent = "Change";
-    change.addEventListener("click", () => {
+    change.addEventListener("click", (event) => {
+      event.stopPropagation();
       accept.disabled = true;
       change.disabled = true;
       document.getElementById("question-label").textContent = "Change";
@@ -1629,45 +2151,7 @@ function addAnswerBubble(asked, data) {
     bubble.append(row);
   }
   if (data.columns && data.columns.length && data.rows && data.rows.length) {
-    bubble.append(chartCard(
-      data.columns,
-      data.rows,
-      data.chartQuestion || asked,
-      data.sql,
-      /\bpie\b/i.test(asked)
-        ? "pie"
-        : /\b(timeline|time\s*graphs?|time\s*charts?|over time|trend|line|timestamps?|hourly|minutely|per minute|each minute|by minute)\b/i.test(asked)
-          ? "line"
-          : "bar"
-    ));
-    if (!data.chartQuestion) lastAnswer = {question: asked, data};
-  }
-  if (data.sql) {
-    const details = document.createElement("details");
-    details.className = "sql";
-    const summary = document.createElement("summary");
-    summary.textContent = "SQL";
-    const sql = document.createElement("pre");
-    sql.textContent = data.sql;
-    details.append(summary, sql);
-    bubble.append(details);
-    const row = document.createElement("div");
-    row.className = "row";
-    row.style.marginTop = "10px";
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "secondary";
-    copy.textContent = "Copy SQL";
-    copy.addEventListener("click", () => navigator.clipboard.writeText(data.sql));
-    const learn = document.createElement("button");
-    learn.type = "button";
-    learn.className = "secondary";
-    learn.textContent = "Mark correct";
-    learn.addEventListener("click", () => markCorrect(asked, data.sql, learn));
-    row.append(copy, learn);
-    bubble.append(row);
-  }
-  if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    if (!data.chartQuestion) lastAnswer = { question: asked, data };
     const details = document.createElement("details");
     details.className = "table";
     details.open = true;
@@ -1704,8 +2188,26 @@ function addAnswerBubble(asked, data) {
     details.append(summary, wrap);
     bubble.append(details);
   }
+  const hasInspect = !!(data.sql || data.pending_sql || (data.columns && data.rows && data.rows.length));
+  if (hasInspect) {
+    const hint = document.createElement("div");
+    hint.className = "inspect-hint";
+    hint.textContent = "Click to view SQL & chart on the right →";
+    bubble.append(hint);
+  }
+  const payload = { id: inspectId, asked, data };
+  bubble.addEventListener("click", (event) => {
+    if (event.target.closest("button, a, summary, input, select, textarea")) return;
+    showInspect(payload, bubble);
+  });
   transcript.append(bubble);
-  bubble.scrollIntoView({block: "nearest"});
+  bubble.scrollIntoView({ block: "nearest" });
+  if (persist) {
+    appendChatTurn({ role: "assistant", id: inspectId, asked, data });
+  }
+  if (hasInspect && options.autoInspect !== false) {
+    showInspect(payload, bubble);
+  }
 }
 
 async function markCorrect(asked, sql, button) {
@@ -1745,11 +2247,8 @@ function detailText(detail) {
 }
 
 function resetConversation() {
-  history.length = 0;
-  lastAnswer = null;
-  transcript.replaceChildren();
-  document.getElementById("question-label").textContent = "Question";
-  question.placeholder = "Example: top app labels by download bytes yesterday";
+  createChat(true);
+  question.focus();
 }
 
 function confirmPlanCard(plan) {
@@ -1814,6 +2313,7 @@ function rememberTurn(asked, data) {
     explanation: data.explanation || data.clarify || data.error || "",
     pending_sql: data.pending_sql || ""
   });
+  saveActiveChatState();
   if (data.confirm) {
     document.getElementById("question-label").textContent = "Confirm";
     question.placeholder = "Accept to run, or say what to change";
@@ -1919,12 +2419,27 @@ form.addEventListener("submit", async (event) => {
 });
 
 document.getElementById("reset").addEventListener("click", resetConversation);
+document.getElementById("ai-new-chat")?.addEventListener("click", () => resetConversation());
+document.getElementById("ai-chats-toggle")?.addEventListener("click", () => {
+  const layout = document.getElementById("ai-layout");
+  setChatsCollapsed(!layout.classList.contains("chats-collapsed"));
+});
+document.getElementById("ai-inspect-hide")?.addEventListener("click", () => setInspectHidden(true));
+document.getElementById("ai-inspect-show")?.addEventListener("click", () => setInspectHidden(false));
 document.getElementById("debug-toggle").addEventListener("click", () => {
   debugMode = !debugMode;
   localStorage.setItem("ipdr-debug", debugMode ? "1" : "0");
   syncDebugToggle();
 });
 syncDebugToggle();
+
+(function initAiChats() {
+  loadChats();
+  const prefs = loadAiUiPrefs();
+  setInspectHidden(!!prefs.inspectHidden);
+  setChatsCollapsed(!!prefs.chatsCollapsed);
+  switchChat(activeChatId);
+})();
 
 /* ---- Tabs + Query builder ---- */
 const COLUMNS_KEY = "ipdr-qb-columns";
