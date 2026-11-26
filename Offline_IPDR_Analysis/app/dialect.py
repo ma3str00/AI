@@ -9,6 +9,19 @@ from __future__ import annotations
 import re
 
 
+# SELECT aliases that often hold groupUniqArray(...) and would poison WHERE if unresolved.
+_SHADOW_ALIASES = (
+    "loc",
+    "geo",
+    "client_asn",
+    "server_asn",
+    "requested_server",
+    "block_type",
+    "app_label",
+    "app_category",
+)
+
+
 def to_clickhouse(sql: str) -> str:
     """Convert assistant-generated MySQL SELECT fragments into ClickHouse SQL."""
     text = re.sub(r"\s+", " ", (sql or "").strip())
@@ -36,8 +49,49 @@ def to_clickhouse(sql: str) -> str:
         r"fromUnixTimestamp(\1)",
         text,
     )
+    text = _qualify_where_shadow_aliases(text)
     # ClickHouse prefers != ; keep <> which also works.
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _qualify_where_shadow_aliases(sql: str) -> str:
+    """Force WHERE/PREWHERE columns to the base table when SELECT aliases shadow them.
+
+    ClickHouse may resolve bare `loc` in WHERE to `AS loc` from the SELECT list.
+    When that alias is an aggregate (groupUniqArray), the server raises ILLEGAL_AGGREGATION.
+    """
+    from app.schema import TABLE
+
+    where_match = re.search(r"(?i)\b(WHERE|PREWHERE)\b", sql)
+    if not where_match:
+        return sql
+    select_part = sql[: where_match.start()]
+    shadowed = [
+        col
+        for col in _SHADOW_ALIASES
+        if re.search(rf"(?i)\bAS\s+{col}\b", select_part)
+        and re.search(r"(?i)groupUniqArray|arrayStringConcat", select_part)
+    ]
+    if not shadowed:
+        return sql
+
+    def _rewrite_clause(match: re.Match[str]) -> str:
+        keyword = match.group(1)
+        body = match.group(2)
+        for col in shadowed:
+            body = re.sub(
+                rf"(?i)(?<![`\w.])\b{col}\b",
+                f"{TABLE}.{col}",
+                body,
+            )
+        return f"{keyword}{body}"
+
+    return re.sub(
+        r"(?i)\b(WHERE|PREWHERE)\b(\s.+?)(?=\s+\b(?:GROUP\s+BY|HAVING|ORDER\s+BY|LIMIT|SETTINGS|UNION)\b|$)",
+        _rewrite_clause,
+        sql,
+        count=1,
+    )
 
 
 def address_expression(column: str) -> str:
