@@ -30,13 +30,13 @@
     --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
+  html { scroll-behavior: smooth; }
   body {
     margin: 0;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    font: 15px/1.5 var(--font);
+    font: 15px/1.55 var(--font);
     background:
       radial-gradient(900px 320px at 8% -12%, rgba(15, 106, 92, 0.10), transparent 55%),
       radial-gradient(700px 280px at 100% 0%, rgba(15, 28, 39, 0.05), transparent 50%),
@@ -60,7 +60,7 @@
     margin: 0 0 6px;
     letter-spacing: -0.03em;
   }
-  header.top p { margin: 0; max-width: 68ch; color: #a9bccb; }
+  header.top p { margin: 0; max-width: 62ch; color: #a9bccb; font-size: 14px; line-height: 1.45; }
   header.top .debug-toggle {
     flex: 0 0 auto;
     background: rgba(255,255,255,0.04);
@@ -89,26 +89,40 @@
     width: 100%;
     max-width: none;
     margin: 0;
-    padding: 12px 16px 16px;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+    padding: 16px 20px 48px;
   }
   h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
-  .status { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; flex: 0 0 auto; }
+  .status {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    margin-bottom: 14px; padding: 10px 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(15, 28, 39, 0.03);
+  }
+  .status.hidden { display: none; }
   .pill {
-    border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
-    padding: 5px 11px; font-size: 13px; box-shadow: 0 1px 2px rgba(15, 28, 39, 0.03);
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--line); background: var(--panel-soft); border-radius: 999px;
+    padding: 6px 12px 6px 10px; font-size: 13px; font-weight: 500; color: var(--ink);
+  }
+  .pill::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: #9aa8b6; flex: 0 0 auto;
   }
   .pill.bad { background: var(--bad-bg); border-color: #f5c2c0; color: var(--bad); }
-  .pill.ok { border-color: #b7d8ce; background: var(--accent-soft); color: var(--accent); }
+  .pill.bad::before { background: var(--bad); }
+  .pill.ok { border-color: #b7d8ce; background: var(--accent-soft); color: #0d5c50; }
+  .pill.ok::before { background: var(--accent); }
   form {
-    display: grid; gap: 10px; background: var(--panel);
-    border: 1px solid var(--line); border-radius: var(--radius); padding: 16px;
+    display: grid; gap: 12px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 18px;
     box-shadow: var(--shadow);
   }
+  form > label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: -4px;
+  }
   textarea {
-    width: 100%; min-height: 96px; resize: vertical; padding: 12px 14px;
+    width: 100%; min-height: 104px; resize: vertical; padding: 12px 14px;
     border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft);
     font: inherit; color: inherit;
     transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
@@ -134,10 +148,10 @@
     background: var(--panel); color: var(--ink); border: 1px solid var(--line);
     border-radius: 9px; padding: 10px 12px; font: inherit; min-width: 11rem;
   }
-  .starters { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 22px; }
+  .starters { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
   .starters button {
     background: var(--panel); color: var(--ink); border: 1px solid var(--line);
-    font-size: 13px; font-weight: 500; padding: 7px 12px;
+    font-size: 13px; font-weight: 500; padding: 8px 13px; border-radius: 999px;
   }
   .starters button:hover:not(:disabled) { background: var(--panel-soft); border-color: #c2ccd8; }
   section { margin-top: 22px; }
@@ -159,10 +173,9 @@
   tr:hover td { background: #f8fafb; }
   .hidden { display: none; }
   .tabs {
-    display: flex; gap: 4px; margin: 0 0 12px; padding: 4px;
+    display: flex; gap: 4px; margin: 0 0 16px; padding: 4px;
     background: rgba(15, 28, 39, 0.05); border-radius: 12px; width: fit-content;
     border: 1px solid rgba(15, 28, 39, 0.04);
-    flex: 0 0 auto;
   }
   .tabs button {
     background: transparent; color: var(--muted); border: 0;
@@ -531,9 +544,9 @@
   @media (max-width: 720px) {
     .qb-filter-row { grid-template-columns: 1fr; }
   }
-  .transcript { display: grid; gap: 14px; margin-top: 8px; }
+  .transcript { display: grid; gap: 16px; margin: 0 0 18px; }
   .bubble {
-    border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px;
     background: var(--panel); box-shadow: var(--shadow);
   }
   .confirm-card { margin: 0; }
@@ -656,13 +669,9 @@
   details.chart[open] summary, details.table[open] summary { margin-bottom: 8px; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-  /* AI assistant: chat history + main transcript */
+  /* AI assistant: sticky chat history + page-flow transcript (no nested pane) */
   #tab-assistant.ai-active-layout {
     margin-top: 0;
-    flex: 1 1 auto;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
     width: 100%;
   }
   #tab-assistant.ai-active-layout.hidden {
@@ -670,25 +679,28 @@
   }
   .ai-layout {
     display: grid;
-    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
-    gap: 0;
-    flex: 1 1 auto;
-    min-height: 0;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 20px;
     width: 100%;
-    height: 100%;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    overflow: hidden;
-    background: var(--panel);
-    box-shadow: var(--shadow);
+    align-items: start;
   }
   .ai-layout.chats-collapsed {
     grid-template-columns: 48px minmax(0, 1fr);
+    gap: 14px;
   }
   .ai-chats {
-    display: flex; flex-direction: column; min-height: 0; min-width: 0; height: 100%;
+    position: sticky;
+    top: 16px;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    max-height: calc(100vh - 32px);
+    border-radius: var(--radius);
+    overflow: hidden;
     background: linear-gradient(180deg, #132030 0%, #182636 100%);
-    color: #d7e3ec; border-right: 1px solid #243447;
+    color: #d7e3ec;
+    border: 1px solid #243447;
+    box-shadow: var(--shadow);
   }
   .ai-chats-top {
     display: flex; align-items: center; gap: 8px;
@@ -706,7 +718,7 @@
   .ai-chat-item {
     width: 100%; text-align: left; border: 1px solid transparent;
     background: transparent; color: #d7e3ec; border-radius: 9px;
-    padding: 10px 10px; cursor: pointer; display: grid; gap: 4px;
+    padding: 10px; cursor: pointer; display: grid; gap: 4px;
   }
   .ai-chat-item:hover { background: rgba(255,255,255,0.06); }
   .ai-chat-item.active {
@@ -729,15 +741,12 @@
   .ai-layout.chats-collapsed .ai-chats-list,
   .ai-layout.chats-collapsed #ai-new-chat { display: none; }
   .ai-main {
-    min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column;
-    background: #f4f7fa; padding: 14px 16px;
+    min-width: 0;
+    max-width: 1100px;
+    padding: 0;
+    background: transparent;
   }
-  .ai-main .transcript {
-    flex: 1 1 auto; overflow: auto; margin: 0 0 12px; min-height: 0;
-    align-content: start;
-  }
-  .ai-main form { flex: 0 0 auto; margin: 0; }
-  .ai-main .starters { margin: 10px 0 0; }
+  .ai-main form { margin: 0; }
   .ai-rail-btn {
     width: 34px; height: 34px; padding: 0; border-radius: 9px;
     border: 1px solid rgba(215, 227, 236, 0.18); background: rgba(255,255,255,0.06);
@@ -746,17 +755,24 @@
   }
   .ai-rail-btn:hover { background: rgba(255,255,255,0.12); }
   .ai-rail-btn svg { width: 16px; height: 16px; display: block; }
-  #tab-assistant { position: relative; }
+  #busy {
+    color: var(--muted);
+    font-size: 13px;
+  }
   @media (max-width: 900px) {
     .ai-layout, .ai-layout.chats-collapsed {
       grid-template-columns: 1fr;
-      min-height: auto;
+      gap: 14px;
     }
-    .ai-chats { max-height: 220px; border-right: 0; border-bottom: 1px solid #243447; }
+    .ai-chats {
+      position: static;
+      max-height: 220px;
+    }
     .ai-layout.chats-collapsed .ai-chats-top strong,
     .ai-layout.chats-collapsed .ai-chats-list,
     .ai-layout.chats-collapsed #ai-new-chat { display: initial; }
     .ai-layout.chats-collapsed .ai-chats-list { display: grid; }
+    .ai-main { max-width: none; }
   }
 </style>
 </head>
@@ -764,7 +780,7 @@
 <header class="top">
   <div class="brand">
     <h1>IPDR analysis</h1>
-    <p>Use the AI assistant for natural-language questions, or the query builder for filtered table reads with a required time range.</p>
+    <p>Ask in natural language, or build filtered table reads with a required time range.</p>
   </div>
   <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
     <span id="whoami" style="color:#a9bccb; font-size:13px;"></span>
@@ -1311,37 +1327,32 @@ async function loadHealth() {
       return;
     }
     const data = await response.json();
+    const db = data.clickhouse || data.mysql || {};
     const llama = data.llama || {};
-    status.append(
-      pill(
-        (data.clickhouse || data.mysql).ok
-          ? "ClickHouse " + (data.clickhouse || data.mysql).host
-          : "ClickHouse down",
-        (data.clickhouse || data.mysql).ok ? "ok" : "bad"
-      ),
-      pill(
-        data.auth_mysql && data.auth_mysql.ok
-          ? "Auth MySQL " + data.auth_mysql.host
-          : "Auth MySQL down",
-        data.auth_mysql && data.auth_mysql.ok ? "ok" : "bad"
-      ),
-      pill(llama.ok ? (llama.label || "Local") + " · " + (llama.model || "") : "local model not ready", llama.ok ? "ok" : "bad"),
-      pill(data.examples + " examples"),
-      pill((data.learned || 0) + " learned"),
-      pill(data.missing_time === "all" ? "learned: no time range uses whole table" : "no time range: asks until marked"),
-      pill(data.labels + " app labels"),
-      pill(data.time.note)
-    );
-    if (!(data.clickhouse || data.mysql).ok) status.append(pill((data.clickhouse || data.mysql).detail, "bad"));
-    if (data.auth_mysql && !data.auth_mysql.ok) status.append(pill(data.auth_mysql.detail, "bad"));
-    if (llama.ok === false) status.append(pill(llama.detail, "bad"));
     const engines = Array.isArray(data.engines) ? data.engines : [];
     fillEngines(engines);
-    if (!engines.length) status.append(pill("Engine list is missing. Restart ipdr-assistant, then reload.", "bad"));
-    for (const engine of engines) {
-      if (engine.id !== "local" && !engine.ok) status.append(pill(engine.label + " is not reachable", "bad"));
+    const kaggle = engines.find((engine) => engine.id === "kaggle") || {};
+    status.append(
+      pill(
+        db.ok ? "DB · ClickHouse " + (db.host || "ok") : "DB · ClickHouse down",
+        db.ok ? "ok" : "bad"
+      ),
+      pill(
+        llama.ok
+          ? "Local · " + (llama.model || llama.label || "ready")
+          : "Local · not ready",
+        llama.ok ? "ok" : "bad"
+      ),
+      pill(
+        kaggle.ok
+          ? "Kaggle · " + (kaggle.label || "ready")
+          : "Kaggle · not ready",
+        kaggle.ok ? "ok" : "bad"
+      )
+    );
+    if (!engines.length) {
+      status.append(pill("Engine list missing — restart the assistant service", "bad"));
     }
-    if (data.mapping_error) status.append(pill(data.mapping_error, "bad"));
   } catch (error) {
     status.append(pill(String(error), "bad"));
   }
