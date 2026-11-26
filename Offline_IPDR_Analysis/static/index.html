@@ -95,7 +95,7 @@
     min-height: 0;
   }
   h2 { font-size: 12px; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
-  .status { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+  .status { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; flex: 0 0 auto; }
   .pill {
     border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
     padding: 5px 11px; font-size: 13px; box-shadow: 0 1px 2px rgba(15, 28, 39, 0.03);
@@ -164,7 +164,6 @@
     border: 1px solid rgba(15, 28, 39, 0.04);
     flex: 0 0 auto;
   }
-  .status { flex: 0 0 auto; }
   .tabs button {
     background: transparent; color: var(--muted); border: 0;
     padding: 9px 15px; border-radius: 9px; font: 600 13px/1.2 var(--font);
@@ -174,7 +173,13 @@
     background: var(--panel); color: var(--accent);
     box-shadow: 0 1px 3px rgba(15, 28, 39, 0.08);
   }
-  .tab-panel.hidden { display: none; }
+  .tab-panel { width: 100%; }
+  .tab-panel.hidden { display: none !important; }
+  #tab-query, #tab-admin {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
   .qb-grid { display: grid; gap: 14px; }
   .qb-card {
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -746,6 +751,17 @@
     border-left: 1px solid var(--line); background: #fff;
   }
   .ai-layout.inspect-hidden .ai-inspect { display: none; }
+  .ai-layout.inspect-expanded {
+    grid-template-columns: 1fr !important;
+  }
+  .ai-layout.inspect-expanded.inspect-hidden {
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) !important;
+  }
+  .ai-layout.inspect-expanded .ai-chats,
+  .ai-layout.inspect-expanded .ai-main { display: none; }
+  .ai-layout.inspect-expanded .ai-inspect {
+    display: flex; border-left: 0;
+  }
   .ai-inspect-top {
     display: flex; align-items: center; gap: 8px;
     padding: 12px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
@@ -770,14 +786,27 @@
     background: var(--panel-soft);
   }
   .ai-inspect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  .bubble.selectable { cursor: pointer; transition: box-shadow 0.12s ease, border-color 0.12s ease; }
-  .bubble.selectable:hover { border-color: #b7d8ce; }
   .bubble.selected {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px rgba(15, 106, 92, 0.18);
   }
-  .bubble .inspect-hint {
-    margin-top: 8px; font-size: 12px; color: var(--muted);
+  .bubble .inspect-links {
+    display: flex; flex-wrap: wrap; gap: 10px 14px;
+    margin-top: 10px;
+  }
+  .bubble .inspect-link {
+    appearance: none; border: 0; background: none; padding: 0;
+    color: var(--accent); font: 600 13px/1.2 var(--font);
+    cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+  }
+  .bubble .inspect-link:hover { color: #0d5c50; }
+  .bubble .inline-sql-preview {
+    margin-top: 12px;
+  }
+  .bubble .inline-sql-preview pre.sql {
+    margin: 0; padding: 12px; border-radius: 10px;
+    background: #0f1c27; color: #d7e3ec; overflow: auto;
+    font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
   }
   .ai-rail-btn {
     width: 34px; height: 34px; padding: 0; border-radius: 9px;
@@ -792,15 +821,6 @@
   }
   .ai-rail-btn.light:hover { background: var(--panel-soft); }
   #tab-assistant { position: relative; }
-  .ai-inspect-show {
-    display: none; align-items: center; gap: 6px;
-    position: absolute; right: 12px; top: 8px; z-index: 3;
-    border: 1px solid var(--line); background: #fff; color: var(--ink);
-    border-radius: 9px; padding: 8px 12px; font: 600 12px/1 var(--font); cursor: pointer;
-    box-shadow: var(--shadow);
-  }
-  .ai-inspect-show.visible { display: inline-flex; }
-  .ai-inspect-show svg { width: 14px; height: 14px; }
   @media (max-width: 1100px) {
     .ai-layout, .ai-layout.inspect-hidden, .ai-layout.chats-collapsed,
     .ai-layout.chats-collapsed.inspect-hidden {
@@ -874,24 +894,23 @@
       </div>
       <aside class="ai-inspect" id="ai-inspect" aria-label="SQL and chart">
         <div class="ai-inspect-top">
-          <strong>SQL &amp; chart</strong>
-          <button type="button" class="ai-rail-btn light" id="ai-inspect-hide" title="Hide panel" aria-label="Hide SQL and chart panel">
+          <strong id="ai-inspect-title">SQL &amp; chart</strong>
+          <button type="button" class="ai-rail-btn light" id="ai-inspect-expand" title="Expand to full screen" aria-label="Expand to full screen" aria-pressed="false">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M2.75 2.75h3.5a.75.75 0 0 1 0 1.5H4.56l2.72 2.72a.75.75 0 1 1-1.06 1.06L3.5 5.31v1.94a.75.75 0 0 1-1.5 0v-3.5c0-.41.34-.75.75-.75zm10.5 0c.41 0 .75.34.75.75v3.5a.75.75 0 0 1-1.5 0V5.31L9.78 8.03a.75.75 0 1 1-1.06-1.06l2.72-2.72h-1.94a.75.75 0 0 1 0-1.5h3.5zM8.72 7.97a.75.75 0 0 1 1.06 1.06L7.06 11.75h1.94a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75v-3.5a.75.75 0 0 1 1.5 0v1.94l2.72-2.72zm-5.5 0L5.94 10.7v-1.94a.75.75 0 0 1 1.5 0v3.5c0 .41-.34.75-.75.75h-3.5a.75.75 0 0 1 0-1.5h1.94L2.41 9.03a.75.75 0 0 1 1.06-1.06z"/>
+            </svg>
+          </button>
+          <button type="button" class="ai-rail-btn light" id="ai-inspect-hide" title="Hide panel" aria-label="Hide panel">
             <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
               <path fill="currentColor" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 1 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/>
             </svg>
           </button>
         </div>
         <div class="ai-inspect-body" id="ai-inspect-body">
-          <p class="ai-inspect-empty">Select a response to view its SQL and chart here.</p>
+          <p class="ai-inspect-empty">Use View SQL or View chart on a response to open it here.</p>
         </div>
       </aside>
     </div>
-    <button type="button" class="ai-inspect-show" id="ai-inspect-show" title="Show SQL and chart">
-      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-        <path fill="currentColor" d="M9.78 3.22a.75.75 0 0 1 0 1.06L6.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0z"/>
-      </svg>
-      SQL &amp; chart
-    </button>
   </section>
 
   <section class="tab-panel hidden" id="tab-query" role="tabpanel" hidden>
@@ -1236,16 +1255,20 @@ function clearInspect() {
     bubble.classList.remove("selected");
   }
   const body = document.getElementById("ai-inspect-body");
+  const title = document.getElementById("ai-inspect-title");
+  if (title) title.textContent = "SQL & chart";
   if (!body) return;
   body.replaceChildren();
   const empty = document.createElement("p");
   empty.className = "ai-inspect-empty";
-  empty.textContent = "Select a response to view its SQL and chart here.";
+  empty.textContent = "Use View SQL or View chart on a response to open it here.";
   body.append(empty);
+  setInspectExpanded(false);
 }
 
-function showInspect(payload, bubble) {
+function showInspect(payload, bubble, mode = "sql") {
   const body = document.getElementById("ai-inspect-body");
+  const title = document.getElementById("ai-inspect-title");
   if (!body || !payload) return;
   selectedInspectId = payload.id || null;
   for (const item of transcript.querySelectorAll(".bubble.selected")) {
@@ -1255,6 +1278,11 @@ function showInspect(payload, bubble) {
   body.replaceChildren();
   const asked = payload.asked || "";
   const data = payload.data || {};
+  const wantSql = mode === "sql" || mode === "both";
+  const wantChart = mode === "chart" || mode === "both";
+  if (title) {
+    title.textContent = mode === "chart" ? "Chart" : mode === "sql" ? "SQL" : "SQL & chart";
+  }
   if (asked) {
     const heading = document.createElement("div");
     heading.style.cssText = "font:600 13px/1.35 var(--font);color:var(--ink)";
@@ -1262,7 +1290,8 @@ function showInspect(payload, bubble) {
     body.append(heading);
   }
   const sqlText = data.sql || data.pending_sql || "";
-  if (sqlText) {
+  let shown = false;
+  if (wantSql && sqlText) {
     const label = document.createElement("div");
     label.style.cssText = "font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)";
     label.textContent = data.pending_sql && !data.sql ? "SQL preview" : "SQL";
@@ -1293,8 +1322,9 @@ function showInspect(payload, bubble) {
       actions.append(learn);
     }
     body.append(actions);
+    shown = true;
   }
-  if (data.columns && data.columns.length && data.rows && data.rows.length) {
+  if (wantChart && data.columns && data.columns.length && data.rows && data.rows.length) {
     const label = document.createElement("div");
     label.style.cssText = "font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted)";
     label.textContent = "Chart";
@@ -1306,15 +1336,17 @@ function showInspect(payload, bubble) {
         ? "line"
         : "bar";
     const card = chartCard(data.columns, data.rows, data.chartQuestion || asked, data.sql, kind);
-    // Unwrap details chrome for the side panel.
     card.open = true;
     panel.append(card);
     body.append(label, panel);
+    shown = true;
   }
-  if (!sqlText && !(data.columns && data.rows && data.rows.length)) {
+  if (!shown) {
     const empty = document.createElement("p");
     empty.className = "ai-inspect-empty";
-    empty.textContent = "This response has no SQL or chart to show.";
+    empty.textContent = mode === "chart"
+      ? "This response has no chart to show."
+      : "This response has no SQL to show.";
     body.append(empty);
   }
   setInspectHidden(false);
@@ -1322,11 +1354,23 @@ function showInspect(payload, bubble) {
 
 function setInspectHidden(hidden) {
   const layout = document.getElementById("ai-layout");
-  const showBtn = document.getElementById("ai-inspect-show");
   if (!layout) return;
   layout.classList.toggle("inspect-hidden", !!hidden);
-  if (showBtn) showBtn.classList.toggle("visible", !!hidden);
+  if (hidden) setInspectExpanded(false);
   saveAiUiPrefs({ inspectHidden: !!hidden });
+}
+
+function setInspectExpanded(expanded) {
+  const layout = document.getElementById("ai-layout");
+  const btn = document.getElementById("ai-inspect-expand");
+  if (!layout) return;
+  if (layout.classList.contains("inspect-hidden")) expanded = false;
+  layout.classList.toggle("inspect-expanded", !!expanded);
+  if (btn) {
+    btn.setAttribute("aria-pressed", expanded ? "true" : "false");
+    btn.title = expanded ? "Exit full screen" : "Expand to full screen";
+    btn.setAttribute("aria-label", btn.title);
+  }
 }
 
 function setChatsCollapsed(collapsed) {
@@ -2126,8 +2170,9 @@ function addAnswerBubble(asked, data, options = {}) {
   const persist = options.persist !== false;
   const inspectId = options.inspectId || `ans-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const bubble = document.createElement("div");
-  bubble.className = "bubble selectable";
+  bubble.className = "bubble";
   bubble.dataset.inspectId = inspectId;
+  if (data.confirm) bubble.classList.add("confirm-bubble");
   const who = document.createElement("div");
   who.className = "who";
   who.textContent = "Assistant";
@@ -2152,6 +2197,16 @@ function addAnswerBubble(asked, data, options = {}) {
     bubble.append(text);
   }
   if (data.confirm && data.pending_sql) {
+    const preview = document.createElement("details");
+    preview.className = "sql inline-sql-preview";
+    preview.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = "SQL preview";
+    const sql = document.createElement("pre");
+    sql.className = "sql";
+    sql.textContent = data.pending_sql;
+    preview.append(summary, sql);
+    bubble.append(preview);
     const row = document.createElement("div");
     row.className = "row";
     row.style.marginTop = "10px";
@@ -2160,7 +2215,7 @@ function addAnswerBubble(asked, data, options = {}) {
     accept.textContent = "Accept";
     accept.addEventListener("click", (event) => {
       event.stopPropagation();
-      acceptPendingQuery(accept, row);
+      acceptPendingQuery(accept, row, bubble);
     });
     const change = document.createElement("button");
     change.type = "button";
@@ -2181,7 +2236,7 @@ function addAnswerBubble(asked, data, options = {}) {
     if (!data.chartQuestion) lastAnswer = { question: asked, data };
     const details = document.createElement("details");
     details.className = "table";
-    details.open = true;
+    details.open = false;
     const summary = document.createElement("summary");
     summary.textContent = "Table (" + data.rows.length + " row" + (data.rows.length === 1 ? "" : "s") + ")";
     const wrap = document.createElement("div");
@@ -2215,25 +2270,37 @@ function addAnswerBubble(asked, data, options = {}) {
     details.append(summary, wrap);
     bubble.append(details);
   }
-  const hasInspect = !!(data.sql || data.pending_sql || (data.columns && data.rows && data.rows.length));
-  if (hasInspect) {
-    const hint = document.createElement("div");
-    hint.className = "inspect-hint";
-    hint.textContent = "Click to view SQL & chart on the right →";
-    bubble.append(hint);
-  }
   const payload = { id: inspectId, asked, data };
-  bubble.addEventListener("click", (event) => {
-    if (event.target.closest("button, a, summary, input, select, textarea")) return;
-    showInspect(payload, bubble);
-  });
+  const links = document.createElement("div");
+  links.className = "inspect-links";
+  const sqlText = data.sql || data.pending_sql || "";
+  if (sqlText) {
+    const sqlLink = document.createElement("button");
+    sqlLink.type = "button";
+    sqlLink.className = "inspect-link";
+    sqlLink.textContent = "View SQL";
+    sqlLink.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showInspect(payload, bubble, "sql");
+    });
+    links.append(sqlLink);
+  }
+  if (data.columns && data.columns.length && data.rows && data.rows.length) {
+    const chartLink = document.createElement("button");
+    chartLink.type = "button";
+    chartLink.className = "inspect-link";
+    chartLink.textContent = "View chart";
+    chartLink.addEventListener("click", (event) => {
+      event.stopPropagation();
+      showInspect(payload, bubble, "chart");
+    });
+    links.append(chartLink);
+  }
+  if (links.childNodes.length) bubble.append(links);
   transcript.append(bubble);
   bubble.scrollIntoView({ block: "nearest" });
   if (persist) {
     appendChatTurn({ role: "assistant", id: inspectId, asked, data });
-  }
-  if (hasInspect && options.autoInspect !== false) {
-    showInspect(payload, bubble);
   }
 }
 
@@ -2416,13 +2483,15 @@ async function runAsk(text, options = {}) {
   }
 }
 
-async function acceptPendingQuery(acceptButton, row) {
+async function acceptPendingQuery(acceptButton, row, bubble) {
   if (askButton.disabled) return;
   for (const button of row.querySelectorAll("button")) button.disabled = true;
+  const host = bubble || acceptButton.closest(".bubble");
+  host?.querySelectorAll(".inline-sql-preview").forEach((el) => el.remove());
   const confirmTurn = [...history].reverse().find((turn) => turn.pending_sql);
   const origin = (confirmTurn && confirmTurn.question) || "Accept";
   addUserBubble("Accept");
-  await runAsk("Accept", {accept: true, rememberAs: origin});
+  await runAsk("Accept", { accept: true, rememberAs: origin });
 }
 
 form.addEventListener("submit", async (event) => {
@@ -2452,7 +2521,19 @@ document.getElementById("ai-chats-toggle")?.addEventListener("click", () => {
   setChatsCollapsed(!layout.classList.contains("chats-collapsed"));
 });
 document.getElementById("ai-inspect-hide")?.addEventListener("click", () => setInspectHidden(true));
-document.getElementById("ai-inspect-show")?.addEventListener("click", () => setInspectHidden(false));
+document.getElementById("ai-inspect-expand")?.addEventListener("click", () => {
+  const layout = document.getElementById("ai-layout");
+  setInspectExpanded(!layout?.classList.contains("inspect-expanded"));
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const layout = document.getElementById("ai-layout");
+  if (layout?.classList.contains("inspect-expanded")) {
+    setInspectExpanded(false);
+    return;
+  }
+  if (layout && !layout.classList.contains("inspect-hidden")) setInspectHidden(true);
+});
 document.getElementById("debug-toggle").addEventListener("click", () => {
   debugMode = !debugMode;
   localStorage.setItem("ipdr-debug", debugMode ? "1" : "0");
@@ -2463,7 +2544,7 @@ syncDebugToggle();
 (function initAiChats() {
   loadChats();
   const prefs = loadAiUiPrefs();
-  setInspectHidden(!!prefs.inspectHidden);
+  setInspectHidden(true);
   setChatsCollapsed(!!prefs.chatsCollapsed);
   switchChat(activeChatId);
 })();
