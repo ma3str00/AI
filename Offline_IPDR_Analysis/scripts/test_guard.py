@@ -35,6 +35,18 @@ def _check_dialect() -> None:
     if "GROUP_CONCAT" in concat.upper():
         raise SystemExit(f"GROUP_CONCAT left after rewrite:\n{concat}")
 
+    # Aggregate AS loc must not be resolved inside WHERE (ClickHouse ILLEGAL_AGGREGATION).
+    shadowed = to_clickhouse(
+        "SELECT subscriber_id, GROUP_CONCAT(DISTINCT CASE WHEN IFNULL(loc, '') <> '' THEN loc END "
+        "ORDER BY loc SEPARATOR ', ') AS loc, COUNT(*) AS flows FROM ntc_ssl_log "
+        "WHERE LOWER(loc) LIKE '%lahore%' GROUP BY subscriber_id LIMIT 10"
+    )
+    if "LOWER(ntc_ssl_log.loc)" not in shadowed:
+        raise SystemExit(f"WHERE loc was not table-qualified:\n{shadowed}")
+    where_body = shadowed.upper().split("WHERE", 1)[1].split("GROUP BY", 1)[0]
+    if "GROUPUNIQARRAY" in where_body:
+        raise SystemExit(f"aggregate leaked into WHERE:\n{shadowed}")
+
     unix = to_clickhouse(
         "SELECT COUNT(*) FROM ntc_ssl_log WHERE start_time >= UNIX_TIMESTAMP(CURDATE())"
     )
