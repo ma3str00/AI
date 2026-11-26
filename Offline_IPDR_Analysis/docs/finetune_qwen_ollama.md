@@ -62,17 +62,20 @@ Or create a GPU notebook and paste these cells in order.
 import os
 os.environ["WANDB_DISABLED"] = "true"
 # Do not pin old xformers — it fails to build on current Kaggle.
-# Turn Internet ON. Prefer a fresh kernel; do not import torch before this cell.
+# Do NOT `pip install -U datasets trl` after unsloth — that pulls datasets 5.x / trl 1.19
+# which Unsloth rejects. Internet ON. Fresh kernel. Do not import torch first.
 !pip install -U pip
 !pip install -U unsloth
-!pip install -U datasets trl peft accelerate bitsandbytes
+!pip install --force-reinstall "datasets>=3.4.1,<5.0.0" "trl>=0.18.2,<=1.15.0,!=0.19.0"
 ```
 
-If that fails, fall back to Unsloth’s Kaggle extra (still without the old xformers pin):
+If that fails, fall back to Unsloth’s Kaggle extra (still without upgrading datasets/trl past those pins):
 
 ```python
 !pip install -U "unsloth[kaggle-new] @ git+https://github.com/unslothai/unsloth.git"
+!pip install --force-reinstall "datasets>=3.4.1,<5.0.0" "trl>=0.18.2,<=1.15.0,!=0.19.0"
 ```
+
 
 ### Cell B — load 14B in 4-bit + LoRA
 
